@@ -71,18 +71,6 @@ class ExperimentsRunner:
     ):
         self._backend = backend
 
-        # Create our own transpilation & scheduling target
-        target_keys = ['description', 'num_qubits', 'dt', 'granularity', 'min_length',
-                       'pulse_alignment', 'acquire_alignment', 'qubit_properties']
-        self._target = Target(**{key: getattr(backend.target, key) for key in target_keys})
-        for name in backend.target.operation_names:
-            instruction = backend.target.operation_from_name(name)
-            if isinstance(instruction, type):
-                self._target.add_instruction(instruction, name=name)
-            else:
-                self._target.add_instruction(instruction, properties=backend.target[name],
-                                             name=name)
-
         self._calibrations = calibrations
         if calibrations is not None:
             update_add_schedule(self._calibrations)
@@ -95,12 +83,9 @@ class ExperimentsRunner:
 
         if runtime_session is not None:
             self._runtime_session = runtime_session
-            self._set_session_start_time()
-        elif self._backend.service is not None:
-            self._runtime_session = Session(service=self._backend.service, backend=self._backend)
-            self._session_start_time = None
-
-        self.scheduling_triggers = []
+        else:
+            self._runtime_session = Session(service=self._backend.service,
+                                            backend=self._backend.name)
 
         self.data_taking_only = False
         self.code_test = False
@@ -113,25 +98,19 @@ class ExperimentsRunner:
 
     @property
     def runtime_session(self):
-        if ((session := self._runtime_session) is not None
-            and (max_time := session._max_time) is not None
-            and (st := self._session_start_time) is not None
-            and datetime.utcnow() - st > timedelta(seconds=max_time)):
+        if (session := self._runtime_session) is not None and session.status() == 'Closed':
             session.close()
-            self._runtime_session = Session(service=self._backend.service,
-                                            backend=self._backend,
-                                            max_time=max_time)
-            self._session_start_time = None
-
+            self._runtime_session = Session(service=session.service,
+                                            backend=session.backend())
         return self._runtime_session
+
+    @runtime_session.setter
+    def runtime_session(self, session: Session):
+        self._runtime_session = session
 
     @property
     def calibrations(self):
         return self._calibrations
-
-    @property
-    def target(self):
-        return self._target
 
     @property
     def data_dir(self):
@@ -211,10 +190,14 @@ class ExperimentsRunner:
                     if os.path.exists(job_ids_path):
                         with open(job_ids_path, encoding='utf-8') as source:
                             num_jobs = len(source.readline().strip().split())
-                            instance = source.readline().strip()
                             job_unique_tag = source.readline().strip()
 
-                        jobs = self._retrieve_jobs(job_unique_tag, num_jobs, instance)
+                        # provider.jobs() is a lot faster than calling retrieve_job multiple times
+                        logger.info('Reconstructing experiment data using the unique id %s',
+                                    job_unique_tag)
+                        jobs = self._runtime_session.service.jobs(limit=num_jobs,
+                                                                  backend_name=self._backend.name,
+                                                                  job_tags=[job_unique_tag])
 
                 if not jobs:
                     jobs = self._submit_jobs(experiment)
@@ -223,6 +206,7 @@ class ExperimentsRunner:
 
             for name, func in config.postprocessors:
                 exp_data.add_postprocessor(name, func)
+
             exp_data.add_postprocessor('save_raw_data', self.save_data)
 
         if postprocess:
@@ -233,9 +217,6 @@ class ExperimentsRunner:
         # Status check was originally a postprocessor, but I later realized that BaseExperiment
         # cancels all analysis callbacks (which postprocessors are) when job errors are detected
         self._check_status(exp_data)
-
-        if self._runtime_session is not None and self._session_start_time is None:
-            self._set_session_start_time()
 
         if not analyze or experiment.analysis is None:
             if isinstance(experiment, SetChildDataStructure):
@@ -284,21 +265,22 @@ class ExperimentsRunner:
         if experiment_data.analysis_status() != AnalysisStatus.DONE:
             raise AnalysisError(f'Analysis status = {experiment_data.analysis_status().value}')
 
-        self.save_data(experiment_data)
-
     def get_transpiled_circuits(self, experiment: 'BaseExperiment'):
         """Return a list of transpiled circuits accounting for qutrit-specific instructions."""
         if self.calibrations is None:
             # Nothing to do
             return experiment._transpiled_circuits()
 
-        instruction_durations = InstructionDurations(backend.instruction_durations, dt=backend.dt)
+        instruction_durations = InstructionDurations(self._backend.instruction_durations,
+                                                     dt=self._backend.dt)
         for inst_name in ['x12', 'sx12']:
             durations = [(inst_name, qubit,
                           self.calibrations.get_schedule(inst_name, qubit).duration)
                          for qubit in experiment.physical_qubits]
             instruction_durations.update(durations)
         instruction_durations.update([('rz12', qubit, 0) for qubit in experiment.physical_qubits])
+
+        qutrit_gates = ['x12', 'sx12', 'rz12']
 
         if not isinstance(experiment, BaseCalibrationExperiment):
             experiment.set_transpile_options(
@@ -307,7 +289,7 @@ class ExperimentsRunner:
                 # manager. When the target is None, HighLevelSynthesis (responsible for translating
                 # all gates to basis gates) will reference the passed basis_gates list and leaves
                 # all gates appearing in the list untouched.
-                basis_gates=backend.basis_gates + ['x12', 'sx12', 'rz12'],
+                basis_gates=backend.basis_gates + qutrit_gates,
                 # Scheduling method has to be specified in case there are delay instructions that
                 # violate the alignment constraints, in which case a ConstrainedRescheduling is
                 # triggered, which fails without precalculated node_start_times.
@@ -318,14 +300,27 @@ class ExperimentsRunner:
 
         circuits = experiment._transpiled_circuits()
 
+        circuits_with_qutrit_gates = []
+        indices = []
+        for ic, circuit in enumerate(circuits):
+            if any(inst.operation.name in qutrit_gates for inst in circuit.data):
+                circuits_with_qutrit_gates.append(circuit)
+                indices.append(ic)
+
+        if not circuits_with_qutrit_gates:
+            return circuits
+
         # Recompute the gate durations, calculate the phase shifts for all qutrit gates, and insert
         # AC Stark shift corrections to qubit gates
         pm = PassManager()
         pm.append(ALAPScheduleAnalysis(instruction_durations))
-        add_cal = AddQutritCalibrations(self.backend.target)
+        add_cal = AddQutritCalibrations(self._backend.target)
         add_cal.calibrations = self.calibrations # See the comment in the class for why we do this
         pm.append(add_cal)
-        circuits = pm.run(circuits)
+        circuits_with_qutrit_gates = pm.run(circuits_with_qutrit_gates)
+
+        for ic, circuit in zip(indices, circuits_with_qutrit_gates):
+            circuits[ic] = circuit
 
         return circuits
 
@@ -336,9 +331,16 @@ class ExperimentsRunner:
         if not self._data_dir:
             return
 
+        # _experiment and backend attributes may contain unpicklable objects
+        experiment = experiment_data.experiment
+        backend = experiment_data.backend
+        experiment_data._experiment = None
+        experiment_data.backend = None
         pickle_name = os.path.join(self._data_dir, f'{experiment_data.experiment_type}.pkl')
         with open(pickle_name, 'wb') as out:
-            pickle.dump(experiment_data, out)
+            pickle.dump(deep_copy_no_results(experiment_data), out)
+        experiment_data._experiment = experiment
+        experiment_data.backend = backend
 
     def update_calibrations(
         self,
@@ -376,17 +378,6 @@ class ExperimentsRunner:
 
         self.save_calibrations(experiment.experiment_type, update_list)
 
-        target_update_list = []
-        for _, sname, qubits in update_list:
-            try:
-                self._target[sname][qubits]
-            except KeyError:
-                continue
-
-            target_update_list.append((sname, qubits))
-
-        self.update_target(target_update_list)
-
     def save_calibrations(
         self,
         exp_type: str,
@@ -401,26 +392,6 @@ class ExperimentsRunner:
 
         if update_list and self._data_dir and not self._read_only:
             self._calibrations.save(folder=self._data_dir, overwrite=True)
-
-    def update_target(
-        self,
-        update_list: Optional[list[tuple[str, tuple[int, ...]]]] = None
-    ):
-        if update_list is None:
-            update_list = []
-            for item in self._calibrations.schedules():
-                sname = item['schedule'].name
-                qubits = item['qubits']
-                if self._target.has_calibration(sname, qubits):
-                    update_list.append((sname, qubits))
-
-        for sname, qubits in update_list:
-            current = self._target[sname][qubits]
-            # Not handling the case of parametric schedules for now
-            schedule = self.calibrations.get_schedule(sname, qubits)
-            properties = InstructionProperties(duration=current.duration, error=current.error,
-                                               calibration=schedule)
-            self._target.update_instruction_properties(sname, qubits, properties)
 
     def saved_data_exists(self, exp_type: str) -> bool:
         if not self._data_dir:
@@ -459,22 +430,6 @@ class ExperimentsRunner:
 
         return experiment_data
 
-    def _retrieve_jobs(
-        self,
-        job_unique_tag,
-        num_jobs,
-        instance
-    ):
-        # provider.jobs() is a lot faster than calling retrieve_job multiple times
-        logger.info('Reconstructing experiment data using the unique id %s',
-                    job_unique_tag)
-
-        if (provider := self._backend.provider) is None:
-            provider = self._backend.service
-
-        return provider.jobs(limit=num_jobs, backend_name=self._backend.name,
-                             job_tags=[job_unique_tag], instance=instance)
-
     def _submit_jobs(
         self,
         experiment: 'BaseExperiment',
@@ -487,12 +442,9 @@ class ExperimentsRunner:
         # Run options
         run_opts = {**experiment.run_options.__dict__}
 
-        job_tags = None
-        if type(self._backend).__name__ == 'IBMBackend':
-            instance = self._backend._instance
-            job_unique_tag = uuid.uuid4().hex
-            # Add a tag to the job to make later identification easier
-            job_tags = [experiment.experiment_type, job_unique_tag]
+        job_unique_tag = uuid.uuid4().hex
+        # Add a tag to the job to make later identification easier
+        job_tags = [experiment.experiment_type, job_unique_tag]
 
         # Run jobs (reimplementing BaseExperiment._run_jobs because we need to a handle
         # on job splitting)
@@ -503,15 +455,9 @@ class ExperimentsRunner:
         # Check all jobs got an id. If not, try resubmitting
         for ilist, circs in enumerate(circuit_lists):
             for _ in range(5):
-                if (session := self.runtime_session) is not None:
-                    options = {'instance': self._backend._instance}
-                    if job_tags:
-                        options['job_tags'] = job_tags
-
-                    inputs = {'circuits': circs, 'skip_transpilation': True, **run_opts}
-                    job = session.run('circuit-runner', inputs, options=options)
-                else:
-                    job = self._backend.run(circs, job_tags=job_tags, **run_opts)
+                options = {'instance': self._backend._instance, 'job_tags': job_tags}
+                inputs = {'circuits': circs, 'skip_transpilation': True, **run_opts}
+                job = self.runtime_session.run('circuit-runner', inputs, options=options)
 
                 if job.job_id():
                     jobs.append(job)
@@ -527,7 +473,7 @@ class ExperimentsRunner:
             job_ids_path = os.path.join(self._data_dir, f'{experiment.experiment_type}_jobs.dat')
             with open(job_ids_path, 'w', encoding='utf-8') as out:
                 out.write(' '.join(job.job_id() for job in jobs) + '\n')
-                out.write(f'{instance}\n{job_unique_tag}\n')
+                out.write(job_unique_tag + '\n')
 
         return jobs
 
@@ -562,25 +508,6 @@ class ExperimentsRunner:
                     job.time_per_step = lambda: {'COMPLETED': now}
                 else:
                     job.time_per_step = lambda: {}
-
-    def _set_session_start_time(self):
-        first_job_id = self._runtime_session.session_id
-        if first_job_id is None:
-            return
-
-        api_client = self._runtime_session.service._api_client
-        job_metadata = api_client.job_metadata(first_job_id)
-        if isinstance(job_metadata, dict):
-            # qiskit-ibm-provider >= 0.6?
-            timestamps = job_metadata['timestamps']
-        else:
-            timestamps = json.loads(job_metadata)['timestamps']
-
-        try:
-            self._session_start_time = datetime.strptime(timestamps['running'],
-                                                         '%Y-%m-%dT%H:%M:%S.%fZ')
-        except (KeyError, TypeError):
-            self._session_start_time = None
 
     def _run_code_test(self, experiment, experiment_data):
         """Test circuit generation and then fill the container with dummy data."""

@@ -34,21 +34,25 @@ experiment_products = {}
 def register_exp(
     function: Optional[Callable[['ExperimentsRunner'], ExperimentConfig]] = None,
     *,
+    exp_type: Optional[str] = None,
     product: Optional[str] = None
 ):
+    if exp_type is None:
+        exp_type = function.__name__
+
     if product is not None:
         def register_exp_and_product(function):
-            experiment_products[function.__name__] = product
+            experiment_products[exp_type] = product
             return register_exp(function)
 
         return register_exp_and_product
 
     def registered_exp(runner):
         config = function(runner)
-        config.exp_type = function.__name__
+        config.exp_type = exp_type
         return config
 
-    experiments[function.__name__] = registered_exp
+    experiments[exp_type] = registered_exp
     return registered_exp
 
 

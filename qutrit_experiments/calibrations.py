@@ -46,12 +46,8 @@ def set_f12_default(
             # IBMQubitProperties
             freq_12_est += qubit_props.anharmonicity
         except AttributeError:
-            try:
-                # SingleTransmonQutritBackend
-                freq_12_est += backend.anharmonicity
-            except AttributeError:
-                # RuntimeBackend
-                freq_12_est += backend.properties().qubit_property(qubit, 'anharmonicity')[0]
+            # SingleTransmonQutritBackend
+            freq_12_est += backend.anharmonicity
 
         # Explicitly construct ParameterValue so the time stamp will be 1970-01-01
         calibrations.add_parameter_value(ParameterValue(freq_12_est), 'f12', qubits=[qubit])
