@@ -19,7 +19,8 @@ from qiskit.qobj.utils import MeasLevel
 from qiskit.result import Counts
 from qiskit.scheduler.config import ScheduleConfig
 from qiskit.scheduler.lowering import lower_gates
-from qiskit.transpiler import Target, InstructionProperties
+from qiskit.transpiler import InstructionDurations, InstructionProperties, PassManager, Target
+from qiskit.transpiler.passes.scheduling import ALAPScheduleAnalysis
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, ParameterValue
 from qiskit_experiments.framework import AnalysisStatus, CompositeAnalysis as CompositeAnalysisOrig
 from qiskit_experiments.framework.composite.composite_experiment import CompositeExperiment
@@ -31,6 +32,7 @@ from ..experiment_config import ExperimentConfig, experiments
 from ..framework.postprocessed_experiment_data import PostprocessedExperimentData
 from ..framework.set_child_data_structure import SetChildDataStructure
 from ..framework_overrides.composite_analysis import CompositeAnalysis
+from ..transpilation.add_calibrations import AddQutritCalibrations
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule
 
@@ -285,89 +287,45 @@ class ExperimentsRunner:
         self.save_data(experiment_data)
 
     def get_transpiled_circuits(self, experiment: 'BaseExperiment'):
-        """Return a list of transpiled circuits, potentially converted to schedule circuits."""
+        """Return a list of transpiled circuits accounting for qutrit-specific instructions."""
+        if self.calibrations is None:
+            # Nothing to do
+            return experiment._transpiled_circuits()
+
+        instruction_durations = InstructionDurations(backend.instruction_durations, dt=backend.dt)
+        for inst_name in ['x12', 'sx12']:
+            durations = [(inst_name, qubit,
+                          self.calibrations.get_schedule(inst_name, qubit).duration)
+                         for qubit in experiment.physical_qubits]
+            instruction_durations.update(durations)
+        instruction_durations.update([('rz12', qubit, 0) for qubit in experiment.physical_qubits])
+
         if not isinstance(experiment, BaseCalibrationExperiment):
-            experiment.set_transpile_options(target=self._target)
+            experiment.set_transpile_options(
+                # By setting the basis_gates, PassManagerConfig.from_backend() will not take the
+                # target from the backend, making target absent everywhere in the preset pass
+                # manager. When the target is None, HighLevelSynthesis (responsible for translating
+                # all gates to basis gates) will reference the passed basis_gates list and leaves
+                # all gates appearing in the list untouched.
+                basis_gates=backend.basis_gates + ['x12', 'sx12', 'rz12'],
+                # Scheduling method has to be specified in case there are delay instructions that
+                # violate the alignment constraints, in which case a ConstrainedRescheduling is
+                # triggered, which fails without precalculated node_start_times.
+                scheduling_method='alap',
+                # And to run the scheduler, durations of all gates must be known.
+                instruction_durations=instruction_durations
+            )
 
         circuits = experiment._transpiled_circuits()
 
-        indices_to_schedule = []
-        for icirc, circuit in enumerate(circuits):
-            if any(inst.operation.name in self.scheduling_triggers for inst in circuit.data):
-                indices_to_schedule.append(icirc)
-
-        if not indices_to_schedule:
-            return circuits
-
-        sched_config = ScheduleConfig(self._target.instruction_schedule_map(),
-                                      self.backend.meas_map, self._target.dt)
-        sched_gate = Gate('full_schedule', len(experiment.physical_qubits), [])
-
-        for icirc in indices_to_schedule:
-            circuit = circuits[icirc]
-
-            measure_insts = []
-            idx = 0
-            while idx < len(circuit.data):
-                inst = circuit.data[idx]
-                if inst.operation.name == 'measure':
-                    measure_insts.append(circuit.data.pop(idx))
-                else:
-                    idx += 1
-
-            # qiskit.schedule (case 'asap', default is 'alap' but they should be equivalent for
-            # simple circuits):
-            #   lower_gates(circuit, config)
-            #   -> schedule.insert(max_qubit_time, inst) for inst in pulse_defs
-            # block_to_schedule:
-            #   schedule.append(block) for all blocks (for simple blocks, not with context)
-            #.  schedule.append finds the max_stop_time of the channel and inserts at that point
-            # Thus schedule() is equivalent to lower_gates + block build call() + barrier qubits +
-            # block_to_schedule
-            # We actually don't want a Schedule, so we stop at the second step
-            circuit_pulse_defs = lower_gates(circuit, sched_config)
-
-            circuit_qubits = set()
-            circuit_channels = set()
-            for cpd in circuit_pulse_defs:
-                circuit_qubits.update(cpd.qubits)
-                if not isinstance(cpd.schedule, Barrier):
-                    circuit_channels.update(cpd.schedule.channels)
-
-            qubit_channels = {qubit: (set(self.backend.configuration().get_qubit_channels(qubit))
-                                      & circuit_channels)
-                              for qubit in circuit_qubits}
-
-            with pulse.build(backend=self.backend, name='full_schedule') as sched:
-                for cpd in circuit_pulse_defs:
-                    channels = sum((list(qubit_channels[qubit]) for qubit in cpd.qubits), [])
-
-                    if isinstance(cpd.schedule, Barrier):
-                        pulse.barrier(*channels)
-                    else:
-                        pulse.call(cpd.schedule)
-                        if cpd.schedule.duration > 0:
-                            for channel in set(channels) - set(cpd.schedule.channels):
-                                sched += pulse.instructions.TimeBlockade(cpd.schedule.duration,
-                                                                         channel)
-
-            sched_circuit = circuit.copy_empty_like()
-            sched_circuit.append(sched_gate, experiment.physical_qubits)
-            for inst in measure_insts:
-                sched_circuit.data.append(inst)
-
-            # Clear the calibrations except for measure
-            # Cannot use sched_circuit.calibrations.pop because calibrations is a @property that
-            # returns a new dict
-            calibrations = {}
-            try:
-                calibrations['measure'] = circuit.calibrations['measure']
-            except KeyError:
-                pass
-            sched_circuit.calibrations = calibrations
-            sched_circuit.add_calibration(sched_gate, experiment.physical_qubits, sched)
-
-            circuits[icirc] = sched_circuit
+        # Recompute the gate durations, calculate the phase shifts for all qutrit gates, and insert
+        # AC Stark shift corrections to qubit gates
+        pm = PassManager()
+        pm.append(ALAPScheduleAnalysis(instruction_durations))
+        add_cal = AddQutritCalibrations(self.backend.target)
+        add_cal.calibrations = self.calibrations # See the comment in the class for why we do this
+        pm.append(add_cal)
+        circuits = pm.run(circuits)
 
         return circuits
 
