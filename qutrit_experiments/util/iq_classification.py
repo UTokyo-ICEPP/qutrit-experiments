@@ -17,7 +17,7 @@ class LinearIQClassifierBase:
         dists = np.array([dist for _, dist in self.discriminators])
 
         # C: number of circuits, S: number of shots, Q: number of qubits
-        memory = [datum.pop('memory') for datum in experiment_data.data()]
+        memory = np.array([datum.pop('memory') for datum in experiment_data.data()])
         disc_res = np.asarray(np.einsum('csqi,qi->csq', memory, vnorms) - dists > 0.)
         packed = np.packbits(disc_res, axis=-1, bitorder='little') # [C, S, ceil(Q/8)]
         # packbits returns an array of uint8 -> do bitshift and sum to make full result bitstrings
@@ -58,6 +58,10 @@ class LinearIQClassifierBase:
 
 class SingleQutritLinearIQClassifier(LinearIQClassifierBase):
     """LinearIQClassifier for single-qutrit experiments."""
+    # __name__ attribute needed for this object to be registered as an analysis callback (i.e.
+    # postprocessor) to ExperimentData
+    __name__ = 'iq_classification'
+
     def __init__(self, theta: float, dist: float):
         super().__init__([(theta, dist)])
 
