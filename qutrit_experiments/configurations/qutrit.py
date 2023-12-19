@@ -1,205 +1,214 @@
 """Config generator prototypes for qutrit gate calibrations."""
 import numpy as np
+from qiskit.qobj.utils import MeasLevel, MeasReturnType
+from qiskit_experiments.calibration_management.update_library import BaseUpdater
 
-from ..experiment_config import ExperimentConfig, register_post
+from ..experiment_config import ExperimentConfig
 
 
-def qutrit_rough_frequency(runner):
+def qutrit_rough_frequency(runner, qubit):
     from ..experiments.rough_frequency import EFRoughFrequencyCal
-    return ExperimentConfig(
-        EFRoughFrequencyCal
-    )
+    return ExperimentConfig(EFRoughFrequencyCal, [qubit])
 
-def qutrit_rough_amplitude(runner):
-    from ..experiments.ef_discriminator import EFRoughXSXAmplitudeAndDiscriminatorCal
-    return ExperimentConfig(
-        EFRoughXSXAmplitudeAndDiscriminatorCal,
-        args={'fine_boundary_optimization': True}
-    )
+def qutrit_rough_frequency_post(runner, experiment_data, qubit):
+    freq = (runner.calibrations.get_parameter_value('f12', qubit)
+            - runner.backend.qubit_properties(qubit).frequency) * runner.backend.dt
+    for sched_name in ['x12', 'sx12']:
+        for group in ['qutrit_rough_frequency', 'default']:
+            BaseUpdater.add_parameter_value(runner.calibrations, experiment_data, freq, 'freq',
+                                            schedule=sched_name, group=group)
 
-def qutrit_rough_amplitude_post(runner):
-    boundary = {pname: runner.calibrations.get_parameter_value(pname,
-                                                               runner.program_data['qubits'][1],
-                                                               schedule='iq_discriminator')
-                for pname in ['theta', 'dist']}
-    runner.program_data['iq_discriminators'] = [boundary]
 
-def qutrit_semifine_frequency(runner):
+def qutrit_rough_amplitude(runner, qubit):
+    from ..experiments.rough_amplitude import EFRoughXSXAmplitudeCal
+    return ExperimentConfig(EFRoughXSXAmplitudeCal, [qubit])
+
+def qutrit_semifine_frequency(runner, qubit):
     from ..experiments.delay_phase_offset import EFRamseyPhaseSweepFrequencyCal
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFRamseyPhaseSweepFrequencyCal,
-        experiment_options={'iq_discriminators': runner.program_data['iq_discriminators']}
+        [qubit]
     )
+    return _add_iq_classifier(config, runner)
 
-def qutrit_erroramp_frequency(runner):
+def qutrit_erroramp_frequency(runner, qubit):
     from ..experiments.fine_frequency import EFFineFrequency
 
-    qubits = tuple(runner.program_data['qubits'][1:2])
-    delay_duration = runner.calibrations.get_schedule('sx12', qubits).duration
+    delay_duration = runner.calibrations.get_schedule('sx12', qubit).duration
 
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFFineFrequency,
-        qubits,
-        args={'delay_duration': delay_duration},
-        experiment_options={'iq_discriminators': runner.program_data['iq_discriminators']}
+        [qubit],
+        args={'delay_duration': delay_duration}
     )
+    return _add_iq_classifier(config, runner)
 
-def qutrit_fine_frequency(runner):
+def qutrit_fine_frequency(runner, qubit):
     from ..experiments.fine_frequency_phase import EFRamseyFrequencyScanCal
 
     config = ExperimentConfig(
         EFRamseyFrequencyScanCal,
-        runner.program_data['qubits'][1:2],
-        experiment_options={'iq_discriminators': runner.program_data['iq_discriminators']}
+        [qubit]
     )
     if not runner.data_taking_only:
         config.analysis_options['parallelize'] = 0
 
-    return config
+    return _add_iq_classifier(config, runner)
 
-def nocal_qutrit_fine_frequency(runner):
-    from ..experiments.fine_frequency_phase import EFRamseyFrequencyScanCal
+def nocal_qutrit_fine_frequency(runner, qubit):
+    from ..experiments.fine_frequency_phase import EFRamseyFrequencyScan
 
     config = ExperimentConfig(
-        EFRamseyFrequencyScanCal,
-        runner.program_data['qubits'][1:2],
-        experiment_options={'iq_discriminators': runner.program_data['iq_discriminators']},
-        calibration=False
+        EFRamseyFrequencyScan,
+        [qubit],
+        args={
+            'frequencies': (np.linspace(-5.e+5, 5.e+5, 6)
+                            + runner.calibrations.get_parameter_value('f12', qubit))
+        }
     )
     if not runner.data_taking_only:
         config.analysis_options['parallelize'] = 0
 
-    return config
+    return _add_iq_classifier(config, runner)
 
-def qutrit_rough_x_drag(runner):
+def qutrit_rough_x_drag(runner, qubit):
     from ..experiments.rough_drag import EFRoughDragCal
 
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFRoughDragCal,
-        runner.program_data['qubits'][1:2],
+        [qubit],
         args={
             'schedule_name': 'x12',
             'betas': np.linspace(-10., 10., 10)
-        },
-        experiment_options={'iq_discriminators': runner.program_data['iq_discriminators']}
+        }
     )
+    return _add_iq_classifier(config, runner)
 
-def qutrit_rough_sx_drag(runner):
+def qutrit_rough_sx_drag(runner, qubit):
     from ..experiments.rough_drag import EFRoughDragCal
 
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFRoughDragCal,
-        runner.program_data['qubits'][1:2],
+        [qubit],
         args={
             'schedule_name': 'sx12',
             'betas': np.linspace(-20., 20., 10)
-        },
-        experiment_options={'iq_discriminators': runner.program_data['iq_discriminators']}
+        }
     )
+    return _add_iq_classifier(config, runner)
 
-def qutrit_fine_sx_amplitude(runner):
+def qutrit_fine_sx_amplitude(runner, qubit):
     from ..experiments.fine_amplitude import EFFineSXAmplitudeCal
 
     # qutrit T1 is short - shouldn't go too far with repetitions
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFFineSXAmplitudeCal,
-        runner.program_data['qubits'][1:2],
+        [qubit],
         experiment_options={
             'repetitions': [0, 1, 2, 3, 5, 7, 9, 11, 13, 15],
             'normalization': False,
-            'iq_discriminators': runner.program_data['iq_discriminators']
         }
     )
+    return _add_iq_classifier(config, runner)
 
-def qutrit_fine_sx_drag(runner):
+def qutrit_fine_sx_drag(runner, qubit):
     from ..experiments.fine_drag import EFFineSXDragCal
 
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFFineSXDragCal,
-        runner.program_data['qubits'][1:2],
+        [qubit],
         experiment_options={
-            'repetitions': list(range(12)),
-            'iq_discriminators': runner.program_data['iq_discriminators']
+            'repetitions': list(range(12))
         }
     )
+    return _add_iq_classifier(config, runner)
 
-def qutrit_fine_x_amplitude(runner):
+def qutrit_fine_x_amplitude(runner, qubit):
     from ..experiments.fine_amplitude import EFFineXAmplitudeCal
 
     # qutrit T1 is short - shouldn't go too far with repetitions
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFFineXAmplitudeCal,
-        runner.program_data['qubits'][1:2],
+        [qubit],
         experiment_options={
             'normalization': False,
-            'iq_discriminators': runner.program_data['iq_discriminators']
         }
     )
+    return _add_iq_classifier(config, runner)
 
-def qutrit_fine_x_drag(runner):
+def qutrit_fine_x_drag(runner, qubit):
     from ..experiments.fine_drag import EFFineXDragCal
 
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFFineXDragCal,
-        runner.program_data['qubits'][1:2],
+        [qubit],
         experiment_options={
             'repetitions': list(range(12)),
-            'iq_discriminators': runner.program_data['iq_discriminators']
         }
     )
+    return _add_iq_classifier(config, runner)
 
-def qutrit_x12_stark_shift(runner):
+def qutrit_x12_stark_shift(runner, qubit):
     from ..experiments.stark_shift_phase import X12StarkShiftPhaseCal
 
     return ExperimentConfig(
         X12StarkShiftPhaseCal,
-        runner.program_data['qubits'][1:2]
+        [qubit]
     )
 
-def qutrit_x_stark_shift(runner):
+def qutrit_x_stark_shift(runner, qubit):
     from ..experiments.stark_shift_phase import XStarkShiftPhaseCal
 
     return ExperimentConfig(
         XStarkShiftPhaseCal,
-        runner.program_data['qubits'][1:2]
+        [qubit]
     )
 
-def qutrit_sx_stark_shift(runner):
+def qutrit_sx_stark_shift(runner, qubit):
     from ..experiments.stark_shift_phase import SXStarkShiftPhaseCal
 
     return ExperimentConfig(
         SXStarkShiftPhaseCal,
-        runner.program_data['qubits'][1:2]
+        [qubit]
     )
 
-def qutrit_rotary_stark_shift(runner):
+def qutrit_rotary_stark_shift(runner, qubit):
     from ..experiments.stark_shift_phase import RotaryStarkShiftPhaseCal
 
     return ExperimentConfig(
         RotaryStarkShiftPhaseCal,
-        runner.program_data['qubits'][1:2]
+        [qubit]
     )
 
-def qutrit_assignment_error(runner):
+def qutrit_assignment_error(runner, qubit):
     from ..experiments.readout_error import MCMLocalReadoutError
 
     return ExperimentConfig(
         MCMLocalReadoutError,
-        runner.program_data['qubits'][1:2],
+        [qubit],
         run_options={'shots': 10000}
     )
 
-def qutrit_assignment_error(runner):
-    data = runner.program_data['experiment_data']['qutrit_assignment_error']
-    runner.program_data['qutrit_assignment_matrix'] = data.analysis_results('assignment_matrix').value
+def qutrit_assignment_error_post(runner, experiment_data, qubit):
+    matrix = experiment_data.analysis_results('assignment_matrix').value
+    runner.program_data.setdefault('qutrit_assignment_matrix', {})[qubit] = matrix
 
-def qutrit_relaxation_time(runner):
+def qutrit_t1(runner, qubit):
     from ..experiments.ef_t1 import EFT1
 
-    assignment_matrix = runner.program_data['qutrit_assignment_matrix']
+    assignment_matrix = runner.program_data['qutrit_assignment_matrix'][qubit]
 
     return ExperimentConfig(
         EFT1,
-        runner.program_data['qubits'][1:2],
+        [qubit],
         analysis_options={'assignment_matrix': assignment_matrix}
     )
+
+def _add_iq_classifier(config, runner):
+    qubit = config.physical_qubits[0]
+    config.run_options.update({
+        'meas_level': MeasLevel.KERNELED,
+        'meas_return': MeasReturnType.SINGLE
+    })
+    config.postprocessors.append(runner.program_data['iq_classifier'][qubit].asarg())
+    return config
