@@ -35,7 +35,8 @@ def set_f12_default(
     if 'f12' not in set(p.name for p in calibrations.parameters.keys()):
         calibrations._register_parameter(Parameter('f12'), ())
 
-    for qubit in range(backend.num_qubits):
+    operational_qubits = set(range(backend.num_qubits)) - set(backend.properties().faulty_qubits())
+    for qubit in operational_qubits:
         qubit_props = backend.qubit_properties(qubit)
         freq_12_est = qubit_props.frequency
         try:
@@ -90,8 +91,9 @@ def add_x12_sx12(
 
     # Parameter default values
     inst_map = backend.instruction_schedule_map
-    for qubit in range(backend.num_qubits):
-        for gate_name, qubit_gate_name in [('x12', 'x'), ('sx12', 'sx')]:
+    operational_qubits = set(range(backend.num_qubits)) - set(backend.properties().faulty_qubits())
+    for gate_name, qubit_gate_name in [('x12', 'x'), ('sx12', 'sx')]:
+        for qubit in operational_qubits:
             qubit_sched = inst_map.get(qubit_gate_name, qubit)
             qubit_pulse = next(inst.pulse for _, inst in qubit_sched.instructions
                                if isinstance(inst, pulse.Play))
@@ -108,7 +110,7 @@ def add_x12_sx12(
         if name not in set(p.name for p in calibrations.parameters.keys()):
             calibrations._register_parameter(Parameter(name), ())
 
-        for qubit in range(backend.num_qubits):
+        for qubit in operational_qubits:
             calibrations.add_parameter_value(ParameterValue(0.), name, qubits=[qubit])
 
 
@@ -117,9 +119,10 @@ def set_xstark_sxstark_default(
     calibrations: Calibrations
 ) -> None:
     # Stark delta parameters
+    operational_qubits = set(range(backend.num_qubits)) - set(backend.properties().faulty_qubits())
     for name in ['xstark', 'sxstark']:
         if name not in set(p.name for p in calibrations.parameters.keys()):
             calibrations._register_parameter(Parameter(name), ())
 
-        for qubit in range(backend.num_qubits):
+        for qubit in operational_qubits:
             calibrations.add_parameter_value(ParameterValue(0.), name, qubits=[qubit])
