@@ -54,7 +54,6 @@ which translates to
 We seek to find a classification boundary that maximizes :math:`\hat{a}`.
 """
 from typing import TYPE_CHECKING
-import jax
 import jax.numpy as jnp
 import jaxopt
 import numpy as np
@@ -120,7 +119,6 @@ def fit_discriminator_boundary(
     cmat_inv_row0 = np.linalg.inv([[sumc, wval.shape[0]],
                                    [np.sum(np.square(cval)), sumc]])[0]
 
-    @jax.jit
     def minus_ahat(params):
         nvec = jnp.array([jnp.cos(params[0]), jnp.sin(params[0])])
         zval = jnp.mean(jnp.tanh((jnp.dot(samples, nvec) - params[1]) / centroids_dist), axis=1)
