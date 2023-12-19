@@ -1,4 +1,6 @@
-from typing import List, Optional, Tuple
+"""Common operation functions for generating dummy data."""
+
+from typing import Optional
 import numpy as np
 from qiskit.result import Counts
 
@@ -11,7 +13,7 @@ def ef_memory(
     num_qubits: Optional[int] = None,
     meas_return: str = 'single',
     states: Tuple[int, int] = (0, 2)
-) -> List[np.ndarray]:
+) -> list[np.ndarray]:
     """Generate the memory ndarray from the probabilities for the base state.
 
     Args:
@@ -31,7 +33,7 @@ def ef_memory(
 
     fluctuations = rng.standard_normal(base_probs.shape + (shots, 2)) * iq_sigma
 
-    memory = list()
+    memory = []
 
     for prob, fluc in zip(base_probs, fluctuations):
         indices = rng.choice(states, size=shots, p=[prob, 1. - prob])
@@ -53,14 +55,14 @@ def single_qubit_counts(
     probs: np.ndarray,
     shots: int,
     num_qubits: Optional[int] = None
-) -> List[Counts]:
+) -> list[Counts]:
     rng = np.random.default_rng()
     c0s = rng.binomial(shots, probs)
 
     if num_qubits is None:
-        counts = list(Counts({'0': v, '1': shots - v}) for v in c0s.flatten())
+        counts = [Counts({'0': v, '1': shots - v}) for v in c0s.flatten()]
     else:
-        counts = list(Counts({'0' * num_qubits: v, '1' * num_qubits: shots - v})
-                      for v in c0s.flatten())
+        counts = [Counts({'0' * num_qubits: v, '1' * num_qubits: shots - v})
+                  for v in c0s.flatten()]
 
     return counts

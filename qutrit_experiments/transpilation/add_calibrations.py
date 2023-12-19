@@ -1,14 +1,17 @@
+"""Transpiler pass to give physical implementations to qutrit gates."""
+
 from collections import defaultdict
 from qiskit import QuantumRegister
 from qiskit.circuit.library import RZGate, SXGate, XGate
 from qiskit.transpiler import Target, TransformationPass, TranspilerError
-from qiskit.dagcircuit import DAGCircuit, DAGNode
+from qiskit.dagcircuit import DAGCircuit
 from qiskit_experiments.calibration_management import Calibrations
 
 from ..gates import RZ12Gate, SX12Gate, X12Gate
 
 
 class AddQutritCalibrations(TransformationPass):
+    """Transpiler pass to give physical implementations to qutrit gates."""
     def __init__(
         self,
         target: Target
@@ -17,7 +20,7 @@ class AddQutritCalibrations(TransformationPass):
         # The metaclass of BasePass performs _freeze_init_parameters in which each init argument
         # is compared to some object with __eq__. Calibrations have a custom __eq__ which interferes
         # with this functionality, so we need to set self.calibrations post-init.
-        self.calibrations = None
+        self.calibrations: Calibrations = None
         self.target = target
 
     def run(self, dag: DAGCircuit):
@@ -35,8 +38,6 @@ class AddQutritCalibrations(TransformationPass):
         modulation_frequencies = {}
         qubit_phase_offsets = defaultdict(float)
         qutrit_phase_offsets = defaultdict(float)
-
-        qutrit_gates = ()
 
         for node in dag.topological_op_nodes():
             if node not in node_start_time:

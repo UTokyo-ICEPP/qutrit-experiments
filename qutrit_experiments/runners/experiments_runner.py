@@ -1,25 +1,20 @@
 """Standard experiments driver."""
 
-import json
 import logging
 import os
 import pickle
 import uuid
 from collections.abc import Callable
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from numbers import Number
 from typing import TYPE_CHECKING, Optional, Union
 import matplotlib
 import numpy as np
 
-from qiskit import pulse
-from qiskit.circuit import Gate, Barrier
 from qiskit.providers import JobStatus
 from qiskit.qobj.utils import MeasLevel
 from qiskit.result import Counts
-from qiskit.scheduler.config import ScheduleConfig
-from qiskit.scheduler.lowering import lower_gates
-from qiskit.transpiler import InstructionDurations, InstructionProperties, PassManager, Target
+from qiskit.transpiler import InstructionDurations, PassManager
 from qiskit.transpiler.passes.scheduling import ALAPScheduleAnalysis
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, ParameterValue
 from qiskit_experiments.framework import AnalysisStatus, CompositeAnalysis as CompositeAnalysisOrig
@@ -289,7 +284,7 @@ class ExperimentsRunner:
                 # manager. When the target is None, HighLevelSynthesis (responsible for translating
                 # all gates to basis gates) will reference the passed basis_gates list and leaves
                 # all gates appearing in the list untouched.
-                basis_gates=backend.basis_gates + qutrit_gates,
+                basis_gates=self._backend.basis_gates + qutrit_gates,
                 # Scheduling method has to be specified in case there are delay instructions that
                 # violate the alignment constraints, in which case a ConstrainedRescheduling is
                 # triggered, which fails without precalculated node_start_times.

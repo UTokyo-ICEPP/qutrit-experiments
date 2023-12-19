@@ -1,17 +1,13 @@
-from numbers import Number
-from typing import Optional, Union
+"""Drag with modulation(s)."""
 
+from typing import Optional, Union
 from qiskit.circuit.parameterexpression import ParameterExpression, ParameterValueType
-from qiskit.pulse import PulseError
+from qiskit.pulse.library.symbolic_pulses import _PulseType, _lifted_gaussian, ScalableSymbolicPulse
 from qiskit.utils import optionals as _optional
 if _optional.HAS_SYMENGINE:
     import symengine as sym
 else:
     import sympy as sym
-
-from qiskit.pulse.library.symbolic_pulses import _PulseType, _lifted_gaussian, ScalableSymbolicPulse
-
-ParameterValueType = Union[Number, ParameterExpression]
 
 
 class ModulatedDrag(metaclass=_PulseType):

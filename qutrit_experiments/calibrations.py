@@ -1,15 +1,11 @@
+"""Functions to generate the Calibrations object for qutrit experiments."""
+
 import logging
-from typing import Optional, Union
-import numpy as np
+from typing import Optional
 from qiskit import pulse
 from qiskit.providers import Backend
-from qiskit.providers.exceptions import BackendConfigurationError
 from qiskit.circuit import Parameter
-from qiskit.circuit.library import XGate, SXGate
-from qiskit.pulse.calibration_entries import ScheduleDef
-from qiskit.transpiler import Target, InstructionProperties
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
-from qiskit_experiments.exceptions import CalibrationError
 
 from .pulse_library import ModulatedDrag
 
@@ -20,7 +16,7 @@ def make_single_qutrit_gate_calibrations(
     backend: Backend,
     calibrations: Optional[Calibrations] = None
 ) -> Calibrations:
-    """"""
+    """Define parameters and schedules for single-qutrit gates."""
     if calibrations is None:
         calibrations = Calibrations.from_backend(backend)
 

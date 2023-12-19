@@ -1,37 +1,27 @@
+"""Rough f12 calibration based on spectroscopy."""
+
 from collections.abc import Iterable, Sequence
 from typing import Optional, Union
 import numpy as np
 import lmfit
 
-from qiskit import QuantumCircuit, pulse
-from qiskit.circuit import Parameter
-from qiskit.pulse import ScheduleBlock
+from qiskit import QuantumCircuit
 from qiskit.providers import Backend
 from qiskit.qobj.utils import MeasReturnType
 import qiskit_experiments.curve_analysis as curve
-from qiskit_experiments.framework import ExperimentData, Options, AnalysisResultData, BackendTiming
-from qiskit_experiments.exceptions import AnalysisError
+from qiskit_experiments.framework import ExperimentData, Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import Frequency
 from qiskit_experiments.library import EFSpectroscopy
-import qiskit_experiments.curve_analysis as curve
 
 from ..transpilation import replace_calibration_and_metadata
 
 
 class EFRoughFrequency(EFSpectroscopy):
+    """EFSpectroscopy with some tweaks."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
-        """Default option values used for the spectroscopy pulse.
-        Experiment Options:
-            amp (float): The amplitude of the spectroscopy pulse. Defaults to 0.1 and must
-                be between 0 and 1.
-            duration (int): The duration of the spectroscopy pulse. Defaults to 1024 samples.
-            sigma (float): The standard deviation of the flanks of the spectroscopy pulse.
-                Defaults to 256.
-            width (int): The width of the flat-top part of the GaussianSquare pulse.
-                Defaults to 0.
-        """
+        """Default option values used for the spectroscopy pulse."""
         options = super()._default_experiment_options()
         options.amp = 0.06
         return options
@@ -53,15 +43,8 @@ class EFRoughFrequency(EFSpectroscopy):
         frequencies: Iterable[float],
         backend: Optional[Backend] = None
     ):
-        """See :class:`QubitSpectroscopy` for detailed documentation.
-        Args:
-            qubit: The qubit on which to run spectroscopy.
-            frequencies: The frequencies to scan in the experiment, in Hz.
-            backend: Optional, the backend to run the experiment on.
-        """
         super().__init__(physical_qubits, frequencies, backend=backend, absolute=True)
         self.analysis = GaussianResonanceAnalysis()
-        self.analysis.plotter.set_figure_options(ylim=(-1.3, 1.3))
 
     def _transpiled_circuits(self) -> list[QuantumCircuit]:
         return replace_calibration_and_metadata(self.circuits(), self.physical_qubits,
@@ -70,19 +53,13 @@ class EFRoughFrequency(EFSpectroscopy):
     def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
         center = self._frequencies[len(self._frequencies) // 2]
         freq = center - 8.e+6
-        #freq2 = center + 9.e+6
-        #mean = double_resonance(self._frequencies,
-        #                        1.25, 1.e+6, freq, 0.68, 2.0, 1.2e+6, freq2)
         mean = curve.fit_function.sqrt_lorentzian(self._frequencies, amp=1.25, kappa=1.e+6,
                                                   x0=freq, baseline=0.68)
-
         num_qubits = 1
 
-        memory = list()
-
+        memory = []
         for val in mean:
             memory.append(np.tile([[val * np.cos(1.2), val * np.sin(1.2)]], (num_qubits, 1)))
-
         return memory
 
 
@@ -154,6 +131,7 @@ class GaussianResonanceAnalysis(curve.CurveAnalysis):
 
 
 class EFRoughFrequencyCal(BaseCalibrationExperiment, EFRoughFrequency):
+    """Calibration experiment for EFRoughFrequency."""
     def __init__(
         self,
         physical_qubits: Sequence[int],

@@ -1,15 +1,14 @@
-from numbers import Number
-from typing import Optional, Union
+"""GaussianSquare with modulation(s)."""
 
+from typing import Optional, Union
 from qiskit.circuit.parameterexpression import ParameterExpression, ParameterValueType
 from qiskit.pulse import PulseError
+from qiskit.pulse.library.symbolic_pulses import _PulseType, _lifted_gaussian, ScalableSymbolicPulse
 from qiskit.utils import optionals as _optional
 if _optional.HAS_SYMENGINE:
     import symengine as sym
 else:
     import sympy as sym
-
-from qiskit.pulse.library.symbolic_pulses import _PulseType, _lifted_gaussian, ScalableSymbolicPulse
 
 
 class ModulatedGaussianSquare(metaclass=_PulseType):
@@ -109,9 +108,8 @@ def modulated_gaussiansquare(
             raise PulseError(
                 'Either the pulse width or the risefall_sigma_ratio parameter must be specified.'
             )
-        else:
-            width = duration - 2.0 * risefall_sigma_ratio * sigma
-            support = duration
+        width = duration - 2.0 * risefall_sigma_ratio * sigma
+        support = duration
     else:
         if risefall_sigma_ratio is None:
             support = duration
