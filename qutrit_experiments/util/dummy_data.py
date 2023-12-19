@@ -12,7 +12,7 @@ def ef_memory(
     shots: int,
     num_qubits: Optional[int] = None,
     meas_return: str = 'single',
-    states: Tuple[int, int] = (0, 2)
+    states: tuple[int, int] = (0, 2)
 ) -> list[np.ndarray]:
     """Generate the memory ndarray from the probabilities for the base state.
 

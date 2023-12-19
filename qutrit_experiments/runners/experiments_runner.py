@@ -204,10 +204,10 @@ class ExperimentsRunner:
 
             exp_data.add_postprocessor('save_raw_data', self.save_data)
 
-        if postprocess:
-            exp_data.apply_postprocessors()
-            logger.debug('Waiting for postprocessors to complete.')
-            exp_data.block_for_results()
+            if postprocess:
+                exp_data.apply_postprocessors()
+                logger.debug('Waiting for postprocessors to complete.')
+                exp_data.block_for_results()
 
         # Status check was originally a postprocessor, but I later realized that BaseExperiment
         # cancels all analysis callbacks (which postprocessors are) when job errors are detected

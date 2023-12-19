@@ -1,15 +1,15 @@
-from typing import List
+"""Rabi experiment with optimized transpilation."""
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
 from qiskit_experiments.library import Rabi as RabiOrig
 
-from ..common.transpilation import replace_calibration_and_metadata
+from ..transpilation import replace_calibration_and_metadata
 
 class Rabi(RabiOrig):
     """Rabi experiment with optimized transpilation."""
-    def _transpiled_circuits(self) -> List[QuantumCircuit]:
+    def _transpiled_circuits(self) -> list[QuantumCircuit]:
         circuits = replace_calibration_and_metadata(self.circuits(), self.physical_qubits,
-                                                    self.transpile_options.target)
+                                                    self._backend_data.coupling_map)
         # Need to update the gate parameters too
         # CircuitInstruction.operation.params is a list of ParameterExpressions
         amp = Parameter('amp')
