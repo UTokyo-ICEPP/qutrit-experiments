@@ -1,34 +1,28 @@
-from typing import Any, Dict, Optional, Sequence, Union, List, Tuple
-import numpy as np
-from uncertainties import correlated_values, unumpy as unp
-import scipy.optimize as sciopt
+"""Fine frequency calibration through interpolation of RamseyPhaseSweep results."""
+
+from collections.abc import Sequence
+from typing import Optional
 from matplotlib.figure import Figure
-from qiskit import QuantumCircuit, pulse
-from qiskit.circuit import Gate, Parameter
-from qiskit.pulse import Schedule, ScheduleBlock
+import numpy as np
+import scipy.optimize as sciopt
+from uncertainties import correlated_values, unumpy as unp
+from qiskit import QuantumCircuit
 from qiskit.providers import Backend
-from qiskit.result import Counts
-from qiskit.qobj.utils import MeasLevel
-from qiskit_experiments.framework import Options, ExperimentData, AnalysisResultData, BackendData
-from qiskit_experiments.framework.matplotlib import default_figure_canvas
-from qiskit_experiments.exceptions import CalibrationError
-from qiskit_experiments.library import FineFrequency
-import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
-from qiskit_experiments.calibration_management.update_library import BaseUpdater
+from qiskit_experiments.calibration_management.update_library import Frequency
+from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
+from qiskit_experiments.framework.matplotlib import default_figure_canvas
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ..common.framework_overrides import CompoundAnalysis, BatchExperiment
-from ..common.linked_curve_analysis import LinkedCurveAnalysis
-from ..common.iq_classification import IQClassification
-from ..common.util import default_shots
+from ..framework.compound_analysis import CompoundAnalysis
+from ..framework_overrides.batch_experiment import BatchExperiment
 from .delay_phase_offset import EFRamseyPhaseSweep, RamseyPhaseSweepAnalysis
-from .dummy_data import ef_memory, single_qubit_counts
 
 twopi = 2. * np.pi
 
 
-class EFRamseyFrequencyScan(IQClassification, BatchExperiment):
+class EFRamseyFrequencyScan(BatchExperiment):
+    """Fine frequency calibration through interpolation of RamseyPhaseSweep results."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
@@ -67,7 +61,7 @@ class EFRamseyFrequencyScan(IQClassification, BatchExperiment):
         if delay_duration is not None:
             self.set_experiment_options(delay_duration=delay_duration)
 
-    def dummy_data(self, transpiled_circuits: List[QuantumCircuit]) -> List[np.ndarray]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
         mean_f12 = np.mean([exp.experiment_options.f12 for exp in self._experiments])
 
         data = []
@@ -81,6 +75,7 @@ class EFRamseyFrequencyScan(IQClassification, BatchExperiment):
 
 
 class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
+    """Interpolation analysis."""
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
@@ -89,7 +84,7 @@ class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
 
     def __init__(
         self,
-        analyses: List[RamseyPhaseSweepAnalysis]
+        analyses: list[RamseyPhaseSweepAnalysis]
     ):
         super().__init__(analyses, flatten_results=False)
 
@@ -106,23 +101,25 @@ class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
-        analysis_results: List[AnalysisResultData],
-        figures: List["matplotlib.figure.Figure"]
-    ) -> Tuple[List[AnalysisResultData], List["matplotlib.figure.Figure"]]:
+        analysis_results: list[AnalysisResultData],
+        figures: list[Figure]
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata['component_child_index']
         omega_zs = []
         frequencies = []
 
         for child_index in component_index:
             child_data = experiment_data.child_data(child_index)
-            omega_zs.append(child_data.analysis_results('omega_z_dt').value / child_data.metadata['dt'])
+            omega_zs.append(child_data.analysis_results('omega_z_dt').value
+                            / child_data.metadata['dt'])
             frequencies.append(child_data.metadata['f12'])
 
         omega_zs = np.array(omega_zs)
         yval = unp.nominal_values(omega_zs / twopi)
         frequencies = np.array(frequencies)
 
-        func = lambda f, f0, slope: slope * (f - f0)
+        def func(f, f0, slope):
+            return slope * (f - f0)
 
         p0 = (
             np.mean(frequencies),
@@ -168,11 +165,12 @@ class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
         return analysis_results, figures
 
 
-class EFFrequencyUpdater(BaseUpdater):
+class EFFrequencyUpdater(Frequency):
     __fit_parameter__ = 'f12'
 
 
 class EFRamseyFrequencyScanCal(BaseCalibrationExperiment, EFRamseyFrequencyScan):
+    """Calibration experiment for EFRamseyFrequencyScan."""
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -186,14 +184,14 @@ class EFRamseyFrequencyScanCal(BaseCalibrationExperiment, EFRamseyFrequencyScan)
         if detunings is None:
             detunings = np.linspace(-5.e+5, 5.e+5, 6)
 
-        f12_est = calibrations.get_parameter_value('f12', physical_qubits[0], 'set_f12')
+        f12_est = calibrations.get_parameter_value('f12', physical_qubits[0])
         frequencies = detunings + f12_est
 
         super().__init__(
             calibrations,
             physical_qubits,
             frequencies,
-            schedule_name='set_f12',
+            schedule_name=None,
             delay_duration=delay_duration,
             num_points=num_points,
             backend=backend,
@@ -205,21 +203,3 @@ class EFRamseyFrequencyScanCal(BaseCalibrationExperiment, EFRamseyFrequencyScan)
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         pass
-
-
-class TestFineFrequency(FineFrequency):
-    @classmethod
-    def _default_experiment_options(cls) -> Options:
-        options = super()._default_experiment_options()
-        options.pre_schedule = None
-        return options
-
-    def _pre_circuit(self):
-        circ = QuantumCircuit(1)
-
-        pre_schedule = self.experiment_options.pre_schedule
-        if pre_schedule is not None:
-            circ.append(Gate('pre_schedule', 1, []), [0])
-            circ.add_calibration('pre_schedule', self.physical_qubits, pre_schedule)
-
-        return circ

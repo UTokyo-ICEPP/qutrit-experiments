@@ -217,6 +217,7 @@ class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
 
     def _metadata(self):
         metadata = super()._metadata()
+        metadata['dt'] = self._backend.dt
         if self.extra_metadata:
             metadata.update(self.extra_metadata)
         return metadata
