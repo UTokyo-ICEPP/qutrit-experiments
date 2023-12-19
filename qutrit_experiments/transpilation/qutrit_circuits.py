@@ -1,13 +1,53 @@
-"""Transpiler pass to give physical implementations to qutrit gates."""
-
 from collections import defaultdict
-from qiskit import QuantumRegister
+from collections.abc import Sequence
+from typing import Optional, Union
+from qiskit import QuantumCircuit, QuantumRegister
 from qiskit.circuit.library import RZGate, SXGate, XGate
-from qiskit.transpiler import Target, TransformationPass, TranspilerError
 from qiskit.dagcircuit import DAGCircuit
+from qiskit.providers import Backend
+from qiskit.transpiler import (InstructionDurations, PassManager, Target, TransformationPass,
+                               TranspilerError)
+from qiskit.transpiler.passes.scheduling import ALAPScheduleAnalysis
 from qiskit_experiments.calibration_management import Calibrations
 
 from ..gates import RZ12Gate, SX12Gate, X12Gate
+
+
+def make_instruction_durations(
+    backend: Backend,
+    calibrations: Calibrations,
+    qubits: Optional[Sequence[int]] = None
+) -> InstructionDurations:
+    """Construct an InstructionDurations object including qutrit gate durations."""
+    if qubits is None:
+        qubits = set(range(backend.num_qubits)) - set(backend.properties().faulty_qubits())
+
+    instruction_durations = InstructionDurations(backend.instruction_durations, dt=backend.dt)
+    for inst_name in ['x12', 'sx12']:
+        durations = [(inst_name, qubit, calibrations.get_schedule(inst_name, qubit).duration)
+                     for qubit in qubits]
+        instruction_durations.update(durations)
+    instruction_durations.update([('rz12', qubit, 0) for qubit in qubits])
+    return instruction_durations
+
+
+def transpile_qutrit_circuits(
+    circuits: Union[QuantumCircuit, list[QuantumCircuit]],
+    backend: Backend,
+    calibrations: Calibrations,
+    instruction_durations: Optional[InstructionDurations] = None
+) -> list[QuantumCircuit]:
+    """Recompute the gate durations, calculate the phase shifts for all qutrit gates, and insert
+    AC Stark shift corrections to qubit gates"""
+    if instruction_durations is None:
+        instruction_durations = make_instruction_durations(backend, calibrations)
+
+    pm = PassManager()
+    pm.append(ALAPScheduleAnalysis(instruction_durations))
+    add_cal = AddQutritCalibrations(backend.target)
+    add_cal.calibrations = calibrations # See the comment in the class for why we do this
+    pm.append(add_cal)
+    return pm.run(circuits)
 
 
 class AddQutritCalibrations(TransformationPass):
@@ -82,7 +122,7 @@ class AddQutritCalibrations(TransformationPass):
                 qubit_phase_offsets[qubit] += 0.5 * delta
                 subst_map = dag.substitute_node_with_dag(node, subdag)
 
-                assign_params = {'phase_offset': phase_offset}
+                assign_params = {'freq': mod_freq, 'phase_offset': phase_offset}
                 sched = self.calibrations.get_schedule(node.op.name, qubit,
                                                        assign_params=assign_params)
                 dag.add_calibration(node.op.name, (qubit,), sched, [phase_offset])
