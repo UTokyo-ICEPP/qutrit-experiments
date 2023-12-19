@@ -1,31 +1,32 @@
-from typing import List, Dict, Optional, Sequence, Union
+"""Standard fine frequency calibration with error amplification."""
+
+from collections.abc import Sequence
+from typing import Optional, Union
+import lmfit
 import numpy as np
 from uncertainties import unumpy as unp
-import lmfit
 
 from qiskit import QuantumCircuit
-from qiskit.circuit import Parameter
 from qiskit.providers import Backend
-from qiskit.pulse import Schedule
-from qiskit_experiments.framework import ExperimentData, Options, BackendData
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
+from qiskit_experiments.framework import ExperimentData
 from qiskit_experiments.library import FineFrequency
 import qiskit_experiments.curve_analysis as curve
 
-from ..common.ef_space import EFSpaceExperiment
-from ..common.iq_classification import IQClassification
-from ..common.gates import RZ12Gate, SX12Gate
-from ..common.transpilation import map_to_physical_qubits
+from ..transpilation import map_to_physical_qubits
+from ..experiment_mixins.ef_space import EFSpaceExperiment
+from ..experiment_mixins.map_to_physical_qubits import MapToPhysicalQubits
 
 
-class EFFineFrequency(EFSpaceExperiment, IQClassification, FineFrequency):
+class EFFineFrequency(MapToPhysicalQubits, EFSpaceExperiment, FineFrequency):
+    """Standard fine frequency calibration with error amplification."""
     def __init__(
         self,
         physical_qubits: Sequence[int],
         delay_duration: int,
         backend: Optional[Backend] = None,
-        repetitions: Optional[List[int]] = None,
+        repetitions: Optional[list[int]] = None,
     ):
         super().__init__(physical_qubits, delay_duration, backend=backend, repetitions=repetitions)
 
@@ -43,7 +44,7 @@ class EFFineFrequency(EFSpaceExperiment, IQClassification, FineFrequency):
         # Because user_opt.p0 is always filled with the full parameter keys with None
         # as the initial value, we end up with phi = None unless explicitly set here
 
-    def circuits(self) -> List[QuantumCircuit]:
+    def circuits(self) -> list[QuantumCircuit]:
         circuits = super().circuits()
 
         for circuit in circuits:
@@ -55,10 +56,9 @@ class EFFineFrequency(EFSpaceExperiment, IQClassification, FineFrequency):
 
         return circuits
 
-    def _transpiled_circuits(self) -> List[QuantumCircuit]:
-        qubits = self.physical_qubits
-        target = self.transpile_options.target
-        return [map_to_physical_qubits(circ, qubits, target) for circ in self.circuits()]
+    def _transpiled_circuits(self) -> list[QuantumCircuit]:
+        return map_to_physical_qubits(self.circuits(), self.physical_qubits,
+                                      self._backend_data.coupling_map)
 
 
 class EFFineFrequencyAnalysis(curve.ErrorAmplificationAnalysis):
@@ -68,7 +68,8 @@ class EFFineFrequencyAnalysis(curve.ErrorAmplificationAnalysis):
     def modulated_cosine(x, amp, d_theta, beat_freq, phase_offset, base, angle_per_gate):
         angular_freq = d_theta + angle_per_gate
         angular_beat_freq = 2. * np.pi * beat_freq
-        return 0.5 * amp * unp.cos(angular_freq * x - phase_offset) * unp.cos(angular_beat_freq * x) + base
+        return (0.5 * amp * unp.cos(angular_freq * x - phase_offset)
+                * unp.cos(angular_beat_freq * x)) + base
 
     @classmethod
     def _default_options(cls):
@@ -83,7 +84,6 @@ class EFFineFrequencyAnalysis(curve.ErrorAmplificationAnalysis):
         """
         default_options = super()._default_options()
         default_options.result_parameters.append("beat_freq")
-
         return default_options
 
     def __init__(self, name: Optional[str] = None):
@@ -102,7 +102,7 @@ class EFFineFrequencyAnalysis(curve.ErrorAmplificationAnalysis):
         self,
         user_opt: curve.FitOptions,
         curve_data: curve.CurveData,
-    ) -> Union[curve.FitOptions, List[curve.FitOptions]]:
+    ) -> Union[curve.FitOptions, list[curve.FitOptions]]:
         """Create algorithmic guess with analysis options and curve data.
 
         Args:
@@ -110,7 +110,7 @@ class EFFineFrequencyAnalysis(curve.ErrorAmplificationAnalysis):
             curve_data: Formatted data collection to fit.
 
         Returns:
-            List of fit options that are passed to the fitter function.
+            list of fit options that are passed to the fitter function.
         """
         options = super()._generate_fit_guesses(user_opt, curve_data)
 
@@ -185,6 +185,7 @@ class EFFineFrequencyAnalysis(curve.ErrorAmplificationAnalysis):
 
 
 class EFFineFrequencyCal(BaseCalibrationExperiment, EFFineFrequency):
+    """Calibration experiment for EFFineFrequency."""
     @classmethod
     def _default_experiment_options(cls):
         """default values for the fine frequency calibration experiment.
@@ -201,17 +202,16 @@ class EFFineFrequencyCal(BaseCalibrationExperiment, EFFineFrequency):
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        schedule_name: str = 'set_f12',
         cal_parameter_name: Optional[str] = "f12",
         auto_update: bool = True,
         delay_duration: Optional[int] = None,
-        repetitions: List[int] = None
+        repetitions: list[int] = None
     ):
         r"""see class :class:`FineFrequency` for details.
-        Note that this class implicitly assumes that the target angle of the gate
-        is :math:`\pi/2` as seen from the default analysis options. This experiment
-        can be seen as a calibration of a finite duration ``rz(pi/2)`` gate with any
-        error attributed to a frequency offset in the qubit.
+        Note that this class implicitly assumes that the target angle of the gate is :math:`\pi/2`
+        as seen from the default analysis options. This experiment can be seen as a calibration of a
+        finite duration ``rz(pi/2)`` gate with any error attributed to a frequency offset in the
+        qubit.
         Args:
             qubit: The qubit for which to run the fine frequency calibration.
             calibrations: The calibrations instance with the schedules.
@@ -231,7 +231,7 @@ class EFFineFrequencyCal(BaseCalibrationExperiment, EFFineFrequency):
             calibrations,
             physical_qubits,
             delay_duration,
-            schedule_name=schedule_name,
+            schedule_name=None,
             cal_parameter_name=cal_parameter_name,
             backend=backend,
             auto_update=auto_update,
@@ -244,7 +244,7 @@ class EFFineFrequencyCal(BaseCalibrationExperiment, EFFineFrequency):
     def _attach_calibrations(self, circuit: QuantumCircuit):
         pass
 
-    def _metadata(self) -> Dict[str, any]:
+    def _metadata(self) -> dict[str, any]:
         """Add metadata to the experiment data making it more self contained.
         The following keys are added to the experiment's metadata:
             cal_param_value: The value of the drive frequency parameter. This value together with
@@ -256,11 +256,9 @@ class EFFineFrequencyCal(BaseCalibrationExperiment, EFFineFrequency):
         """
         metadata = super()._metadata()
         metadata["delay_duration"] = self.experiment_options.delay_duration
-        metadata["dt"] = self.experiment_options.dt
         metadata["cal_param_value"] = self._cals.get_parameter_value(
             self._param_name,
             self.physical_qubits,
-            schedule=self._sched_name,
             group=self.experiment_options.group,
         )
         metadata["cal_group"] = self.experiment_options.group
@@ -274,7 +272,6 @@ class EFFineFrequencyCal(BaseCalibrationExperiment, EFFineFrequency):
         prev_freq = self._cals.get_parameter_value(
             self._param_name,
             self.physical_qubits,
-            schedule=self._sched_name,
             group=group
         )
         tau = self.experiment_options.delay_duration
@@ -284,5 +281,5 @@ class EFFineFrequencyCal(BaseCalibrationExperiment, EFFineFrequency):
         new_freq = prev_freq + d_theta / (2 * np.pi * tau * dt)
 
         BaseUpdater.add_parameter_value(
-            self._cals, experiment_data, new_freq, self._param_name, schedule=self._sched_name, group=group
+            self._cals, experiment_data, new_freq, self._param_name, group=group
         )

@@ -18,6 +18,7 @@ from qiskit_experiments.framework import BaseExperiment, ExperimentData, Options
 
 from ..constants import DEFAULT_SHOTS
 from ..experiment_mixins.ef_space import EFSpaceExperiment
+from ..experiment_mixins.map_to_physical_qubits import MapToPhysicalQubits
 from ..gates import RZ12Gate, SX12Gate
 from ..transpilation import map_to_physical_qubits
 from ..util.dummy_data import ef_memory, single_qubit_counts
@@ -25,7 +26,7 @@ from ..util.dummy_data import ef_memory, single_qubit_counts
 twopi = 2. * np.pi
 
 
-class RamseyPhaseSweep(BaseExperiment):
+class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
     r"""SX + delay + phase shift + SX experiment for measuring a static Z Hamiltonian.
 
     This experiment can be used to measure e.g. the static ZZ interaction as well as to calibrate
@@ -213,11 +214,6 @@ class RamseyPhaseSweep(BaseExperiment):
                 circuits.append(circuit)
 
         return circuits
-
-    def _transpiled_circuits(self) -> list[QuantumCircuit]:
-        qubits = self.physical_qubits
-        target = self.transpile_options.target
-        return [map_to_physical_qubits(circ, qubits, target) for circ in self.circuits()]
 
     def _metadata(self):
         metadata = super()._metadata()
