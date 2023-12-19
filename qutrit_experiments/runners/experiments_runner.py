@@ -23,7 +23,7 @@ from qiskit_experiments.exceptions import AnalysisError
 from qiskit_ibm_runtime import Session
 
 from ..constants import DEFAULT_SHOTS
-from ..experiment_config import ExperimentConfig, experiments
+from ..experiment_config import ExperimentConfig, experiments, postexperiments
 from ..framework.postprocessed_experiment_data import PostprocessedExperimentData
 from ..framework.set_child_data_structure import SetChildDataStructure
 from ..framework_overrides.composite_analysis import CompositeAnalysis
@@ -237,6 +237,9 @@ class ExperimentsRunner:
             calibrate = calibrate(exp_data)
         if calibrate:
             self.update_calibrations(exp_data, experiment)
+
+        if exp_type in postexperiments:
+            postexperiments[exp_type](self, exp_data)
 
         if print_level == 1:
             print_summary(exp_data)

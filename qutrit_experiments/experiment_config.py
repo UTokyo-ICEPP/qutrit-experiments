@@ -5,12 +5,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    from qiskit_experiments.framework import BaseExperiment
+    from qiskit_experiments.framework import BaseExperiment, ExperimentData
     from ..common.postprocessed_experiment_data import PostProcessor
 
 
 @dataclass
 class ExperimentConfig:
+    """Experiment configuration."""
     cls: type['BaseExperiment']
     physical_qubits: Optional[Sequence[int]] = None
     args: dict[str, Any] = field(default_factory=dict)
@@ -28,7 +29,7 @@ class ExperimentConfig:
 
 
 experiments = {}
-postprocessors = {}
+postexperiments = {}
 experiment_products = {}
 
 def register_exp(
@@ -37,6 +38,7 @@ def register_exp(
     exp_type: Optional[str] = None,
     product: Optional[str] = None
 ):
+    """Register a configuration generator to the global experiments map."""
     if exp_type is None:
         exp_type = function.__name__
 
@@ -56,6 +58,14 @@ def register_exp(
     return registered_exp
 
 
-def register_post(function: Callable[['ExperimentsRunner'], None]):
-    postprocessors[function.__name__] = function
+def register_post(
+    function: Optional[Callable[['ExperimentsRunner', 'ExperimentData'], None]] = None,
+    *,
+    exp_type: Optional[str] = None
+):
+    """Register a postexperiment function to the global postexperiments map."""
+    if exp_type is None:
+        exp_type = function.__name__
+
+    postexperiments[exp_type] = function
     return function
