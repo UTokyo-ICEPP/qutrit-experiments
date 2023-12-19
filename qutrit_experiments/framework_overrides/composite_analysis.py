@@ -178,7 +178,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
     ):
         """Recursively collect all atomic analyses and identify analysis dependencies."""
         # experiment_data is assumed to be a PostProcessedExperimentData with the
-        # SetChildDataStructure postprocessor having been run
+        # set_child_data_structure postprocessor having been run
         # -> experiment_data.child_data() already exists
         component_expdata = analysis._component_experiment_data(experiment_data)
 

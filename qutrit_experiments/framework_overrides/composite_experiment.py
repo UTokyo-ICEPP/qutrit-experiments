@@ -1,45 +1,51 @@
-"""Mixin for custom composite experiments."""
+"""CompositeExperiment with an automatic child data structure setter."""
 
-from qiskit_experiments.framework import BaseExperiment, ExperimentData
+from qiskit_experiments.framework import ExperimentData
+from qiskit_experiments.framework.composite.composite_experiment import (CompositeExperiment
+                                                                         as CompositeExperimentOrig)
 
-from .postprocessed_experiment_data import PostprocessedExperimentData
-from ..framework_overrides.composite_analysis import CompositeAnalysis
+from ..framework.postprocessed_experiment_data import PostprocessedExperimentData
+from .composite_analysis import CompositeAnalysis
 
 
-class SetChildDataStructure(BaseExperiment):
-    """Mixin for custom composite experiments."""
+class CompositeExperiment(CompositeExperimentOrig):
+    """CompositeExperiment with an automatic child data structure setter."""
     def _initialize_experiment_data(self) -> ExperimentData:
         """Initialize the return data container for the experiment run"""
-        experiment_data = super()._initialize_experiment_data()
+        return PostprocessedExperimentData(
+            experiment=self,
+            postprocessors=[('set_child_data_structure', self.set_child_data_structure)]
+        )
 
-        if not isinstance(experiment_data, PostprocessedExperimentData):
-            experiment_data = PostprocessedExperimentData(experiment=self)
-
-        experiment_data.add_postprocessor('set_child_data_structure',
-                                          SetChildDataStructure._set_child_data_structure)
-
-        return experiment_data
-
-    @staticmethod
-    def _set_child_data_structure(
-        experiment_data: ExperimentData,
-        fill_child_data: bool = False
+    @classmethod
+    def set_child_data_structure(
+        cls,
+        experiment_data: ExperimentData
     ) -> None:
         """Recursively create data parent-child hierarchy for CompositeExperiment results."""
-        num_children = len(experiment_data.metadata['component_types'])
-        composite_analysis = CompositeAnalysis([None] * num_children)
         #composite_analysis._add_child_data(experiment_data)
-        SetChildDataStructure._add_child_data(experiment_data)
-        if fill_child_data:
-            composite_analysis._component_experiment_data(experiment_data)
-
+        cls._add_child_data(experiment_data)
         for child_data in experiment_data.child_data():
             if 'component_types' in child_data.metadata:
-                SetChildDataStructure._set_child_data_structure(child_data,
-                                                                fill_child_data=fill_child_data)
+                cls.set_child_data_structure(child_data)
 
-    @staticmethod
-    def _add_child_data(experiment_data: ExperimentData):
+    @classmethod
+    def fill_child_data(
+        cls,
+        experiment_data: ExperimentData
+    ):
+        """Recursively fill the child data container using a method in CompositeAnalysis."""
+        num_children = len(experiment_data.metadata['component_types'])
+        CompositeAnalysis([None] * num_children)._component_experiment_data(experiment_data)
+        for child_data in experiment_data.child_data():
+            if 'component_types' in child_data.metadata:
+                cls.fill_child_data(child_data)
+
+    @classmethod
+    def _add_child_data(
+        cls,
+        experiment_data: ExperimentData
+    ):
         """Reimplementing add_child_data to avoid needlessly instantiating ExperimentData without
         the service keyword.
         """
@@ -50,7 +56,7 @@ class SetChildDataStructure(BaseExperiment):
 
         # Initialize the component experiment data containers and add them
         # as child data to the current experiment data
-        child_components = SetChildDataStructure._initialize_component_experiment_data(experiment_data)
+        child_components = cls._initialize_component_experiment_data(experiment_data)
         start_index = len(experiment_data.child_data())
         for i, subdata in enumerate(child_components):
             experiment_data.add_child_data(subdata)
@@ -59,10 +65,12 @@ class SetChildDataStructure(BaseExperiment):
         # Store the indices of the added child data in metadata
         experiment_data.metadata["component_child_index"] = component_index
 
-    @staticmethod
+    @classmethod
     def _initialize_component_experiment_data(
+        cls,
         experiment_data: ExperimentData
     ) -> list[ExperimentData]:
+        """Set the child data structure."""
         experiment_types = experiment_data.metadata["component_types"]
         component_metadata = experiment_data.metadata["component_metadata"]
 

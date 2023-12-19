@@ -10,13 +10,13 @@ from qiskit_experiments.framework import (BaseExperiment, BatchExperiment as Bat
                                           ParallelExperiment as ParallelExperimentOrig)
 
 from .composite_analysis import CompositeAnalysis
-from ..framework.set_child_data_structure import SetChildDataStructure
+from .composite_experiment import CompositeExperiment
 
 if TYPE_CHECKING:
     from qiskit.providers import Backend
 
 
-class BatchExperiment(SetChildDataStructure, BatchExperimentOrig):
+class BatchExperiment(BatchExperimentOrig, CompositeExperiment):
     """BatchExperiment with modified functionalities.
 
     Modifications:

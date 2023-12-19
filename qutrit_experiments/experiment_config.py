@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from qiskit_experiments.framework import BaseExperiment, ExperimentData
-    from ..common.postprocessed_experiment_data import PostProcessor
+    from .framework.postprocessed_experiment_data import PostProcessor
 
 
 @dataclass

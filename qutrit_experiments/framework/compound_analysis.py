@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
     from qiskit_experiments.framework import AnalysisResultData, ExperimentData
 
+
 class CompoundAnalysis(CompositeAnalysis):
     """CompositeAnalysis with additional analysis on top."""
     def _set_subanalysis_options(self, experiment_data: 'ExperimentData'):

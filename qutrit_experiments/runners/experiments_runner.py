@@ -18,15 +18,16 @@ from qiskit.transpiler import InstructionDurations, PassManager
 from qiskit.transpiler.passes.scheduling import ALAPScheduleAnalysis
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, ParameterValue
 from qiskit_experiments.framework import AnalysisStatus, CompositeAnalysis as CompositeAnalysisOrig
-from qiskit_experiments.framework.composite.composite_experiment import CompositeExperiment
+from qiskit_experiments.framework.composite.composite_experiment import (CompositeExperiment
+                                                                         as CompositeExperimentOrig)
 from qiskit_experiments.exceptions import AnalysisError
 from qiskit_ibm_runtime import Session
 
 from ..constants import DEFAULT_SHOTS
 from ..experiment_config import ExperimentConfig, experiments, postexperiments
 from ..framework.postprocessed_experiment_data import PostprocessedExperimentData
-from ..framework.set_child_data_structure import SetChildDataStructure
 from ..framework_overrides.composite_analysis import CompositeAnalysis
+from ..framework_overrides.composite_experiment import CompositeExperiment
 from ..transpilation.add_calibrations import AddQutritCalibrations
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule
@@ -214,9 +215,10 @@ class ExperimentsRunner:
         self._check_status(exp_data)
 
         if not analyze or experiment.analysis is None:
-            if isinstance(experiment, SetChildDataStructure):
+            if isinstance(experiment, CompositeExperimentOrig):
                 # Usually analysis fills the child data so we do it manually instead
-                SetChildDataStructure._set_child_data_structure(exp_data, fill_child_data=True)
+                CompositeExperiment.set_child_data_structure(exp_data)
+                CompositeExperiment.fill_child_data(exp_data)
 
             logger.info('No analysis will be performed for %s.', exp_type)
             return exp_data
@@ -359,7 +361,7 @@ class ExperimentsRunner:
                 return [(pname, sname, exp.physical_qubits)
                         for pname, sname in zip(param_name, sched_name)]
 
-            if isinstance(exp, CompositeExperiment):
+            if isinstance(exp, CompositeExperimentOrig):
                 update_list = []
 
                 for subexp, child_data in zip(exp.component_experiment(), exp_data.child_data()):

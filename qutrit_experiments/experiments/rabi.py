@@ -5,6 +5,7 @@ from qiskit_experiments.library import Rabi as RabiOrig
 
 from ..transpilation import replace_calibration_and_metadata
 
+
 class Rabi(RabiOrig):
     """Rabi experiment with optimized transpilation."""
     def _transpiled_circuits(self) -> list[QuantumCircuit]:

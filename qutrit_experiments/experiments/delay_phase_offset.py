@@ -1,40 +1,32 @@
-from typing import Any, Callable, Dict, Optional, Sequence, Union, List, Tuple
+"""Ramsey experiment with constant delay."""
+
+from collections.abc import Callable, Sequence
+from typing import Any, Optional, Union
 import numpy as np
 import lmfit
-from uncertainties import correlated_values, unumpy as unp
-import scipy.optimize as sciopt
-from matplotlib.figure import Figure
 from qiskit import QuantumCircuit, pulse
-from qiskit.circuit import CircuitInstruction, Gate, Parameter, Delay
+from qiskit.circuit import Gate, Parameter
 from qiskit.circuit.library import RZGate, SXGate
-from qiskit.pulse import Schedule, ScheduleBlock
 from qiskit.providers import Backend
-from qiskit.result import Counts
+from qiskit.pulse import ScheduleBlock
 from qiskit.qobj.utils import MeasLevel
-from qiskit_experiments.framework import BaseExperiment, Options, ExperimentData, AnalysisResultData
-from qiskit_experiments.framework.matplotlib import default_figure_canvas
-from qiskit_experiments.data_processing import DataProcessor, Probability
-from qiskit_experiments.exceptions import CalibrationError
-import qiskit_experiments.curve_analysis as curve
+from qiskit.result import Counts
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
-from qiskit_experiments.visualization import CurvePlotter, MplDrawer
+import qiskit_experiments.curve_analysis as curve
+from qiskit_experiments.framework import BaseExperiment, ExperimentData, Options
 
-from ..common.framework_overrides import CompoundAnalysis
-from ..common.ef_space import EFSpaceExperiment
-from ..common.gates import SetF12, RZ12Gate, SX12Gate
-from ..common.iq_classification import IQClassification
-from ..common.transpilation import map_to_physical_qubits
-from ..common.util import default_shots
-from .rabi import Rabi
-from .rough_amplitude import EFRabi
-from .dummy_data import ef_memory, single_qubit_counts
+from ..constants import DEFAULT_SHOTS
+from ..experiment_mixins.ef_space import EFSpaceExperiment
+from ..gates import RZ12Gate, SX12Gate
+from ..transpilation import map_to_physical_qubits
+from ..util.dummy_data import ef_memory, single_qubit_counts
 
 twopi = 2. * np.pi
 
 
 class RamseyPhaseSweep(BaseExperiment):
-    """SX + delay + phase shift + SX experiment for measuring a static Z Hamiltonian.
+    r"""SX + delay + phase shift + SX experiment for measuring a static Z Hamiltonian.
 
     This experiment can be used to measure e.g. the static ZZ interaction as well as to calibrate
     the drive frequency.
@@ -129,9 +121,9 @@ class RamseyPhaseSweep(BaseExperiment):
         delay_durations: Optional[Sequence[int]] = None,
         delay_schedule: Optional[ScheduleBlock] = None,
         num_points: Optional[int] = None,
-        pre_schedule: Optional[Union[ScheduleBlock, Tuple[Gate, Sequence[int]], Callable]] = None,
+        pre_schedule: Optional[Union[ScheduleBlock, tuple[Gate, Sequence[int]], Callable]] = None,
         target_logical_qubit: int = 0,
-        extra_metadata: Optional[Dict[str, Any]] = None,
+        extra_metadata: Optional[dict[str, Any]] = None,
         experiment_index: Optional[int] = None,
         backend: Optional[Backend] = None
     ):
@@ -169,7 +161,7 @@ class RamseyPhaseSweep(BaseExperiment):
 
         circuit.barrier()
 
-    def circuits(self) -> List[QuantumCircuit]:
+    def circuits(self) -> list[QuantumCircuit]:
         delay_schedule = self.experiment_options.delay_schedule
         delay_durations = self.experiment_options.delay_durations
         phase_shifts = np.linspace(0., twopi, self.experiment_options.num_points, endpoint=False)
@@ -222,30 +214,27 @@ class RamseyPhaseSweep(BaseExperiment):
 
         return circuits
 
-    def _transpiled_circuits(self) -> List[QuantumCircuit]:
+    def _transpiled_circuits(self) -> list[QuantumCircuit]:
         qubits = self.physical_qubits
         target = self.transpile_options.target
         return [map_to_physical_qubits(circ, qubits, target) for circ in self.circuits()]
 
     def _metadata(self):
         metadata = super()._metadata()
-        metadata['dt'] = self._backend_data.dt
-
         if self.extra_metadata:
             metadata.update(self.extra_metadata)
-
         return metadata
 
     def dummy_data(
         self,
-        transpiled_circuits: List[QuantumCircuit]
-    ) -> List[Union[np.ndarray, Counts]]:
+        transpiled_circuits: list[QuantumCircuit]
+    ) -> list[Union[np.ndarray, Counts]]:
         return self._dummy_data((0, 1))
 
-    def _dummy_data(self, states: Tuple[int, int]) -> List[np.ndarray]:
+    def _dummy_data(self, states: tuple[int, int]) -> list[np.ndarray]:
         phase_shifts = np.linspace(0., twopi, self.experiment_options.num_points, endpoint=False)
         delay_durations = self.experiment_options.delay_durations
-        shots = self.run_options.get('shots', default_shots)
+        shots = self.run_options.get('shots', DEFAULT_SHOTS)
         num_qubits = 1
         meas_return = self.run_options.get('meas_return', 'avg')
 
@@ -269,15 +258,17 @@ class RamseyPhaseSweep(BaseExperiment):
         return data
 
 
-class EFRamseyPhaseSweep(EFSpaceExperiment, IQClassification, RamseyPhaseSweep):
+class EFRamseyPhaseSweep(EFSpaceExperiment, RamseyPhaseSweep):
+    """RamseyPhaseSweep for EF space."""
     __sx_gate__ = SX12Gate
     __rz_gate__ = RZ12Gate
 
-    def dummy_data(self, transpiled_circuits: List[QuantumCircuit]) -> List[np.ndarray]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
         return self._dummy_data((0, 2))
 
 
 class RamseyPhaseSweepAnalysis(curve.CurveAnalysis):
+    """Analysis for RamseyPhaseSweep."""
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
@@ -312,7 +303,7 @@ class RamseyPhaseSweepAnalysis(curve.CurveAnalysis):
         self,
         user_opt: curve.FitOptions,
         curve_data: curve.CurveData,
-    ) -> Union[curve.FitOptions, List[curve.FitOptions]]:
+    ) -> Union[curve.FitOptions, list[curve.FitOptions]]:
         """Create algorithmic initial fit guess from analysis options and curve data.
 
         Args:
@@ -320,7 +311,7 @@ class RamseyPhaseSweepAnalysis(curve.CurveAnalysis):
             curve_data: Formatted data collection to fit.
 
         Returns:
-            List of fit options that are passed to the fitter function.
+            list of fit options that are passed to the fitter function.
         """
         options = []
         if user_opt.p0.get('epsilon') is not None or user_opt.p0.get('omega_z_dt') is not None:
@@ -351,8 +342,7 @@ class RamseyPhaseSweepAnalysis(curve.CurveAnalysis):
 
 
 class EFRamseyPhaseSweepFrequencyCal(BaseCalibrationExperiment, EFRamseyPhaseSweep):
-    r"""Frequency calibration with RamseyPhaseSweep."""
-
+    """Frequency calibration with RamseyPhaseSweep."""
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -365,7 +355,7 @@ class EFRamseyPhaseSweepFrequencyCal(BaseCalibrationExperiment, EFRamseyPhaseSwe
         super().__init__(
             calibrations,
             physical_qubits,
-            schedule_name='set_f12',
+            schedule_name=None,
             cal_parameter_name='f12',
             auto_update=auto_update,
             delay_durations=delay_durations,
@@ -373,11 +363,8 @@ class EFRamseyPhaseSweepFrequencyCal(BaseCalibrationExperiment, EFRamseyPhaseSwe
             backend=backend
         )
 
-        self.set_f12_schedule = calibrations.get_schedule(self._sched_name, self.physical_qubits)
-
     def _attach_calibrations(self, circuit: QuantumCircuit):
-        super()._attach_calibrations(circuit)
-        circuit.add_calibration('set_f12', self.physical_qubits, self.set_f12_schedule)
+        pass
 
     def update_calibrations(self, experiment_data: ExperimentData):
         """Update the calibrations."""
@@ -387,13 +374,12 @@ class EFRamseyPhaseSweepFrequencyCal(BaseCalibrationExperiment, EFRamseyPhaseSwe
         prev_freq = self._cals.get_parameter_value(
             self._param_name,
             self.physical_qubits,
-            schedule=self._sched_name,
-            group='default'
+            group=group
         )
 
         omega_z = (BaseUpdater.get_value(experiment_data, 'omega_z_dt', result_index)
-                   / experiment_data.metadata['dt'])
+                   / self._backend_data.dt)
         new_freq = prev_freq - omega_z / twopi
 
         BaseUpdater.add_parameter_value(self._cals, experiment_data, new_freq, self._param_name,
-                                        schedule=self._sched_name, group=group)
+                                        group=group)
