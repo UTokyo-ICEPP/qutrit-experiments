@@ -82,11 +82,10 @@ def add_x12_sx12(
     # Schedules
     for gate_name, pulse_name in [('x12', 'Ξp'), ('sx12', 'Ξ90p')]:
         with pulse.build(name=gate_name) as sched:
-            with pulse.phase_offset(Parameter('phase_offset'), drive_channel):
-                pulse.play(ModulatedDrag(Parameter('duration'), Parameter('amp'),
-                                         Parameter('sigma'), Parameter('beta'), Parameter('freq'),
-                                         name=pulse_name),
-                           drive_channel)
+            pulse.play(ModulatedDrag(Parameter('duration'), Parameter('amp'),
+                                     Parameter('sigma'), Parameter('beta'), Parameter('freq'),
+                                     angle=Parameter('angle'), name=pulse_name),
+                       drive_channel)
         calibrations.add_schedule(sched, num_qubits=1)
 
     # Parameter default values
@@ -101,7 +100,7 @@ def add_x12_sx12(
                 value = getattr(qubit_pulse, param_name)
                 calibrations.add_parameter_value(ParameterValue(value), param_name, qubits=[qubit],
                                                  schedule=gate_name)
-            for param_name in ['phase_offset', 'amp', 'beta', 'freq']:
+            for param_name in ['amp', 'beta', 'freq', 'angle']:
                 calibrations.add_parameter_value(ParameterValue(0.), param_name, qubits=[qubit],
                                                  schedule=gate_name)
 

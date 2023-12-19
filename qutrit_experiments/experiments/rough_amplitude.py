@@ -70,7 +70,7 @@ class EFRoughXSXAmplitudeCal(RoughAmplitudeCal, EFRabi):
         self._param_name = list(cal_parameter_name)
 
         angles = [np.pi, np.pi / 2.]
-        self.experiment_options.angles_schedules = list(
+        self.experiment_options.angles_schedules = [
             AnglesSchedules(
                 target_angle=angle,
                 parameter=pname,
@@ -78,7 +78,7 @@ class EFRoughXSXAmplitudeCal(RoughAmplitudeCal, EFRabi):
                 previous_value=None
             )
             for angle, pname, sname in zip(angles, cal_parameter_name, schedule_name)
-        )
+        ]
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         pass

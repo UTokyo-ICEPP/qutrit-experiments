@@ -91,18 +91,19 @@ class AddQutritCalibrations(TransformationPass):
             qubit = dag.find_bit(node.qargs[0]).index
 
             if isinstance(node.op, RZGate):
+                # Rz(phi) = [ShiftPhase(-phi, qubit_channel), ShiftPhase(0.5phi, qutrit_channel)]
                 qubit_phase_offsets[qubit] -= node.op.params[0]
-                # shift_phase(-phi) applied to the qubit channel -> tally up +0.5phi for qutrit
                 qutrit_phase_offsets[qubit] += 0.5 * node.op.params[0]
             elif isinstance(node.op, RZ12Gate):
+                # Rz12(phi) = [ShiftPhase(-phi, qutrit_channel), ShiftPhase(0.5phi, qubit_channel)]
                 qutrit_phase_offsets[qubit] -= node.op.params[0]
+                # This Rz translates simply to ShiftPhase(0.5phi, qubit_channel)
                 dag.substitute_node(node, RZGate(-0.5 * node.op.params[0]), inplace=True)
-                qubit_phase_offsets[qubit] -= 0.5 * node.op.params[0]
-            elif isinstance(node.op, XGate):
-                delta = self.calibrations.get_parameter_value('xstark', qubit)
-                qutrit_phase_offsets[qubit] -= 0.5 * delta
-            elif isinstance(node.op, SXGate):
-                delta = self.calibrations.get_parameter_value('sxstark', qubit)
+                qubit_phase_offsets[qubit] += 0.5 * node.op.params[0]
+            elif isinstance(node.op, (XGate, SXGate)):
+                # X/SX = [Play(qubit_channel), ShiftPhase(-0.5delta, qutrit_channel)]
+                # See the docstring of add_x12_sx12()
+                delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubit)
                 qutrit_phase_offsets[qubit] -= 0.5 * delta
             else:
                 if (mod_freq := modulation_frequencies.get(qubit)) is None:
@@ -110,28 +111,28 @@ class AddQutritCalibrations(TransformationPass):
                                 - self.target.qubit_properties[qubit].frequency) * self.target.dt
                     modulation_frequencies[qubit] = mod_freq
 
-                phase_offset = qutrit_phase_offsets[qubit] - qubit_phase_offsets[qubit]
-                phase_offset += node_start_time[node] * mod_freq
+                angle = qutrit_phase_offsets[qubit] - qubit_phase_offsets[qubit]
+                angle += node_start_time[node] * mod_freq
+                assign_params = {'freq': mod_freq, 'angle': angle}
+                sched = self.calibrations.get_schedule(node.op.name, qubit,
+                                                       assign_params=assign_params)
+                dag.add_calibration(node.op.name, (qubit,), sched, [angle])
 
+                # X12/SX12 = [Play(qutrit_channel), ShiftPhase(0.5delta, qubit_channel)]
                 delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubit)
+                qubit_phase_offsets[qubit] += 0.5 * delta
 
                 subdag = DAGCircuit()
                 subdag.add_qreg((qreg := QuantumRegister(1)))
-                pulse_node = subdag.apply_operation_back(node.op.__class__(phase_offset), [qreg[0]])
-                rz_node = subdag.apply_operation_back(RZGate(0.5 * delta), [qreg[0]])
-                qubit_phase_offsets[qubit] += 0.5 * delta
+                subdag.apply_operation_back(node.op.__class__(angle), [qreg[0]])
+                subdag.apply_operation_back(RZGate(-0.5 * delta), [qreg[0]])
                 subst_map = dag.substitute_node_with_dag(node, subdag)
-
-                assign_params = {'freq': mod_freq, 'phase_offset': phase_offset}
-                sched = self.calibrations.get_schedule(node.op.name, qubit,
-                                                       assign_params=assign_params)
-                dag.add_calibration(node.op.name, (qubit,), sched, [phase_offset])
-
                 # Update the node_start_time map. InstructionDurations passed to the scheduling
                 # pass must be constructed using the same calibrations object and therefore the
                 # node duration must be consistent with sched.duration.
                 start_time = node_start_time.pop(node)
-                node_start_time[subst_map[pulse_node._node_id]] = start_time
+                op_node, rz_node = tuple(subdag.topological_op_nodes())
+                node_start_time[subst_map[op_node._node_id]] = start_time
                 node_start_time[subst_map[rz_node._node_id]] = start_time + sched.duration
 
         return dag
