@@ -7,35 +7,31 @@ import uuid
 from collections.abc import Callable
 from datetime import datetime, timezone
 from numbers import Number
-from typing import TYPE_CHECKING, Optional, Union
+from typing import Optional, Union
 import matplotlib
 import numpy as np
 
-from qiskit.providers import JobStatus
+from qiskit.providers import Backend, JobStatus
 from qiskit.qobj.utils import MeasLevel
 from qiskit.result import Counts
-from qiskit.transpiler import InstructionDurations, PassManager
-from qiskit.transpiler.passes.scheduling import ALAPScheduleAnalysis
-from qiskit_experiments.calibration_management import BaseCalibrationExperiment, ParameterValue
-from qiskit_experiments.framework import AnalysisStatus, CompositeAnalysis as CompositeAnalysisOrig
+from qiskit_experiments.calibration_management import (BaseCalibrationExperiment, Calibrations,
+                                                       ParameterValue)
+from qiskit_experiments.framework import (AnalysisStatus, BaseAnalysis, BaseExperiment,
+                                          CompositeAnalysis as CompositeAnalysisOrig,
+                                          ExperimentData)
 from qiskit_experiments.framework.composite.composite_experiment import (CompositeExperiment
                                                                          as CompositeExperimentOrig)
 from qiskit_experiments.exceptions import AnalysisError
-from qiskit_ibm_runtime import Session
+from qiskit_ibm_runtime import RuntimeJob, Session
 
 from ..constants import DEFAULT_SHOTS
 from ..experiment_config import ExperimentConfig, experiments, postexperiments
 from ..framework.postprocessed_experiment_data import PostprocessedExperimentData
 from ..framework_overrides.composite_analysis import CompositeAnalysis
 from ..framework_overrides.composite_experiment import CompositeExperiment
-from ..transpilation.add_calibrations import AddQutritCalibrations
+from ..transpilation.qutrit_circuits import make_instruction_durations, transpile_qutrit_circuits
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule
-
-if TYPE_CHECKING:
-    from qiskit.providers import Backend
-    from qiskit_experiments.calibration_management import Calibrations
-    from qiskit_experiments.framework import BaseAnalysis, BaseExperiment, ExperimentData
 
 def display(_): # pylint: disable=missing-function-docstring
     pass
@@ -59,8 +55,8 @@ class ExperimentsRunner:
     """
     def __init__(
         self,
-        backend: 'Backend',
-        calibrations: Optional['Calibrations'] = None,
+        backend: Backend,
+        calibrations: Optional[Calibrations] = None,
         data_dir: Optional[str] = None,
         read_only: bool = False,
         runtime_session: Optional[Session] = None
@@ -123,7 +119,7 @@ class ExperimentsRunner:
     def make_experiment(
         self,
         config: Union[str, ExperimentConfig]
-    ) -> 'BaseExperiment':
+    ) -> BaseExperiment:
         if isinstance(config, str):
             config = experiments[config](self)
 
@@ -155,12 +151,12 @@ class ExperimentsRunner:
     def run_experiment(
         self,
         config: Union[str, ExperimentConfig],
-        experiment: Optional['BaseExperiment'] = None,
+        experiment: Optional[BaseExperiment] = None,
         postprocess: bool = True,
         analyze: bool = True,
-        calibrate: Union[bool, Callable[['ExperimentData'], bool]] = True,
+        calibrate: Union[bool, Callable[[ExperimentData], bool]] = True,
         print_level: int = 2
-    ) -> 'ExperimentData':
+    ) -> ExperimentData:
         if isinstance(config, str):
             config = experiments[config](self)
         if experiment is None:
@@ -171,31 +167,20 @@ class ExperimentsRunner:
 
         experiment.set_run_options(**config.run_options)
 
+        exp_data = None
         ## Try retrieving exp_data from the pickle
-        exp_data = self.find_saved_data(exp_type)
-        if exp_data is None:
+        if self.saved_data_exists(exp_type):
+            exp_data = self.load_data(exp_type)
+        else:
             # Construct the data from running or retrieving jobs -> publish the raw data
             exp_data = self._new_experiment_data(experiment)
             if self.code_test:
                 logger.info('Generating dummy data for %s.', exp_type)
                 self._run_code_test(experiment, exp_data)
             else:
-                jobs = None
-                if self._data_dir:
-                    job_ids_path = os.path.join(self._data_dir, f'{exp_type}_jobs.dat')
-                    if os.path.exists(job_ids_path):
-                        with open(job_ids_path, encoding='utf-8') as source:
-                            num_jobs = len(source.readline().strip().split())
-                            job_unique_tag = source.readline().strip()
-
-                        # provider.jobs() is a lot faster than calling retrieve_job multiple times
-                        logger.info('Reconstructing experiment data using the unique id %s',
-                                    job_unique_tag)
-                        jobs = self._runtime_session.service.jobs(limit=num_jobs,
-                                                                  backend_name=self._backend.name,
-                                                                  job_tags=[job_unique_tag])
-
-                if not jobs:
+                if self.job_ids_exist(exp_type):
+                    jobs = self.load_jobs(exp_type)
+                else:
                     jobs = self._submit_jobs(experiment)
 
                 exp_data.add_jobs(jobs)
@@ -252,8 +237,8 @@ class ExperimentsRunner:
 
     def run_analysis(
         self,
-        experiment_data: 'ExperimentData',
-        analysis: Optional['BaseAnalysis'] = None
+        experiment_data: ExperimentData,
+        analysis: Optional[BaseAnalysis] = None
     ):
         logger.info('Running the analysis for %s', experiment_data.experiment_type)
 
@@ -265,20 +250,14 @@ class ExperimentsRunner:
         if experiment_data.analysis_status() != AnalysisStatus.DONE:
             raise AnalysisError(f'Analysis status = {experiment_data.analysis_status().value}')
 
-    def get_transpiled_circuits(self, experiment: 'BaseExperiment'):
+    def get_transpiled_circuits(self, experiment: BaseExperiment):
         """Return a list of transpiled circuits accounting for qutrit-specific instructions."""
         if self.calibrations is None:
             # Nothing to do
             return experiment._transpiled_circuits()
 
-        instruction_durations = InstructionDurations(self._backend.instruction_durations,
-                                                     dt=self._backend.dt)
-        for inst_name in ['x12', 'sx12']:
-            durations = [(inst_name, qubit,
-                          self.calibrations.get_schedule(inst_name, qubit).duration)
-                         for qubit in experiment.physical_qubits]
-            instruction_durations.update(durations)
-        instruction_durations.update([('rz12', qubit, 0) for qubit in experiment.physical_qubits])
+        instruction_durations = make_instruction_durations(self._backend, self._calibrations,
+                                                           qubits=experiment.physical_qubits)
 
         qutrit_gates = ['x12', 'sx12', 'rz12']
 
@@ -310,15 +289,10 @@ class ExperimentsRunner:
         if not circuits_with_qutrit_gates:
             return circuits
 
-        # Recompute the gate durations, calculate the phase shifts for all qutrit gates, and insert
-        # AC Stark shift corrections to qubit gates
-        pm = PassManager()
-        pm.append(ALAPScheduleAnalysis(instruction_durations))
-        add_cal = AddQutritCalibrations(self._backend.target)
-        add_cal.calibrations = self.calibrations # See the comment in the class for why we do this
-        pm.append(add_cal)
-        circuits_with_qutrit_gates = pm.run(circuits_with_qutrit_gates)
-
+        circuits_with_qutrit_gates = transpile_qutrit_circuits(circuits_with_qutrit_gates,
+                                                               self._backend,
+                                                               self._calibrations,
+                                                               instruction_durations)
         for ic, circuit in zip(indices, circuits_with_qutrit_gates):
             circuits[ic] = circuit
 
@@ -326,7 +300,7 @@ class ExperimentsRunner:
 
     def save_data(
         self,
-        experiment_data: 'ExperimentData'
+        experiment_data: ExperimentData
     ):
         if not self._data_dir:
             return
@@ -342,10 +316,38 @@ class ExperimentsRunner:
         experiment_data._experiment = experiment
         experiment_data.backend = backend
 
+    def saved_data_exists(self, exp_type: str) -> bool:
+        return self._file_exists(f'{exp_type}.pkl')
+
+    def job_ids_exist(self, exp_type: str) -> bool:
+        return self._file_exists(f'{exp_type}_jobs.dat')
+
+    def _file_exists(self, file_name: str) -> bool:
+        if not self._data_dir:
+            return False
+        return os.path.exists(os.path.join(self._data_dir, file_name))
+
+    def load_data(self, exp_type: str) -> ExperimentData:
+        with open(os.path.join(self._data_dir, f'{exp_type}.pkl'), 'rb') as source:
+            exp_data = deep_copy_no_results(pickle.load(source))
+
+        logger.info('Unpickled experiment data for %s.', exp_type)
+        return exp_data
+
+    def load_jobs(self, exp_type: str) -> list[RuntimeJob]:
+        with open(os.path.join(self._data_dir, f'{exp_type}_jobs.dat'), encoding='utf-8') as source:
+            num_jobs = len(source.readline().strip().split())
+            job_unique_tag = source.readline().strip()
+
+        # provider.jobs() is a lot faster than calling retrieve_job multiple times
+        logger.info('Reconstructing experiment data using the unique id %s', job_unique_tag)
+        return self._runtime_session.service.jobs(limit=num_jobs, backend_name=self._backend.name,
+                                                  job_tags=[job_unique_tag])
+
     def update_calibrations(
         self,
-        experiment_data: 'ExperimentData',
-        experiment: Optional['BaseExperiment'] = None
+        experiment_data: ExperimentData,
+        experiment: Optional[BaseExperiment] = None
     ):
         def _get_update_list(exp_data, exp):
             if isinstance(exp, BaseCalibrationExperiment):
@@ -393,30 +395,10 @@ class ExperimentsRunner:
         if update_list and self._data_dir and not self._read_only:
             self._calibrations.save(folder=self._data_dir, overwrite=True)
 
-    def saved_data_exists(self, exp_type: str) -> bool:
-        if not self._data_dir:
-            return False
-
-        pickle_path = os.path.join(self._data_dir, f'{exp_type}.pkl')
-        return os.path.exists(pickle_path)
-
-    def find_saved_data(self, exp_type: str) -> Union['ExperimentData', None]:
-        if not self.saved_data_exists(exp_type):
-            return None
-
-        pickle_path = os.path.join(self._data_dir, f'{exp_type}.pkl')
-
-        with open(pickle_path, 'rb') as source:
-            exp_data = deep_copy_no_results(pickle.load(source))
-
-        logger.info('Unpickled experiment data for %s.', exp_type)
-
-        return exp_data
-
     def _new_experiment_data(
         self,
-        experiment: 'BaseExperiment',
-    ) -> 'ExperimentData':
+        experiment: BaseExperiment,
+    ) -> ExperimentData:
         # Finalize the experiment before executions
         experiment._finalize()
 
@@ -432,8 +414,8 @@ class ExperimentsRunner:
 
     def _submit_jobs(
         self,
-        experiment: 'BaseExperiment',
-    ) -> 'ExperimentData':
+        experiment: BaseExperiment,
+    ) -> ExperimentData:
         logger.info('Submitting experiment circuit jobs for %s.', experiment.experiment_type)
 
         # Generate and transpile circuits
@@ -477,7 +459,7 @@ class ExperimentsRunner:
 
         return jobs
 
-    def _check_status(self, experiment_data: 'ExperimentData'):
+    def _check_status(self, experiment_data: ExperimentData):
         logger.info('Checking the job status for %s', experiment_data.experiment_type)
 
         ## Check the job status
@@ -617,7 +599,7 @@ class ExperimentsRunner:
         return job_circuits
 
 
-def deep_copy_no_results(experiment_data: 'ExperimentData'):
+def deep_copy_no_results(experiment_data: ExperimentData):
     """Create a shallow copy of the experiment data, including child data.
 
     Serialized ExperimentData is missing the attribute _monitor_executor due to a bug.
@@ -633,7 +615,7 @@ def deep_copy_no_results(experiment_data: 'ExperimentData'):
     return new_data
 
 
-def print_summary(experiment_data: 'ExperimentData'):
+def print_summary(experiment_data: ExperimentData):
     logger.info('Analysis results (%d total):', len(experiment_data.analysis_results()))
     for res in experiment_data.analysis_results():
         logger.info(' - %s', res.name)
