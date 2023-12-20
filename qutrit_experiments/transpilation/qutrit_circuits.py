@@ -93,13 +93,14 @@ class AddQutritCalibrations(TransformationPass):
         qubit_phase_offsets = defaultdict(float)
         qutrit_phase_offsets = defaultdict(float)
 
-        for node in dag.topological_op_nodes():
+        for node in list(dag.topological_op_nodes()):
             if node not in node_start_time:
                 raise TranspilerError(
                     f"Operation {repr(node)} is likely added after the circuit is scheduled. "
                     "Schedule the circuit again if you transformed it."
                 )
-            if not isinstance(node.op, (RZGate, SXGate, XGate, RZ12Gate, SX12Gate, X12Gate)):
+            if not isinstance(node.op, (RZGate, SXGate, XGate, SetF12Gate, RZ12Gate, SX12Gate,
+                                        X12Gate)):
                 continue
 
             qubit = dag.find_bit(node.qargs[0]).index
@@ -111,7 +112,8 @@ class AddQutritCalibrations(TransformationPass):
                 modulation_frequencies[qubit] = (
                     node.op.params[0] - self.target.qubit_properties[qubit].frequency
                 ) * self.target.dt
-            if isinstance(node.op, RZGate):
+                dag.remove_op_node(node)
+            elif isinstance(node.op, RZGate):
                 # Rz(phi) = [ShiftPhase(-phi, qubit_channel), ShiftPhase(0.5phi, qutrit_channel)]
                 phi = node.op.params[0]
                 qubit_phase_offsets[qubit] -= phi
