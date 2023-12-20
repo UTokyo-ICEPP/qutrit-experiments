@@ -20,7 +20,6 @@ from ..constants import DEFAULT_SHOTS
 from ..experiment_mixins.ef_space import EFSpaceExperiment
 from ..experiment_mixins.map_to_physical_qubits import MapToPhysicalQubits
 from ..gates import RZ12Gate, SX12Gate
-from ..transpilation import map_to_physical_qubits
 from ..util.dummy_data import ef_memory, single_qubit_counts
 
 twopi = 2. * np.pi
@@ -286,8 +285,8 @@ class RamseyPhaseSweepAnalysis(curve.CurveAnalysis):
             outcome='1',
             data_subfit_map={f'delay{delay}': {'delay': delay} for delay in delay_durations},
             bounds={
-                'amp': (0.4, 0.6),
-                'base': (0.4, 0.6),
+                'amp': (0., 0.6),
+                'base': (0., 1.),
                 'epsilon': (-np.pi, np.pi)
             }
         )

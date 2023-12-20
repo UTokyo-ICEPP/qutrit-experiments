@@ -1,6 +1,7 @@
 # pylint: disable=import-outside-toplevel, function-redefined, unused-argument
 """Single qutrit calibration and characterization experiments."""
 import numpy as np
+from qiskit_experiments.visualization import MplDrawer, IQPlotter
 
 from .qutrit import (qutrit_rough_frequency, qutrit_rough_frequency_post, qutrit_rough_amplitude,
                      qutrit_semifine_frequency, qutrit_fine_frequency, qutrit_rough_x_drag,
@@ -54,5 +55,14 @@ def qutrit_rough_amplitude(runner, experiment_data):
 
     amps = np.array([d['metadata']['xval'] for d in experiment_data.data()])
     theta, dist = ef_discriminator_analysis(experiment_data, np.argmin(np.abs(amps)))
-    runner.program_data['iq_discriminator'] = {runner.program_data['qubit']:
-                                               LinearDiscriminator(theta, dist)}
+    discriminator = LinearDiscriminator(theta, dist)
+    runner.program_data['iq_discriminator'] = {runner.program_data['qubit']: discriminator}
+
+    if False:
+        for iamp, datum in enumerate(experiment_data.data()):
+            amplitude = datum['metadata']['amplitude']
+            plotter = IQPlotter(MplDrawer())
+            plotter.set_series_data('0', points=np.squeeze(datum['memory']))
+            plotter.set_figure_options(series_params={'0': {'label': f'amp={amplitude}'}})
+            plotter.set_supplementary_data(discriminator=discriminator)
+            experiment_data.add_figures(plotter.figure(), f'iq_{iamp}')

@@ -65,6 +65,7 @@ from qiskit_experiments.data_processing import DataProcessor
 if TYPE_CHECKING:
     from qiskit_experiments.framework import ExperimentData
 
+
 def fit_discriminator_boundary(
     wval: np.ndarray,
     samples: np.ndarray,
@@ -114,6 +115,11 @@ def fit_discriminator_boundary(
     if np.cos(2. * np.pi * freq * wval[idx_i1] + phase) < 0.:
         phase += np.pi
 
+    # Scale the samples and dist down
+    samples /= centroids_dist
+    dist /= centroids_dist
+
+    # Constant coefficients
     cval = np.cos(2. * np.pi * freq * wval + phase)
     sumc = np.sum(cval)
     cmat_inv_row0 = np.linalg.inv([[sumc, wval.shape[0]],
@@ -121,17 +127,17 @@ def fit_discriminator_boundary(
 
     def minus_ahat(params):
         nvec = jnp.array([jnp.cos(params[0]), jnp.sin(params[0])])
-        zval = jnp.mean(jnp.tanh((jnp.dot(samples, nvec) - params[1]) / centroids_dist), axis=1)
+        zval = -jnp.mean(jnp.tanh(jnp.dot(samples, nvec) - params[1]), axis=1)
         return -jnp.dot(cmat_inv_row0, jnp.array([jnp.sum(zval), jnp.sum(cval * zval)]))
 
-    solver = jaxopt.BFGS(fun=minus_ahat, maxiter=maxiter, tol=convergence)
+    solver = jaxopt.GradientDescent(fun=minus_ahat, maxiter=maxiter, tol=convergence)
     res = solver.run(jnp.array([theta, dist]))
     theta, dist = map(float, res.params)
-
     while theta > np.pi:
         theta -= 2. * np.pi
     while theta < -np.pi:
         theta += 2. * np.pi
+    dist *= centroids_dist
 
     return theta, dist
 
