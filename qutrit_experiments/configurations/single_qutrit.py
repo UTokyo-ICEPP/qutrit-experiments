@@ -1,3 +1,4 @@
+# pylint: disable=import-outside-toplevel, function-redefined, unused-argument
 """Single qutrit calibration and characterization experiments."""
 import numpy as np
 
@@ -8,7 +9,7 @@ from .qutrit import (qutrit_rough_frequency, qutrit_rough_frequency_post, qutrit
                      qutrit_x_stark_shift, qutrit_sx_stark_shift, qutrit_rotary_stark_shift,
                      qutrit_assignment_error, qutrit_assignment_error_post, qutrit_t1)
 from ..experiment_config import register_exp, register_post
-from ..util.iq_classification import SingleQutritLinearIQClassifier
+from ..util.linear_discriminator import LinearDiscriminator
 
 
 def register_single_qutrit_exp(function):
@@ -53,5 +54,5 @@ def qutrit_rough_amplitude(runner, experiment_data):
 
     amps = np.array([d['metadata']['xval'] for d in experiment_data.data()])
     theta, dist = ef_discriminator_analysis(experiment_data, np.argmin(np.abs(amps)))
-    runner.program_data['iq_classifier'] = {runner.program_data['qubit']:
-                                            SingleQutritLinearIQClassifier(theta, dist)}
+    runner.program_data['iq_discriminator'] = {runner.program_data['qubit']:
+                                               LinearDiscriminator(theta, dist)}
