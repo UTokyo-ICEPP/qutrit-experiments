@@ -97,7 +97,10 @@ class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
 
     def _set_subanalysis_options(self, experiment_data: ExperimentData):
         for subanalysis in self._analyses:
-            subanalysis.options.plot = self.options.plot
+            subanalysis.set_options(
+                plot=self.options.plot,
+                data_processor=self.options.data_processor
+            )
 
     def _run_additional_analysis(
         self,
