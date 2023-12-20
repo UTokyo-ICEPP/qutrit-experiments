@@ -1,25 +1,25 @@
-from typing import List, Optional, Sequence
+"""Fine amplitude calibration for X12 and SX12 gates."""
+from collections.abc import Sequence
+from typing import Optional
 import numpy as np
-
 from qiskit import QuantumCircuit
-from qiskit.circuit import Gate, CircuitInstruction
-from qiskit.pulse import ScheduleBlock
+from qiskit.circuit import CircuitInstruction
 from qiskit.providers import Backend
 from qiskit.qobj.utils import MeasLevel
 from qiskit_experiments.framework import Options
 from qiskit_experiments.calibration_management import Calibrations
 from qiskit_experiments.library import FineAmplitude, FineAmplitudeCal
 
-from ..common.iq_classification import IQClassification
-from ..common.ef_space import EFSpaceExperiment
-from ..common.transpilation import map_to_physical_qubits
-from ..common.util import default_shots
-from ..common.gates import X12Gate, SX12Gate
-from .dummy_data import ef_memory, single_qubit_counts
+from ..experiment_mixins.ef_space import EFSpaceExperiment
+from ..transpilation import map_to_physical_qubits
+from ..constants import DEFAULT_SHOTS
+from ..gates import X12Gate, SX12Gate
+from ..util.dummy_data import ef_memory, single_qubit_counts
 
 
 class CustomTranspiledFineAmplitude(FineAmplitude):
-    def _transpiled_circuits(self) -> List[QuantumCircuit]:
+    """FineAmplitude with optimized transpiler sequence."""
+    def _transpiled_circuits(self) -> list[QuantumCircuit]:
         repetitions = self.experiment_options.repetitions
         gate = self.experiment_options.gate
         circuits = self.circuits()
@@ -44,15 +44,17 @@ class CustomTranspiledFineAmplitude(FineAmplitude):
         for circuit, repetition in enumerate(circuits[icirc + 1:], repetitions[1:]):
             tcirc = first_circuit.copy()
             for _ in range(repetition - repetitions[0]):
-                tcirc.data.insert(gate_position, CircuitInstruction(gate, [self.physical_qubits[0]]))
+                tcirc.data.insert(gate_position,
+                                  CircuitInstruction(gate, [self.physical_qubits[0]]))
             tcirc.metadata = circuit.metadata
             transpiled_circuits.append(tcirc)
 
         return transpiled_circuits
 
 
-class EFFineAmplitude(EFSpaceExperiment, IQClassification, CustomTranspiledFineAmplitude):
-    def _spam_cal_circuits(self, meas_circuit: QuantumCircuit) -> List[QuantumCircuit]:
+class EFFineAmplitude(EFSpaceExperiment, CustomTranspiledFineAmplitude):
+    """EF-space FineAmplitude."""
+    def _spam_cal_circuits(self, meas_circuit: QuantumCircuit) -> list[QuantumCircuit]:
         cal_circuits = []
 
         qubits = meas_circuit.get_instructions("measure")[0][1]
@@ -78,6 +80,7 @@ class EFFineAmplitude(EFSpaceExperiment, IQClassification, CustomTranspiledFineA
 
 
 class EFFineAmplitudeCal(FineAmplitudeCal, EFFineAmplitude):
+    """Calibration experiment for EFFineAmplitude."""
     def _attach_calibrations(self, circuit: QuantumCircuit):
         for gate in ['x12', 'sx12']:
             schedule = self._cals.get_schedule(gate, self.physical_qubits)
@@ -85,6 +88,7 @@ class EFFineAmplitudeCal(FineAmplitudeCal, EFFineAmplitude):
 
 
 class EFFineXAmplitudeCal(EFFineAmplitudeCal):
+    """Specialization of EFFineAmplitude for X12."""
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -115,9 +119,9 @@ class EFFineXAmplitudeCal(EFFineAmplitudeCal):
         circuit.append(SX12Gate(), qargs=[0])
         return circuit
 
-    def dummy_data(self, transpiled_circuits: List[QuantumCircuit]) -> List[np.ndarray]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
         repetitions = np.array(self.experiment_options.repetitions)
-        shots = self.run_options.get('shots', default_shots)
+        shots = self.run_options.get('shots', DEFAULT_SHOTS)
         one_probs = 0.5 * np.cos(np.pi / 2. + 0.02 + (np.pi + 0.01) * repetitions) + 0.5
         num_qubits = 1
 
@@ -134,11 +138,11 @@ class EFFineXAmplitudeCal(EFFineAmplitudeCal):
 
             return ef_memory(one_probs, shots, num_qubits, meas_return,
                              states=states)
-        else:
-            return single_qubit_counts(one_probs, shots, num_qubits)
+        return single_qubit_counts(one_probs, shots, num_qubits)
 
 
 class EFFineSXAmplitudeCal(EFFineAmplitudeCal):
+    """Specialization of EFFineAmplitude for SX12."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
         r"""Default values for the fine amplitude experiment.
@@ -148,7 +152,7 @@ class EFFineSXAmplitudeCal(EFFineAmplitudeCal):
                 experiment.
             add_xp_circuit (bool): This option is False by default when calibrating gates with
                 a target angle per gate of :math:`\pi/2`.
-            repetitions (List[int]): By default the repetitions take on odd numbers for
+            repetitions (list[int]): By default the repetitions take on odd numbers for
                 :math:`\pi/2` target angles as this ideally prepares states on the equator of
                 the Bloch sphere. Note that the repetitions include two repetitions which
                 plays the same role as including a circuit with an X gate.
@@ -184,9 +188,9 @@ class EFFineSXAmplitudeCal(EFFineAmplitudeCal):
             }
         )
 
-    def dummy_data(self, transpiled_circuits: List[QuantumCircuit]) -> List[np.ndarray]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
         repetitions = np.array(self.experiment_options.repetitions)
-        shots = self.run_options.get('shots', default_shots)
+        shots = self.run_options.get('shots', DEFAULT_SHOTS)
         one_probs = 0.5 * np.cos((np.pi / 2. + 0.01) * repetitions) + 0.5
         num_qubits = 1
 
@@ -203,5 +207,4 @@ class EFFineSXAmplitudeCal(EFFineAmplitudeCal):
 
             return ef_memory(one_probs, shots, num_qubits, meas_return,
                              states=states)
-        else:
-            return single_qubit_counts(one_probs, shots, num_qubits)
+        return single_qubit_counts(one_probs, shots, num_qubits)

@@ -136,28 +136,31 @@ class AddQutritCalibrations(TransformationPass):
                                 - self.target.qubit_properties[qubit].frequency) * self.target.dt
                     modulation_frequencies[qubit] = mod_freq
 
+                if ((qubit,), ()) not in dag.calibrations.get(node.op.name, {}):
+                    assign_params = {'freq': mod_freq}
+                    sched = self.calibrations.get_schedule(node.op.name, qubit,
+                                                           assign_params=assign_params)
+                    dag.add_calibration(node.op.name, (qubit,), sched)
+
                 angle = qutrit_phase_offsets[qubit] - qubit_phase_offsets[qubit]
                 angle += node_start_time[node] * twopi * mod_freq
-                assign_params = {'freq': mod_freq, 'angle': angle}
-                sched = self.calibrations.get_schedule(node.op.name, qubit,
-                                                       assign_params=assign_params)
-                dag.add_calibration(node.op.name, (qubit,), sched, [angle])
-
                 # X12/SX12 = [Play(qutrit_channel), ShiftPhase(0.5delta, qubit_channel)]
                 delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubit)
                 qubit_phase_offsets[qubit] += 0.5 * delta
 
                 subdag = DAGCircuit()
                 subdag.add_qreg((qreg := QuantumRegister(1)))
-                subdag.apply_operation_back(node.op.__class__(angle), [qreg[0]])
-                subdag.apply_operation_back(RZGate(-0.5 * delta), [qreg[0]])
+                subdag.apply_operation_back(RZGate(-angle), [qreg[0]])
+                subdag.apply_operation_back(node.op, [qreg[0]])
+                subdag.apply_operation_back(RZGate(angle - 0.5 * delta), [qreg[0]])
                 subst_map = dag.substitute_node_with_dag(node, subdag)
                 # Update the node_start_time map. InstructionDurations passed to the scheduling
                 # pass must be constructed using the same calibrations object and therefore the
                 # node duration must be consistent with sched.duration.
                 start_time = node_start_time.pop(node)
-                op_node, rz_node = tuple(subdag.topological_op_nodes())
-                node_start_time[subst_map[op_node._node_id]] = start_time
-                node_start_time[subst_map[rz_node._node_id]] = start_time + sched.duration
+                op_nodes = tuple(subdag.topological_op_nodes())
+                node_start_time[subst_map[op_nodes[0]._node_id]] = start_time
+                node_start_time[subst_map[op_nodes[1]._node_id]] = start_time
+                node_start_time[subst_map[op_nodes[2]._node_id]] = start_time + sched.duration
 
         return dag
