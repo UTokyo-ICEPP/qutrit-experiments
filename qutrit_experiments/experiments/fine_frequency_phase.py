@@ -14,9 +14,10 @@ from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Opt
 from qiskit_experiments.framework.matplotlib import default_figure_canvas
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
+from .delay_phase_offset import EFRamseyPhaseSweep, RamseyPhaseSweepAnalysis
 from ..framework.compound_analysis import CompoundAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
-from .delay_phase_offset import EFRamseyPhaseSweep, RamseyPhaseSweepAnalysis
+from ..gates import SetF12Gate
 
 twopi = 2. * np.pi
 
@@ -49,7 +50,7 @@ class EFRamseyFrequencyScan(BatchExperiment):
                                             num_points=num_points,
                                             extra_metadata={'f12': frequency},
                                             backend=backend)
-            experiment.set_experiment_options(f12=frequency)
+            experiment.set_experiment_options(pre_schedule=(SetF12Gate(frequency), [0]))
             experiments.append(experiment)
             experiment.analysis.set_options(nwind_hypotheses=[0])
             analyses.append(experiment.analysis)

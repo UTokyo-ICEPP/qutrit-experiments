@@ -29,7 +29,8 @@ from ..experiment_config import ExperimentConfig, experiments, postexperiments
 from ..framework.postprocessed_experiment_data import PostprocessedExperimentData
 from ..framework_overrides.composite_analysis import CompositeAnalysis
 from ..framework_overrides.composite_experiment import CompositeExperiment
-from ..transpilation.qutrit_circuits import make_instruction_durations, transpile_qutrit_circuits
+from ..transpilation.qutrit_circuits import (QUTRIT_GATES, make_instruction_durations,
+                                             transpile_qutrit_circuits)
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule
 
@@ -139,7 +140,7 @@ class ExperimentsRunner:
 
         # CompositeExperiment creates a CompositeAnalysisOrig by default; overwrite to the
         # serial version
-        if type(experiment.analysis) is CompositeAnalysisOrig:
+        if type(experiment.analysis) is CompositeAnalysisOrig: # pylint: disable=unidiomatic-typecheck
             analyses = experiment.analysis.component_analysis()
             flatten_results = experiment.analysis._flatten_results
             experiment.analysis = CompositeAnalysis(analyses, flatten_results=flatten_results)
@@ -208,7 +209,7 @@ class ExperimentsRunner:
             logger.info('No analysis will be performed for %s.', exp_type)
             return exp_data
 
-        if type(experiment.analysis) is CompositeAnalysis:
+        if type(experiment.analysis) is CompositeAnalysis: # pylint: disable=unidiomatic-typecheck
             subanalyses = experiment.analysis.component_analysis()
             if isinstance((ana_opt := config.analysis_options), dict):
                 ana_opt = [ana_opt for _ in range(len(subanalyses))]
@@ -259,8 +260,6 @@ class ExperimentsRunner:
         instruction_durations = make_instruction_durations(self._backend, self._calibrations,
                                                            qubits=experiment.physical_qubits)
 
-        qutrit_gates = ['x12', 'sx12', 'rz12']
-
         if not isinstance(experiment, BaseCalibrationExperiment):
             experiment.set_transpile_options(
                 # By setting the basis_gates, PassManagerConfig.from_backend() will not take the
@@ -268,7 +267,7 @@ class ExperimentsRunner:
                 # manager. When the target is None, HighLevelSynthesis (responsible for translating
                 # all gates to basis gates) will reference the passed basis_gates list and leaves
                 # all gates appearing in the list untouched.
-                basis_gates=self._backend.basis_gates + qutrit_gates,
+                basis_gates=self._backend.basis_gates + QUTRIT_GATES,
                 # Scheduling method has to be specified in case there are delay instructions that
                 # violate the alignment constraints, in which case a ConstrainedRescheduling is
                 # triggered, which fails without precalculated node_start_times.
@@ -277,26 +276,9 @@ class ExperimentsRunner:
                 instruction_durations=instruction_durations
             )
 
-        circuits = experiment._transpiled_circuits()
-
-        circuits_with_qutrit_gates = []
-        indices = []
-        for ic, circuit in enumerate(circuits):
-            if any(inst.operation.name in qutrit_gates for inst in circuit.data):
-                circuits_with_qutrit_gates.append(circuit)
-                indices.append(ic)
-
-        if not circuits_with_qutrit_gates:
-            return circuits
-
-        circuits_with_qutrit_gates = transpile_qutrit_circuits(circuits_with_qutrit_gates,
-                                                               self._backend,
-                                                               self._calibrations,
-                                                               instruction_durations)
-        for ic, circuit in zip(indices, circuits_with_qutrit_gates):
-            circuits[ic] = circuit
-
-        return circuits
+        return transpile_qutrit_circuits(experiment._transpiled_circuits(),
+                                         self._backend, self._calibrations,
+                                         instruction_durations=instruction_durations)
 
     def save_data(
         self,
@@ -470,14 +452,11 @@ class ExperimentsRunner:
                                             f'{experiment_data.experiment_type}_jobs.dat')
                 failed_jobs_path = os.path.join(self._data_dir,
                                                 f'{experiment_data.experiment_type}_failedjobs.dat')
-                try:
-                    with open(failed_jobs_path, 'a', encoding='utf-8') as out:
-                        with open(job_ids_path, 'r', encoding='utf-8') as source:
-                            out.write(source.read())
+                with open(failed_jobs_path, 'a', encoding='utf-8') as out:
+                    with open(job_ids_path, 'r', encoding='utf-8') as source:
+                        out.write(source.read())
 
-                    os.unlink(job_ids_path)
-                except Exception:
-                    pass
+                os.unlink(job_ids_path)
 
             raise RuntimeError(f'Job status = {job_status.value}')
 

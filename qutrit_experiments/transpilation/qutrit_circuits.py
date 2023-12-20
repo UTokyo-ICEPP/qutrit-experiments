@@ -1,16 +1,25 @@
+"""Functions and transpiler passes to transpile qutrit circuits."""
+
 from collections import defaultdict
 from collections.abc import Sequence
 from typing import Optional, Union
+import numpy as np
 from qiskit import QuantumCircuit, QuantumRegister
 from qiskit.circuit.library import RZGate, SXGate, XGate
 from qiskit.dagcircuit import DAGCircuit
 from qiskit.providers import Backend
 from qiskit.transpiler import (InstructionDurations, PassManager, Target, TransformationPass,
                                TranspilerError)
-from qiskit.transpiler.passes.scheduling import ALAPScheduleAnalysis
+
+from qiskit.transpiler.passes import ALAPScheduleAnalysis, ContainsInstruction
 from qiskit_experiments.calibration_management import Calibrations
 
-from ..gates import RZ12Gate, SX12Gate, X12Gate
+from ..gates import RZ12Gate, SetF12Gate, SX12Gate, X12Gate
+
+twopi = 2. * np.pi
+QUTRIT_PULSE_GATES = ['x12', 'sx12']
+QUTRIT_VIRTUAL_GATES = ['rz12', 'set_f12']
+QUTRIT_GATES = QUTRIT_PULSE_GATES + QUTRIT_VIRTUAL_GATES
 
 
 def make_instruction_durations(
@@ -23,11 +32,12 @@ def make_instruction_durations(
         qubits = set(range(backend.num_qubits)) - set(backend.properties().faulty_qubits())
 
     instruction_durations = InstructionDurations(backend.instruction_durations, dt=backend.dt)
-    for inst_name in ['x12', 'sx12']:
+    for inst_name in QUTRIT_PULSE_GATES:
         durations = [(inst_name, qubit, calibrations.get_schedule(inst_name, qubit).duration)
                      for qubit in qubits]
         instruction_durations.update(durations)
-    instruction_durations.update([('rz12', qubit, 0) for qubit in qubits])
+    for inst_name in QUTRIT_VIRTUAL_GATES:
+        instruction_durations.update([(inst_name, qubit, 0) for qubit in qubits])
     return instruction_durations
 
 
@@ -42,11 +52,15 @@ def transpile_qutrit_circuits(
     if instruction_durations is None:
         instruction_durations = make_instruction_durations(backend, calibrations)
 
+    def contains_qutrit_gates(property_set):
+        return sum(int(property_set[f'contains_{inst}']) for inst in QUTRIT_GATES) != 0
+
     pm = PassManager()
-    pm.append(ALAPScheduleAnalysis(instruction_durations))
+    pm.append(ContainsInstruction(QUTRIT_GATES))
+    scheduling = ALAPScheduleAnalysis(instruction_durations)
     add_cal = AddQutritCalibrations(backend.target)
     add_cal.calibrations = calibrations # See the comment in the class for why we do this
-    pm.append(add_cal)
+    pm.append([scheduling, add_cal], condition=contains_qutrit_gates)
     return pm.run(circuits)
 
 
@@ -90,16 +104,25 @@ class AddQutritCalibrations(TransformationPass):
 
             qubit = dag.find_bit(node.qargs[0]).index
 
+            if isinstance(node.op, SetF12Gate):
+                if qubit in modulation_frequencies:
+                    raise TranspilerError('Operation set_f12 must appear before any x12, sx12, and'
+                                          ' set_f12 gates in the circuit.')
+                modulation_frequencies[qubit] = (
+                    node.op.params[0] - self.target.qubit_properties[qubit].frequency
+                ) * self.target.dt
             if isinstance(node.op, RZGate):
                 # Rz(phi) = [ShiftPhase(-phi, qubit_channel), ShiftPhase(0.5phi, qutrit_channel)]
-                qubit_phase_offsets[qubit] -= node.op.params[0]
-                qutrit_phase_offsets[qubit] += 0.5 * node.op.params[0]
+                phi = node.op.params[0]
+                qubit_phase_offsets[qubit] -= phi
+                qutrit_phase_offsets[qubit] += 0.5 * phi
             elif isinstance(node.op, RZ12Gate):
                 # Rz12(phi) = [ShiftPhase(-phi, qutrit_channel), ShiftPhase(0.5phi, qubit_channel)]
-                qutrit_phase_offsets[qubit] -= node.op.params[0]
+                phi = node.op.params[0]
+                qutrit_phase_offsets[qubit] -= phi
+                qubit_phase_offsets[qubit] += 0.5 * phi
                 # This Rz translates simply to ShiftPhase(0.5phi, qubit_channel)
-                dag.substitute_node(node, RZGate(-0.5 * node.op.params[0]), inplace=True)
-                qubit_phase_offsets[qubit] += 0.5 * node.op.params[0]
+                dag.substitute_node(node, RZGate(-0.5 * phi), inplace=True)
             elif isinstance(node.op, (XGate, SXGate)):
                 # X/SX = [Play(qubit_channel), ShiftPhase(-0.5delta, qutrit_channel)]
                 # See the docstring of add_x12_sx12()
@@ -112,7 +135,7 @@ class AddQutritCalibrations(TransformationPass):
                     modulation_frequencies[qubit] = mod_freq
 
                 angle = qutrit_phase_offsets[qubit] - qubit_phase_offsets[qubit]
-                angle += node_start_time[node] * mod_freq
+                angle += node_start_time[node] * twopi * mod_freq
                 assign_params = {'freq': mod_freq, 'angle': angle}
                 sched = self.calibrations.get_schedule(node.op.name, qubit,
                                                        assign_params=assign_params)
