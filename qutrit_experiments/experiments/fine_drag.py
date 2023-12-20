@@ -1,8 +1,9 @@
-from typing import Dict, Optional, Any, List, Sequence
+"""Fine-grain calibration of the DRAG beta parameter for X12 and SX12 gates."""
+from collections.abc import Sequence
+from typing import Any, Optional
 import numpy as np
-
 from qiskit import pulse, QuantumCircuit
-from qiskit.circuit import Gate
+from qiskit.circuit import CircuitInstruction, Gate
 from qiskit.providers import Backend
 from qiskit.qobj.utils import MeasLevel
 from qiskit_experiments.framework import ExperimentData, Options
@@ -11,15 +12,14 @@ from qiskit_experiments.calibration_management import BaseCalibrationExperiment,
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.library import FineDrag
 
-from ..common.iq_classification import IQClassification
-from ..common.ef_space import EFSpaceExperiment
-from ..common.transpilation import map_to_physical_qubits
-from ..common.util import default_shots
-from ..common.gates import SX12Gate
-from .dummy_data import ef_memory, single_qubit_counts
+from ..experiment_mixins.ef_space import EFSpaceExperiment
+from ..transpilation import map_to_physical_qubits
+from ..constants import DEFAULT_SHOTS
+from ..gates import RZ12Gate, SX12Gate
+from ..util.dummy_data import ef_memory, single_qubit_counts
 
 
-class EFFineDrag(EFSpaceExperiment, IQClassification, FineDrag):
+class EFFineDrag(EFSpaceExperiment, FineDrag):
     """FineDrag experiment for the 1<->2 space Rx pulses.
 
     The original FineDrag uses sx and rz gates in its circuits. We replace them, in a rather hacky
@@ -31,7 +31,7 @@ class EFFineDrag(EFSpaceExperiment, IQClassification, FineDrag):
     is Rz12(-pi).Rx.Rz12(pi). We are saved by the fact that the experiment operates entirely in the
     |1>-|2> space, rendering the geometric phase global.
     """
-    def circuits(self) -> List[QuantumCircuit]:
+    def circuits(self) -> list[QuantumCircuit]:
         circuits = super().circuits()
 
         for circuit in circuits:
@@ -43,13 +43,13 @@ class EFFineDrag(EFSpaceExperiment, IQClassification, FineDrag):
 
         return circuits
 
-    def _transpiled_circuits(self) -> List[QuantumCircuit]:
+    def _transpiled_circuits(self) -> list[QuantumCircuit]:
         repetitions = self.experiment_options.repetitions
         gate = self.experiment_options.gate
 
         circuits = self.circuits()
         first_circuit = map_to_physical_qubits(circuits[0], self.physical_qubits,
-                                               self.transpile_options.target)
+                                               self._backend_data.coupling_map)
 
         transpiled_circuits = [first_circuit]
         rep_position = next(pos for pos, inst in enumerate(first_circuit.data)
@@ -72,8 +72,8 @@ class EFFineDrag(EFSpaceExperiment, IQClassification, FineDrag):
 
         return transpiled_circuits
 
-    def dummy_data(self, transpiled_circuits: List[QuantumCircuit]) -> List[np.ndarray]:
-        shots = self.run_options.get('shots', default_shots)
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
+        shots = self.run_options.get('shots', DEFAULT_SHOTS)
         one_probs = np.full(len(self.experiment_options.repetitions), 0.5)
         num_qubits = 1
 
@@ -87,11 +87,11 @@ class EFFineDrag(EFSpaceExperiment, IQClassification, FineDrag):
 
             return ef_memory(one_probs, shots, num_qubits, meas_return,
                              states=states)
-        else:
-            return single_qubit_counts(one_probs, shots, num_qubits)
+        return single_qubit_counts(one_probs, shots, num_qubits)
 
 
 class EFFineDragCal(BaseCalibrationExperiment, EFFineDrag):
+    """Calibration experiment for EFFineDrag."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
         """Default experiment options.
@@ -122,7 +122,7 @@ class EFFineDragCal(BaseCalibrationExperiment, EFFineDrag):
             auto_update=auto_update
         )
 
-    def _metadata(self) -> Dict[str, Any]:
+    def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
 
         metadata["cal_param_value"] = self._cals.get_parameter_value(
@@ -175,6 +175,7 @@ class EFFineDragCal(BaseCalibrationExperiment, EFFineDrag):
 
 
 class EFFineXDragCal(EFFineDragCal):
+    """Specialization of EFFineDragCal for X12."""
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -208,6 +209,7 @@ class EFFineXDragCal(EFFineDragCal):
 
 
 class EFFineSXDragCal(EFFineDragCal):
+    """Specialization of EFFineDragCal for SX12."""
     def __init__(
         self,
         physical_qubits: Sequence[int],

@@ -35,7 +35,7 @@ class CustomTranspiledFineAmplitude(FineAmplitude):
             icirc = 2
 
         first_circuit = map_to_physical_qubits(circuits[icirc], self.physical_qubits,
-                                               self._backend_data)
+                                               self._backend_data.coupling_map)
         transpiled_circuits.append(first_circuit)
 
         gate_position = next(pos for pos, inst in enumerate(first_circuit.data)

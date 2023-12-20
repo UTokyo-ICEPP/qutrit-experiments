@@ -1,4 +1,6 @@
-from typing import Optional, List, Sequence, Dict, Any, Union
+"""Measurement of AC Stark shift-induced delta parameters."""
+from collections.abc import Sequence
+from typing import Any, Optional, Union
 import numpy as np
 from qiskit import QuantumCircuit, pulse
 from qiskit.pulse import Schedule, ScheduleBlock
@@ -10,13 +12,14 @@ from qiskit_experiments.calibration_management import BaseCalibrationExperiment,
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 
-from ..common.gates import X12Gate, SX12Gate, RZ12Gate, SetF12
-from ..common.transpilation import replace_calibration_and_metadata
-from ..common.util import default_shots
-from .dummy_data import single_qubit_counts
+from ..gates import X12Gate, SX12Gate, RZ12Gate
+from ..transpilation import replace_calibration_and_metadata
+from ..constants import DEFAULT_SHOTS
+from ..util.dummy_data import single_qubit_counts
 
 
 class BasePhaseRotation(BaseExperiment):
+    """Phase rotation-Rz-SX experiment."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
@@ -47,13 +50,11 @@ class BasePhaseRotation(BaseExperiment):
         if phase_shifts is not None:
             self.set_experiment_options(phase_shifts=phase_shifts)
 
-    def circuits(self) -> List[QuantumCircuit]:
+    def circuits(self) -> list[QuantumCircuit]:
         phi = Parameter('phi')
 
         template = QuantumCircuit(1)
-
         template.compose(self._phase_rotation_sequence(), inplace=True)
-
         template.rz(phi, 0)
         template.sx(0)
         template.measure_all()
@@ -62,8 +63,7 @@ class BasePhaseRotation(BaseExperiment):
             'qubits': self.physical_qubits
         }
 
-        circuits = list()
-
+        circuits = []
         for phase in self.experiment_options.phase_shifts:
             circuit = template.assign_parameters({phi: phase}, inplace=False)
             circuit.metadata['xval'] = phase
@@ -71,9 +71,12 @@ class BasePhaseRotation(BaseExperiment):
 
         return circuits
 
-    def _transpiled_circuits(self) -> List[QuantumCircuit]:
+    def _phase_rotation_sequence(self) -> QuantumCircuit:
+        return QuantumCircuit(1)
+
+    def _transpiled_circuits(self) -> list[QuantumCircuit]:
         return replace_calibration_and_metadata(self.circuits(), self.physical_qubits,
-                                                self.transpile_options.target)
+                                                self._backend_data.coupling_map)
 
     def _metadata(self):
         metadata = super()._metadata()
@@ -84,15 +87,9 @@ class BasePhaseRotation(BaseExperiment):
                 metadata[run_opt] = getattr(self.run_options, run_opt)
         return metadata
 
-    def _template_transpiled_circuits(
-        self,
-        templates: List[QuantumCircuit]
-    ) -> List[QuantumCircuit]:
-        return self._replace_template_schedules(templates)
-
-    def dummy_data(self, transpiled_circuits: List[QuantumCircuit]) -> List[Counts]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
         phases = self.experiment_options.phase_shifts + 0.1
-        shots = self.run_options.get('shots', default_shots)
+        shots = self.run_options.get('shots', DEFAULT_SHOTS)
         num_qubits = 1
 
         one_probs = np.cos(phases) * 0.49 + 0.51
@@ -118,12 +115,12 @@ class X12QubitPhaseRotation(BasePhaseRotation):
 
     .. math::
 
-        |\langle 1 | \sqrt{X} R_z(\phi) U_{\xi}(-\pi; \delta) U_{\xi}(\pi; \delta) \sqrt{X} | 0 \rangle|^2
+        |\langle 1 | \sqrt{X} R_z(\phi) U_{\xi}(-\pi; \delta) U_{\xi}(\pi; \delta) \sqrt{X}
+            | 0 \rangle|^2
         \propto 1 + \cos (\delta + \phi).
     """
     def _phase_rotation_sequence(self) -> QuantumCircuit:
         template = QuantumCircuit(1)
-        template.append(SetF12(), [0])
         template.sx(0)
         template.append(X12Gate(), [0])
         template.append(RZ12Gate(np.pi), [0])
@@ -134,6 +131,7 @@ class X12QubitPhaseRotation(BasePhaseRotation):
 
 
 class X12StarkShiftPhaseCal(BaseCalibrationExperiment, X12QubitPhaseRotation):
+    """Calibration experiment for X12QubitPhaseRotation."""
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -158,7 +156,7 @@ class X12StarkShiftPhaseCal(BaseCalibrationExperiment, X12QubitPhaseRotation):
         schedule = self._cals.get_schedule('x12', self.physical_qubits[0])
         circuit.add_calibration('x12', [self.physical_qubits[0]], schedule)
 
-    def _metadata(self) -> Dict[str, Any]:
+    def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
 
         metadata["cal_param_value"] = self._cals.get_parameter_value(
@@ -208,12 +206,12 @@ class XQutritPhaseRotation(BasePhaseRotation):
 
     .. math::
 
-        | \langle 1 | \sqrt{X} R_{z}(\phi) R_{\xi}(\pi) U_{x}(\pi; \delta) R_{\xi}(\pi/2) X | 0 \rangle |^2
+        | \langle 1 | \sqrt{X} R_{z}(\phi) R_{\xi}(\pi) U_{x}(\pi; \delta) R_{\xi}(\pi/2) X
+            | 0 \rangle |^2
         \propto 1 + \cos \left( \phi - \frac{\delta}{2} \right).
     """
     def _phase_rotation_sequence(self) -> QuantumCircuit:
         template = QuantumCircuit(1)
-        template.append(SetF12(), [0])
         template.x(0)
         template.append(SX12Gate(), [0])
         template.x(0)
@@ -223,6 +221,7 @@ class XQutritPhaseRotation(BasePhaseRotation):
 
 
 class XStarkShiftPhaseCal(BaseCalibrationExperiment, XQutritPhaseRotation):
+    """Calibration experiment for XQutritPhaseRotation."""
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -247,7 +246,7 @@ class XStarkShiftPhaseCal(BaseCalibrationExperiment, XQutritPhaseRotation):
         schedule = self._cals.get_schedule('x', self.physical_qubits[0])
         circuit.add_calibration('x', [self.physical_qubits[0]], schedule)
 
-    def _metadata(self) -> Dict[str, Any]:
+    def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
 
         metadata["cal_param_value"] = self._cals.get_parameter_value(
@@ -304,7 +303,6 @@ class SXQutritPhaseRotation(BasePhaseRotation):
     """
     def _phase_rotation_sequence(self) -> QuantumCircuit:
         template = QuantumCircuit(1)
-        template.append(SetF12(), [0])
         template.x(0)
         template.append(SX12Gate(), [0])
         template.sx(0)
@@ -315,6 +313,7 @@ class SXQutritPhaseRotation(BasePhaseRotation):
 
 
 class SXStarkShiftPhaseCal(BaseCalibrationExperiment, SXQutritPhaseRotation):
+    """Calibration experiment for SXQutritPhaseRotation."""
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -339,7 +338,7 @@ class SXStarkShiftPhaseCal(BaseCalibrationExperiment, SXQutritPhaseRotation):
         schedule = self._cals.get_schedule('sx', self.physical_qubits[0])
         circuit.add_calibration('sx', [self.physical_qubits[0]], schedule)
 
-    def _metadata(self) -> Dict[str, Any]:
+    def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
 
         metadata["cal_param_value"] = self._cals.get_parameter_value(
@@ -371,7 +370,8 @@ class SXStarkShiftPhaseCal(BaseCalibrationExperiment, SXQutritPhaseRotation):
 
 
 class RotaryQutritPhaseRotation(BasePhaseRotation):
-    r"""Experiment to measure the phase shift on :math:`|2\rangle` by the rotary tone of qubit-qutrit CR.
+    r"""Experiment to measure the phase shift on :math:`|2\rangle` by the rotary tone of
+    qubit-qutrit CR.
 
     The phase shift on :math:`|0\rangle` by X and X12 must be corrected already.
 
@@ -390,7 +390,8 @@ class RotaryQutritPhaseRotation(BasePhaseRotation):
 
     .. math::
 
-        | \langle 1 | \sqrt{X} R_{z}(\phi) \Xi X U_{x}(-\theta; \delta) U_{x}(\theta; \delta) \sqrt{\Xi} X | 0 \rangle |^2
+        | \langle 1 | \sqrt{X} R_{z}(\phi) \Xi X U_{x}(-\theta; \delta) U_{x}(\theta; \delta)
+            \sqrt{\Xi} X | 0 \rangle |^2
         \propto 1 + \cos \left( \phi - \delta \right).
     """
     def __init__(
@@ -413,7 +414,6 @@ class RotaryQutritPhaseRotation(BasePhaseRotation):
     def _phase_rotation_sequence(self) -> QuantumCircuit:
         gate = Gate('rotary', 1, [])
         template = QuantumCircuit(1)
-        template.append(SetF12(), [0])
         template.x(0)
         template.append(SX12Gate(), [0])
         template.append(gate, [0])
@@ -426,6 +426,7 @@ class RotaryQutritPhaseRotation(BasePhaseRotation):
 
 
 class RotaryStarkShiftPhaseCal(BaseCalibrationExperiment, RotaryQutritPhaseRotation):
+    """Calibration experiment for RotaryQutritPhaseRotation."""
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -454,7 +455,7 @@ class RotaryStarkShiftPhaseCal(BaseCalibrationExperiment, RotaryQutritPhaseRotat
     def _attach_calibrations(self, circuit: QuantumCircuit):
         pass
 
-    def _metadata(self) -> Dict[str, Any]:
+    def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
 
         metadata["cal_param_value"] = self._cals.get_parameter_value(
