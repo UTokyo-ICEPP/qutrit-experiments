@@ -286,7 +286,6 @@ class ExperimentsRunner:
     ):
         if not self._data_dir:
             return
-
         # _experiment and backend attributes may contain unpicklable objects
         experiment = experiment_data.experiment
         backend = experiment_data.backend
@@ -310,6 +309,8 @@ class ExperimentsRunner:
         return os.path.exists(os.path.join(self._data_dir, file_name))
 
     def load_data(self, exp_type: str) -> ExperimentData:
+        if not self._data_dir:
+            raise RuntimeError('ExperimentsRunner does not have a data_dir set')
         with open(os.path.join(self._data_dir, f'{exp_type}.pkl'), 'rb') as source:
             exp_data = deep_copy_no_results(pickle.load(source))
 
@@ -317,6 +318,8 @@ class ExperimentsRunner:
         return exp_data
 
     def load_jobs(self, exp_type: str) -> list[RuntimeJob]:
+        if not self._data_dir:
+            raise RuntimeError('ExperimentsRunner does not have a data_dir set')
         with open(os.path.join(self._data_dir, f'{exp_type}_jobs.dat'), encoding='utf-8') as source:
             num_jobs = len(source.readline().strip().split())
             job_unique_tag = source.readline().strip()
@@ -376,6 +379,36 @@ class ExperimentsRunner:
 
         if update_list and self._data_dir and not self._read_only:
             self._calibrations.save(folder=self._data_dir, overwrite=True)
+
+    def save_program_data(self, key: str):
+        if not self._data_dir:
+            return
+        if not os.path.isdir(pdata_path := os.path.join(self._data_dir, 'program_data')):
+            os.mkdir(pdata_path)
+        with open(os.path.join(pdata_path, f'{key}.pkl'), 'wb') as out:
+            pickle.dump(self.program_data[key], out)
+
+    def load_program_data(
+        self,
+        keys: Optional[Union[str, list[str]]] = None,
+        allow_missing: bool = False
+    ):
+        if (not self._data_dir
+            or not os.path.isdir(pdata_path := os.path.join(self._data_dir, 'program_data'))):
+            raise RuntimeError('Program data directory does not exist')
+        if not keys:
+            keys = map(lambda s: s.replace('.pkl', ''), os.listdir(pdata_path))
+        elif isinstance(keys, str):
+            keys = [keys]
+        for key in keys:
+            try:
+                with open(os.path.join(pdata_path, f'{key}.pkl'), 'rb') as source:
+                    self.program_data[key] = pickle.load(source)
+            except FileNotFoundError:
+                if allow_missing:
+                    logger.info('Program data %s not found.', key)
+                else:
+                    raise
 
     def _new_experiment_data(
         self,

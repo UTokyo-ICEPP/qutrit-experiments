@@ -1,5 +1,6 @@
 # pylint: disable=import-outside-toplevel, function-redefined, unused-argument
 """Config generator prototypes for qutrit gate calibrations."""
+import logging
 import numpy as np
 from qiskit.qobj.utils import MeasLevel, MeasReturnType
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
@@ -7,6 +8,8 @@ from qiskit_experiments.data_processing import (DataProcessor, DiscriminatorNode
                                                 Probability)
 
 from ..experiment_config import ExperimentConfig
+
+logger = logging.getLogger(__name__)
 
 
 def qutrit_rough_frequency(runner, qubit):
@@ -209,12 +212,17 @@ def qutrit_t1(runner, qubit):
 
 def _add_iq_discriminator(config, runner):
     qubit = config.physical_qubits[0]
+
+    if (discriminator := runner.program_data.get('iq_discriminator', {}).get(qubit)) is None:
+        logger.warning('IQ discriminator is missing; proceeding with meas_level=2')
+        return config
+
     config.run_options.update({
         'meas_level': MeasLevel.KERNELED,
         'meas_return': MeasReturnType.SINGLE
     })
     config.analysis_options['data_processor'] = DataProcessor('memory', [
-        DiscriminatorNode(runner.program_data['iq_discriminator'][qubit]),
+        DiscriminatorNode(discriminator),
         MemoryToCounts(),
         Probability(config.analysis_options.get('outcome', '1'))
     ])

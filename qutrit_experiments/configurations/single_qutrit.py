@@ -57,6 +57,7 @@ def qutrit_rough_amplitude(runner, experiment_data):
     theta, dist = ef_discriminator_analysis(experiment_data, np.argmin(np.abs(amps)))
     discriminator = LinearDiscriminator(theta, dist)
     runner.program_data['iq_discriminator'] = {runner.program_data['qubit']: discriminator}
+    runner.save_program_data('iq_discriminator')
 
     if False:
         for iamp, datum in enumerate(experiment_data.data()):
