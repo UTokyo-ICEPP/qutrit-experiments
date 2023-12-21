@@ -143,4 +143,5 @@ def get_qutrit_pulse_gate(
     if assign_params:
         assign_params_dict.update(assign_params)
 
-    return calibrations.get_schedule(gate_name, qubit, assign_params=assign_params, group=group)
+    return calibrations.get_schedule(gate_name, qubit, assign_params=assign_params_dict,
+                                     group=group)

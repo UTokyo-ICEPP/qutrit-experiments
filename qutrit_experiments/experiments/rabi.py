@@ -43,8 +43,7 @@ class EFRabi(EFSpaceExperiment, Rabi):
 
         for circuit in circuits:
             for inst in circuit.data:
-                op = inst.operation
-                if op.name == self.__gate_name__:
+                if (op := inst.operation).name == self.__gate_name__:
                     inst.operation = QutritGate(op.name, 1, list(op.params))
 
         return circuits
