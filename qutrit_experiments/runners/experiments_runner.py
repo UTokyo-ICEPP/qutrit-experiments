@@ -144,6 +144,17 @@ class ExperimentsRunner:
             analyses = experiment.analysis.component_analysis()
             flatten_results = experiment.analysis._flatten_results
             experiment.analysis = CompositeAnalysis(analyses, flatten_results=flatten_results)
+
+        if type(experiment.analysis) is CompositeAnalysis: # pylint: disable=unidiomatic-typecheck
+            subanalyses = experiment.analysis.component_analysis()
+            if isinstance((ana_opt := config.analysis_options), dict):
+                ana_opt = [ana_opt for _ in range(len(subanalyses))]
+            for subana, opt in zip(subanalyses, ana_opt):
+                if opt is not None:
+                    subana.set_options(**opt)
+        elif experiment.analysis is not None:
+            experiment.analysis.set_options(**config.analysis_options)
+
         if isinstance(experiment, BaseCalibrationExperiment):
             experiment.auto_update = False
 
@@ -208,16 +219,6 @@ class ExperimentsRunner:
 
             logger.info('No analysis will be performed for %s.', exp_type)
             return exp_data
-
-        if type(experiment.analysis) is CompositeAnalysis: # pylint: disable=unidiomatic-typecheck
-            subanalyses = experiment.analysis.component_analysis()
-            if isinstance((ana_opt := config.analysis_options), dict):
-                ana_opt = [ana_opt for _ in range(len(subanalyses))]
-            for subana, opt in zip(subanalyses, ana_opt):
-                if opt is not None:
-                    subana.set_options(**opt)
-        else:
-            experiment.analysis.set_options(**config.analysis_options)
 
         self.run_analysis(exp_data, experiment.analysis)
 
