@@ -12,9 +12,10 @@ from qiskit_experiments.calibration_management import BaseCalibrationExperiment,
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 
+from ..calibrations import get_qutrit_pulse_gate
+from ..constants import DEFAULT_SHOTS
 from ..gates import X12Gate, SX12Gate, RZ12Gate
 from ..transpilation import replace_calibration_and_metadata
-from ..constants import DEFAULT_SHOTS
 from ..util.dummy_data import single_qubit_counts
 
 
@@ -153,7 +154,7 @@ class X12StarkShiftPhaseCal(BaseCalibrationExperiment, X12QubitPhaseRotation):
         )
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
-        schedule = self._cals.get_schedule('x12', self.physical_qubits[0])
+        schedule = get_qutrit_pulse_gate('x12', self.physical_qubits[0], self._backend, self._cals)
         circuit.add_calibration('x12', [self.physical_qubits[0]], schedule)
 
     def _metadata(self) -> dict[str, Any]:

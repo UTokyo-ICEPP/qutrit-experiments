@@ -10,6 +10,7 @@ from qiskit_experiments.library import RoughAmplitudeCal
 from qiskit_experiments.library.calibration.rough_amplitude_cal import AnglesSchedules
 
 from .rabi import EFRabi
+from ..calibrations import get_qutrit_pulse_gate
 
 
 class EFRoughXSXAmplitudeCal(RoughAmplitudeCal, EFRabi):
@@ -28,12 +29,8 @@ class EFRoughXSXAmplitudeCal(RoughAmplitudeCal, EFRabi):
         backend: Optional[Backend] = None,
     ):
         qubit = physical_qubits[0]
-        freq = (calibrations.get_parameter_value('f12', qubit)
-                - backend.qubit_properties(qubit).frequency) * backend.dt
-        assign_params = {'freq': freq, cal_parameter_name[0]: Parameter("amp")}
-        schedule = calibrations.get_schedule(
-            schedule_name[0], qubit, assign_params=assign_params, group=group
-        )
+        schedule = get_qutrit_pulse_gate(schedule_name[0], qubit, backend, calibrations,
+                                         assign_params={cal_parameter_name[0]: Parameter("amp")})
 
         self._validate_channels(schedule, [qubit])
         self._validate_parameters(schedule, 1)

@@ -3,7 +3,9 @@
 import logging
 from typing import Optional
 from qiskit import pulse
+from qiskit.circuit.parameterexpression import ParameterValueType
 from qiskit.providers import Backend
+from qiskit.pulse import ScheduleBlock
 from qiskit.circuit import Parameter
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 
@@ -125,3 +127,20 @@ def set_xstark_sxstark_default(
 
         for qubit in operational_qubits:
             calibrations.add_parameter_value(ParameterValue(0.), name, qubits=[qubit])
+
+
+def get_qutrit_pulse_gate(
+    gate_name: str,
+    qubit: int,
+    backend: Backend,
+    calibrations: Calibrations,
+    assign_params: Optional[dict[str, ParameterValueType]] = None,
+    group: str = 'default'
+) -> ScheduleBlock:
+    freq = (calibrations.get_parameter_value('f12', qubit)
+            - backend.qubit_properties(qubit).frequency) * backend.dt
+    assign_params_dict = {'freq': freq}
+    if assign_params:
+        assign_params_dict.update(assign_params)
+
+    return calibrations.get_schedule(gate_name, qubit, assign_params=assign_params, group=group)

@@ -10,6 +10,7 @@ from qiskit_experiments.framework import Options
 from qiskit_experiments.calibration_management import Calibrations
 from qiskit_experiments.library import FineAmplitude, FineAmplitudeCal
 
+from ..calibrations import get_qutrit_pulse_gate
 from ..constants import DEFAULT_SHOTS
 from ..experiment_mixins.ef_space import EFSpaceExperiment
 from ..gates import X12Gate, SX12Gate
@@ -84,8 +85,8 @@ class EFFineAmplitudeCal(FineAmplitudeCal, EFFineAmplitude):
     """Calibration experiment for EFFineAmplitude."""
     def _attach_calibrations(self, circuit: QuantumCircuit):
         for gate in ['x12', 'sx12']:
-            schedule = self._cals.get_schedule(gate, self.physical_qubits)
-            circuit.add_calibration(gate, self.physical_qubits, schedule)
+            sched = get_qutrit_pulse_schedule(gate, self.physical_qubits, self._backend, self._cals)
+            circuit.add_calibration(gate, self.physical_qubits, sched)
 
 
 class EFFineXAmplitudeCal(EFFineAmplitudeCal):

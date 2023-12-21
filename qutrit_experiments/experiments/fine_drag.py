@@ -13,9 +13,10 @@ from qiskit_experiments.calibration_management import BaseCalibrationExperiment,
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.library import FineDrag
 
+from ..calibrations import get_qutrit_pulse_gate
 from ..constants import DEFAULT_SHOTS
 from ..experiment_mixins.ef_space import EFSpaceExperiment
-from ..gates import RZ12Gate, SX12Gate
+from ..gates import QutritGate, RZ12Gate, SX12Gate
 from ..transpilation import map_to_physical_qubits
 from ..util.dummy_data import ef_memory, single_qubit_counts
 
@@ -116,7 +117,7 @@ class EFFineDragCal(BaseCalibrationExperiment, EFFineDrag):
         super().__init__(
             calibrations,
             physical_qubits,
-            Gate(name=schedule_name, num_qubits=1, params=[]),
+            QutritGate(name=schedule_name, num_qubits=1, params=[]),
             schedule_name=schedule_name,
             backend=backend,
             cal_parameter_name=cal_parameter_name,
@@ -205,7 +206,7 @@ class EFFineXDragCal(EFFineDragCal):
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         super()._attach_calibrations(circuit)
-        schedule = self._cals.get_schedule('x12', self.physical_qubits[0])
+        schedule = get_qutrit_pulse_gate('x12', self.physical_qubits[0], self._backend, self._cals)
         circuit.add_calibration('x12', [self.physical_qubits[0]], schedule)
 
 
@@ -244,5 +245,5 @@ class EFFineSXDragCal(EFFineDragCal):
         return circuit
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
-        schedule = self._cals.get_schedule('sx12', self.physical_qubits[0])
+        schedule = get_qutrit_pulse_gate('sx12', self.physical_qubits[0], self._backend, self._cals)
         circuit.add_calibration('sx12', [self.physical_qubits[0]], schedule)
