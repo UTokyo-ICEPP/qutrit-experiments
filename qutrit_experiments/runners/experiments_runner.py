@@ -29,8 +29,8 @@ from ..experiment_config import ExperimentConfig, experiments, postexperiments
 from ..framework.postprocessed_experiment_data import PostprocessedExperimentData
 from ..framework_overrides.composite_analysis import CompositeAnalysis
 from ..framework_overrides.composite_experiment import CompositeExperiment
-from ..transpilation.qutrit_circuits import (QUTRIT_GATES, make_instruction_durations,
-                                             transpile_qutrit_circuits)
+from ..gates import QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES
+from ..transpilation.qutrit_circuits import make_instruction_durations, transpile_qutrit_circuits
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule
 
@@ -267,7 +267,9 @@ class ExperimentsRunner:
                 # manager. When the target is None, HighLevelSynthesis (responsible for translating
                 # all gates to basis gates) will reference the passed basis_gates list and leaves
                 # all gates appearing in the list untouched.
-                basis_gates=self._backend.basis_gates + QUTRIT_GATES,
+                basis_gates=self._backend.basis_gates + [
+                    inst.gate_name for inst in QUTRIT_PULSE_GATES + QUTRIT_VIRTUAL_GATES
+                ],
                 # Scheduling method has to be specified in case there are delay instructions that
                 # violate the alignment constraints, in which case a ConstrainedRescheduling is
                 # triggered, which fails without precalculated node_start_times.

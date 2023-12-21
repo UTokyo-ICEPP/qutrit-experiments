@@ -8,18 +8,16 @@ from qiskit import QuantumCircuit, QuantumRegister
 from qiskit.circuit.library import RZGate, SXGate, XGate
 from qiskit.dagcircuit import DAGCircuit
 from qiskit.providers import Backend
-from qiskit.transpiler import (InstructionDurations, PassManager, Target, TransformationPass,
-                               TranspilerError)
+from qiskit.transpiler import (AnalysisPass, InstructionDurations, PassManager, Target,
+                               TransformationPass, TranspilerError)
 
-from qiskit.transpiler.passes import ALAPScheduleAnalysis, ContainsInstruction
+from qiskit.transpiler.passes import ALAPScheduleAnalysis
 from qiskit_experiments.calibration_management import Calibrations
 
-from ..gates import RZ12Gate, SetF12Gate, SX12Gate, X12Gate
+from ..gates import (QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES, QutritGate, RZ12Gate, SetF12Gate,
+                     SX12Gate, X12Gate)
 
 twopi = 2. * np.pi
-QUTRIT_PULSE_GATES = ['x12', 'sx12']
-QUTRIT_VIRTUAL_GATES = ['rz12', 'set_f12']
-QUTRIT_GATES = QUTRIT_PULSE_GATES + QUTRIT_VIRTUAL_GATES
 
 
 def make_instruction_durations(
@@ -32,12 +30,13 @@ def make_instruction_durations(
         qubits = set(range(backend.num_qubits)) - set(backend.properties().faulty_qubits())
 
     instruction_durations = InstructionDurations(backend.instruction_durations, dt=backend.dt)
-    for inst_name in QUTRIT_PULSE_GATES:
-        durations = [(inst_name, qubit, calibrations.get_schedule(inst_name, qubit).duration)
+    for inst in QUTRIT_PULSE_GATES:
+        durations = [(inst.gate_name, qubit,
+                      calibrations.get_schedule(inst.gate_name, qubit).duration)
                      for qubit in qubits]
         instruction_durations.update(durations)
-    for inst_name in QUTRIT_VIRTUAL_GATES:
-        instruction_durations.update([(inst_name, qubit, 0) for qubit in qubits])
+    for inst in QUTRIT_VIRTUAL_GATES:
+        instruction_durations.update([(inst.gate_name, qubit, 0) for qubit in qubits])
     return instruction_durations
 
 
@@ -52,16 +51,27 @@ def transpile_qutrit_circuits(
     if instruction_durations is None:
         instruction_durations = make_instruction_durations(backend, calibrations)
 
-    def contains_qutrit_gates(property_set):
-        return sum(int(property_set[f'contains_{inst}']) for inst in QUTRIT_GATES) != 0
+    def contains_qutrit_gate(property_set):
+        return property_set['contains_qutrit_gate']
 
     pm = PassManager()
-    pm.append(ContainsInstruction(QUTRIT_GATES))
+    pm.append(ContainsQutritInstruction())
     scheduling = ALAPScheduleAnalysis(instruction_durations)
     add_cal = AddQutritCalibrations(backend.target)
     add_cal.calibrations = calibrations # See the comment in the class for why we do this
-    pm.append([scheduling, add_cal], condition=contains_qutrit_gates)
+    pm.append([scheduling, add_cal], condition=contains_qutrit_gate)
     return pm.run(circuits)
+
+
+class ContainsQutritInstruction(AnalysisPass):
+    """Search the DAG circuit for qutrit gates."""
+    def run(self, dag: DAGCircuit):
+        for node in dag.topological_op_nodes():
+            if isinstance(node.op, QutritGate):
+                self.property_set['contains_qutrit_gate'] = True
+                break
+        else:
+            self.property_set['contains_qutrit_gate'] = False
 
 
 class AddQutritCalibrations(TransformationPass):
@@ -99,8 +109,7 @@ class AddQutritCalibrations(TransformationPass):
                     f"Operation {repr(node)} is likely added after the circuit is scheduled. "
                     "Schedule the circuit again if you transformed it."
                 )
-            if not isinstance(node.op, (RZGate, SXGate, XGate, SetF12Gate, RZ12Gate, SX12Gate,
-                                        X12Gate)):
+            if not isinstance(node.op, (RZGate, SXGate, XGate, QutritGate)):
                 continue
 
             qubit = dag.find_bit(node.qargs[0]).index
@@ -136,17 +145,21 @@ class AddQutritCalibrations(TransformationPass):
                                 - self.target.qubit_properties[qubit].frequency) * self.target.dt
                     modulation_frequencies[qubit] = mod_freq
 
-                if ((qubit,), ()) not in dag.calibrations.get(node.op.name, {}):
-                    assign_params = {'freq': mod_freq}
-                    sched = self.calibrations.get_schedule(node.op.name, qubit,
-                                                           assign_params=assign_params)
-                    dag.add_calibration(node.op.name, (qubit,), sched)
-
                 angle = qutrit_phase_offsets[qubit] - qubit_phase_offsets[qubit]
                 angle += node_start_time[node] * twopi * mod_freq
-                # X12/SX12 = [Play(qutrit_channel), ShiftPhase(0.5delta, qubit_channel)]
-                delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubit)
-                qubit_phase_offsets[qubit] += 0.5 * delta
+
+                if isinstance(node.op, (X12Gate, SX12Gate)):
+                    if ((qubit,), ()) not in dag.calibrations.get(node.op.name, {}):
+                        assign_params = {'freq': mod_freq}
+                        sched = self.calibrations.get_schedule(node.op.name, qubit,
+                                                               assign_params=assign_params)
+                        dag.add_calibration(node.op.name, (qubit,), sched)
+
+                    # X12/SX12 = [Play(qutrit_channel), ShiftPhase(0.5delta, qubit_channel)]
+                    delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubit)
+                    qubit_phase_offsets[qubit] += 0.5 * delta
+                else:
+                    delta = 0.
 
                 subdag = DAGCircuit()
                 subdag.add_qreg((qreg := QuantumRegister(1)))
@@ -158,9 +171,11 @@ class AddQutritCalibrations(TransformationPass):
                 # pass must be constructed using the same calibrations object and therefore the
                 # node duration must be consistent with sched.duration.
                 start_time = node_start_time.pop(node)
+                cal_key = ((qubit,), tuple(node.op.params))
+                op_duration = dag.calibrations[node.op.name][cal_key].duration
                 op_nodes = tuple(subdag.topological_op_nodes())
                 node_start_time[subst_map[op_nodes[0]._node_id]] = start_time
                 node_start_time[subst_map[op_nodes[1]._node_id]] = start_time
-                node_start_time[subst_map[op_nodes[2]._node_id]] = start_time + sched.duration
+                node_start_time[subst_map[op_nodes[2]._node_id]] = start_time + op_duration
 
         return dag

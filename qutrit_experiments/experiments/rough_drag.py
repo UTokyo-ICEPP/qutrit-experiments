@@ -5,6 +5,7 @@ from typing import Optional, Union
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
+from qiskit.circuit.library import RZGate
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
 from qiskit.qobj.utils import MeasLevel
@@ -15,9 +16,10 @@ import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.library import RoughDrag
 from qiskit_experiments.library.characterization.analysis import DragCalAnalysis
 
+from ..constants import DEFAULT_SHOTS
 from ..experiment_mixins.ef_space import EFSpaceExperiment
 from ..experiment_mixins.map_to_physical_qubits import MapToPhysicalQubits
-from ..constants import DEFAULT_SHOTS
+from ..gates import QutritGate, RZ12Gate
 from ..util.dummy_data import ef_memory, single_qubit_counts
 
 
@@ -49,8 +51,11 @@ class EFRoughDrag(MapToPhysicalQubits, EFSpaceExperiment, RoughDrag):
 
         for circuit in circuits:
             for inst in circuit.data:
-                if inst.operation.name == 'rz':
-                    inst.operation.name = 'rz12'
+                op = inst.operation
+                if isinstance(op, RZGate):
+                    inst.operation = RZ12Gate(op.params[0])
+                elif op.name.startswith('Drag'):
+                    inst.operation = QutritGate(op.name, 1, list(op.params))
 
         return circuits
 
@@ -124,7 +129,7 @@ class EFRoughDragCal(BaseCalibrationExperiment, EFRoughDrag):
 class DragCalAnalysisWithAbort(DragCalAnalysis):
     """DragCalAnalysis with possible abort."""
     @staticmethod
-    def abort_if_beta_too_large(params, iteration, resid, *args, **kwargs):
+    def abort_if_beta_too_large(params, iteration, resid, *args, **kwargs): # pylint: disable=unused-argument
         if abs(params['beta']) > 20. or iteration > 1000000:
             return True
         return False

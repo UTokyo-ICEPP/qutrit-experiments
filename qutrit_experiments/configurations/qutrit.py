@@ -3,7 +3,6 @@
 import logging
 import numpy as np
 from qiskit.qobj.utils import MeasLevel, MeasReturnType
-from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.data_processing import (DataProcessor, DiscriminatorNode, MemoryToCounts,
                                                 Probability)
 
@@ -15,15 +14,6 @@ logger = logging.getLogger(__name__)
 def qutrit_rough_frequency(runner, qubit):
     from ..experiments.rough_frequency import EFRoughFrequencyCal
     return ExperimentConfig(EFRoughFrequencyCal, [qubit])
-
-def qutrit_rough_frequency_post(runner, experiment_data, qubit):
-    freq = (runner.calibrations.get_parameter_value('f12', qubit)
-            - runner.backend.qubit_properties(qubit).frequency) * runner.backend.dt
-    for sched_name in ['x12', 'sx12']:
-        for group in ['qutrit_rough_frequency', 'default']:
-            BaseUpdater.add_parameter_value(runner.calibrations, experiment_data, freq, 'freq',
-                                            schedule=sched_name, group=group)
-
 
 def qutrit_rough_amplitude(runner, qubit):
     from ..experiments.rough_amplitude import EFRoughXSXAmplitudeCal

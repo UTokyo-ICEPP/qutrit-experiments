@@ -89,7 +89,7 @@ class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
     ):
         super().__init__(analyses, flatten_results=False)
 
-        self.list_figure = Figure(figsize=[9.6, 1.2 * len(analyses)])
+        self.list_figure = Figure(figsize=[6.4, 2.4 * len(analyses)])
         _ = default_figure_canvas(self.list_figure)
         axs = self.list_figure.subplots(len(analyses), 1, sharex=True)
         for analysis, ax in zip(analyses, axs):

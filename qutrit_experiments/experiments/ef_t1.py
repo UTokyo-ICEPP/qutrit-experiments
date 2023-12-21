@@ -1,23 +1,24 @@
-"""A T1 experiment for qutrits.
-"""
-
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+"""A T1 experiment for qutrits."""
+from collections.abc import Sequence
+from typing import Optional, Union
 import numpy as np
 import lmfit
 from scipy.integrate import odeint
 from qiskit import QuantumCircuit
 from qiskit.circuit import ClassicalRegister, CircuitInstruction
+from qiskit.circuit.library import XGate
 from qiskit.providers import Backend
 from qiskit_experiments.framework import AnalysisResultData, BaseAnalysis, ExperimentData, Options
 from qiskit_experiments.library import T1
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 import qiskit_experiments.curve_analysis as curve
 
-from ..common.ef_space import EFSpaceExperiment
-from ..common.gates import X12Gate
+from ..experiment_mixins.ef_space import EFSpaceExperiment
+from ..gates import X12Gate
 from ..common.readout_mitigation import MCMLocalReadoutMitigation
 
 class EFT1(EFSpaceExperiment, T1):
+    """A T1 experiment for qutrits."""
     _initial_xgate = False
 
     @classmethod
@@ -29,7 +30,7 @@ class EFT1(EFSpaceExperiment, T1):
     def __init__(
         self,
         physical_qubits: Sequence[int],
-        delays: Optional[Union[List[float], np.array]] = None,
+        delays: Optional[Union[list[float], np.array]] = None,
         backend: Optional[Backend] = None
     ):
         if (delays_exp := delays) is None:
@@ -41,18 +42,18 @@ class EFT1(EFSpaceExperiment, T1):
         if delays is not None:
             self.set_experiment_options(delays=delays)
 
-    def circuits(self) -> List[QuantumCircuit]:
+    def circuits(self) -> list[QuantumCircuit]:
         circuits = super().circuits()
         for circuit in circuits:
             for idx, inst in enumerate(circuit.data):
-                if inst.operation.name == 'x':
+                if isinstance(inst.operation, XGate):
                     circuit.data.insert(idx + 1,
                                         CircuitInstruction(X12Gate(), [self.physical_qubits[0]]))
                     break
 
         return circuits
 
-    def _transpiled_circuits(self) -> List[QuantumCircuit]:
+    def _transpiled_circuits(self) -> list[QuantumCircuit]:
         circuits = super()._transpiled_circuits()
         for circuit in circuits:
             creg = ClassicalRegister(size=2)
@@ -88,7 +89,7 @@ class EFT1Analysis(BaseAnalysis):
 
     def _run_data_processing(
         self,
-        raw_data: List[Dict],
+        raw_data: list[dict],
     ) -> curve.CurveData:
 
         xdata = []
@@ -145,7 +146,7 @@ class EFT1Analysis(BaseAnalysis):
     def _run_analysis(
         self,
         experiment_data: ExperimentData,
-    ) -> Tuple[List[AnalysisResultData], List["matplotlib.figure.Figure"]]:
+    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
 
         analysis_results = []
         figures = []

@@ -7,6 +7,7 @@ import numpy as np
 from uncertainties import unumpy as unp
 
 from qiskit import QuantumCircuit
+from qiskit.circuit.library import RZGate, SXGate
 from qiskit.providers import Backend
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
@@ -14,9 +15,10 @@ from qiskit_experiments.framework import ExperimentData
 from qiskit_experiments.library import FineFrequency
 import qiskit_experiments.curve_analysis as curve
 
-from ..transpilation import map_to_physical_qubits
 from ..experiment_mixins.ef_space import EFSpaceExperiment
 from ..experiment_mixins.map_to_physical_qubits import MapToPhysicalQubits
+from ..gates import RZ12Gate, SX12Gate
+from ..transpilation import map_to_physical_qubits
 
 
 class EFFineFrequency(MapToPhysicalQubits, EFSpaceExperiment, FineFrequency):
@@ -49,10 +51,10 @@ class EFFineFrequency(MapToPhysicalQubits, EFSpaceExperiment, FineFrequency):
 
         for circuit in circuits:
             for inst in circuit.data:
-                if inst.operation.name == 'rz':
-                    inst.operation.name = 'rz12'
-                elif inst.operation.name == 'sx':
-                    inst.operation.name = 'sx12'
+                if isinstance(inst.operation, RZGate):
+                    inst.operation = RZ12Gate(inst.operation.params[0])
+                elif isinstance(inst.operation, SXGate):
+                    inst.operation = SX12Gate()
 
         return circuits
 
@@ -68,8 +70,8 @@ class EFFineFrequencyAnalysis(curve.ErrorAmplificationAnalysis):
     def modulated_cosine(x, amp, d_theta, beat_freq, phase_offset, base, angle_per_gate):
         angular_freq = d_theta + angle_per_gate
         angular_beat_freq = 2. * np.pi * beat_freq
-        return (0.5 * amp * unp.cos(angular_freq * x - phase_offset)
-                * unp.cos(angular_beat_freq * x)) + base
+        return (0.5 * amp * unp.cos(angular_freq * x - phase_offset) # pylint: disable=no-member
+                * unp.cos(angular_beat_freq * x)) + base # pylint: disable=no-member
 
     @classmethod
     def _default_options(cls):

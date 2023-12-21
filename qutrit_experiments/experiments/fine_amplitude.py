@@ -10,10 +10,10 @@ from qiskit_experiments.framework import Options
 from qiskit_experiments.calibration_management import Calibrations
 from qiskit_experiments.library import FineAmplitude, FineAmplitudeCal
 
-from ..experiment_mixins.ef_space import EFSpaceExperiment
-from ..transpilation import map_to_physical_qubits
 from ..constants import DEFAULT_SHOTS
+from ..experiment_mixins.ef_space import EFSpaceExperiment
 from ..gates import X12Gate, SX12Gate
+from ..transpilation import map_to_physical_qubits
 from ..util.dummy_data import ef_memory, single_qubit_counts
 
 
@@ -29,7 +29,8 @@ class CustomTranspiledFineAmplitude(FineAmplitude):
 
         if self.experiment_options.add_cal_circuits:
             transpiled_circuits.extend(
-                map_to_physical_qubits(circuit, self.physical_qubits, self.transpile_options.target)
+                map_to_physical_qubits(circuit, self.physical_qubits,
+                                       self._backend_data.coupling_map)
                 for circuit in circuits[:2]
             )
             icirc = 2

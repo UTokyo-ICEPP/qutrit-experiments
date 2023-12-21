@@ -4,6 +4,7 @@ from typing import Any, Optional
 import numpy as np
 from qiskit import pulse, QuantumCircuit
 from qiskit.circuit import CircuitInstruction, Gate
+from qiskit.circuit.library import RZGate, SXGate
 from qiskit.providers import Backend
 from qiskit.qobj.utils import MeasLevel
 from qiskit_experiments.framework import ExperimentData, Options
@@ -12,10 +13,10 @@ from qiskit_experiments.calibration_management import BaseCalibrationExperiment,
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.library import FineDrag
 
-from ..experiment_mixins.ef_space import EFSpaceExperiment
-from ..transpilation import map_to_physical_qubits
 from ..constants import DEFAULT_SHOTS
+from ..experiment_mixins.ef_space import EFSpaceExperiment
 from ..gates import RZ12Gate, SX12Gate
+from ..transpilation import map_to_physical_qubits
 from ..util.dummy_data import ef_memory, single_qubit_counts
 
 
@@ -36,10 +37,10 @@ class EFFineDrag(EFSpaceExperiment, FineDrag):
 
         for circuit in circuits:
             for inst in circuit.data:
-                if inst.operation.name == 'rz':
-                    inst.operation.name = 'rz12'
-                elif inst.operation.name == 'sx':
-                    inst.operation.name = 'sx12'
+                if isinstance(inst.operation, RZGate):
+                    inst.operation = RZ12Gate(inst.operation.params[0])
+                elif isinstance(inst.operation, SXGate):
+                    inst.operation = SX12Gate()
 
         return circuits
 
@@ -53,7 +54,7 @@ class EFFineDrag(EFSpaceExperiment, FineDrag):
 
         transpiled_circuits = [first_circuit]
         rep_position = next(pos for pos, inst in enumerate(first_circuit.data)
-                            if inst.operation.name == 'rz12') - 1
+                            if isinstance(inst.operation, RZ12Gate)) - 1
 
         for circuit, repetition in zip(circuits[1:], repetitions[1:]):
             tcirc = first_circuit.copy()
