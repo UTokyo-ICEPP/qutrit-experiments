@@ -138,15 +138,14 @@ class X12StarkShiftPhaseCal(BaseCalibrationExperiment, X12QubitPhaseRotation):
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         phase_shifts: Optional[Sequence[float]] = None,
-        schedule_name: str = 'x12',
         backend: Optional[Backend] = None,
-        cal_parameter_name: Optional[str] = 'delta',
+        cal_parameter_name: Optional[str] = 'x12stark',
         auto_update: bool = True
     ):
         super().__init__(
             calibrations,
             physical_qubits,
-            schedule_name=schedule_name,
+            schedule_name=None,
             phase_shifts=phase_shifts,
             backend=backend,
             cal_parameter_name=cal_parameter_name,
@@ -154,8 +153,7 @@ class X12StarkShiftPhaseCal(BaseCalibrationExperiment, X12QubitPhaseRotation):
         )
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
-        schedule = get_qutrit_pulse_gate('x12', self.physical_qubits[0], self._backend, self._cals)
-        circuit.add_calibration('x12', [self.physical_qubits[0]], schedule)
+        pass
 
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
@@ -182,7 +180,6 @@ class X12StarkShiftPhaseCal(BaseCalibrationExperiment, X12QubitPhaseRotation):
 
         BaseUpdater.add_parameter_value(
             self._cals, experiment_data, delta, self._param_name,
-            schedule=self._sched_name,
             group=self.experiment_options.group
         )
 
@@ -228,15 +225,14 @@ class XStarkShiftPhaseCal(BaseCalibrationExperiment, XQutritPhaseRotation):
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         phase_shifts: Optional[Sequence[float]] = None,
-        schedule_name: str = 'x',
         backend: Optional[Backend] = None,
-        cal_parameter_name: Optional[str] = 'delta',
+        cal_parameter_name: Optional[str] = 'xstark',
         auto_update: bool = True
     ):
         super().__init__(
             calibrations,
             physical_qubits,
-            schedule_name=schedule_name,
+            schedule_name=None,
             phase_shifts=phase_shifts,
             backend=backend,
             cal_parameter_name=cal_parameter_name,
@@ -244,8 +240,7 @@ class XStarkShiftPhaseCal(BaseCalibrationExperiment, XQutritPhaseRotation):
         )
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
-        schedule = self._cals.get_schedule('x', self.physical_qubits[0])
-        circuit.add_calibration('x', [self.physical_qubits[0]], schedule)
+        pass
 
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
@@ -273,7 +268,6 @@ class XStarkShiftPhaseCal(BaseCalibrationExperiment, XQutritPhaseRotation):
 
         BaseUpdater.add_parameter_value(
             self._cals, experiment_data, delta, self._param_name,
-            schedule=self._sched_name,
             group=self.experiment_options.group
         )
 
@@ -320,15 +314,14 @@ class SXStarkShiftPhaseCal(BaseCalibrationExperiment, SXQutritPhaseRotation):
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         phase_shifts: Optional[Sequence[float]] = None,
-        schedule_name: str = 'sx',
         backend: Optional[Backend] = None,
-        cal_parameter_name: Optional[str] = 'delta',
+        cal_parameter_name: str = 'sxstark',
         auto_update: bool = True
     ):
         super().__init__(
             calibrations,
             physical_qubits,
-            schedule_name=schedule_name,
+            schedule_name=None,
             phase_shifts=phase_shifts,
             backend=backend,
             cal_parameter_name=cal_parameter_name,
@@ -336,8 +329,7 @@ class SXStarkShiftPhaseCal(BaseCalibrationExperiment, SXQutritPhaseRotation):
         )
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
-        schedule = self._cals.get_schedule('sx', self.physical_qubits[0])
-        circuit.add_calibration('sx', [self.physical_qubits[0]], schedule)
+        pass
 
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
@@ -365,7 +357,6 @@ class SXStarkShiftPhaseCal(BaseCalibrationExperiment, SXQutritPhaseRotation):
 
         BaseUpdater.add_parameter_value(
             self._cals, experiment_data, delta, self._param_name,
-            schedule=self._sched_name,
             group=self.experiment_options.group
         )
 
