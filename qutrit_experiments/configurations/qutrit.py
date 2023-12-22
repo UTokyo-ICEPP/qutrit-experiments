@@ -5,8 +5,10 @@ import numpy as np
 from qiskit.qobj.utils import MeasLevel, MeasReturnType
 from qiskit_experiments.data_processing import (DataProcessor, DiscriminatorNode, MemoryToCounts,
                                                 Probability)
+from qiskit_experiments.visualization import MplDrawer, IQPlotter
 
 from ..experiment_config import ExperimentConfig
+from ..util.linear_discriminator import LinearDiscriminator
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +20,24 @@ def qutrit_rough_frequency(runner, qubit):
 def qutrit_rough_amplitude(runner, qubit):
     from ..experiments.rough_amplitude import EFRoughXSXAmplitudeCal
     return ExperimentConfig(EFRoughXSXAmplitudeCal, [qubit])
+
+def qutrit_rough_amplitude_post(runner, experiment_data):
+    from ..util.ef_discriminator import ef_discriminator_analysis
+
+    amps = np.array([d['metadata']['xval'] for d in experiment_data.data()])
+    theta, dist = ef_discriminator_analysis(experiment_data, np.argmin(np.abs(amps)))
+    discriminator = LinearDiscriminator(theta, dist)
+    runner.program_data.setdefault('iq_discriminator', {})[runner.program_data['qubit']] = discriminator
+    runner.save_program_data('iq_discriminator')
+
+    if False:
+        for iamp, datum in enumerate(experiment_data.data()):
+            amplitude = datum['metadata']['amplitude']
+            plotter = IQPlotter(MplDrawer())
+            plotter.set_series_data('0', points=np.squeeze(datum['memory']))
+            plotter.set_figure_options(series_params={'0': {'label': f'amp={amplitude}'}})
+            plotter.set_supplementary_data(discriminator=discriminator)
+            experiment_data.add_figures(plotter.figure(), f'iq_{iamp}')
 
 def qutrit_semifine_frequency(runner, qubit):
     from ..experiments.delay_phase_offset import EFRamseyPhaseSweepFrequencyCal
@@ -185,7 +205,8 @@ def qutrit_assignment_error(runner, qubit):
         run_options={'shots': 10000}
     )
 
-def qutrit_assignment_error_post(runner, experiment_data, qubit):
+def qutrit_assignment_error_post(runner, experiment_data):
+    qubit = experiment_data.metadata['physical_qubits'][0]
     matrix = experiment_data.analysis_results('assignment_matrix').value
     runner.program_data.setdefault('qutrit_assignment_matrix', {})[qubit] = matrix
 

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 @dataclass
 class ExperimentConfig:
     """Experiment configuration."""
-    cls: type['BaseExperiment']
+    cls: Optional[type['BaseExperiment']] = None
     physical_qubits: Optional[Sequence[int]] = None
     args: dict[str, Any] = field(default_factory=dict)
     experiment_options: dict[str, Any] = field(default_factory=dict)
