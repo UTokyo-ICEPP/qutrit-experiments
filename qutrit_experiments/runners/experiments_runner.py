@@ -76,9 +76,11 @@ class ExperimentsRunner:
 
         if runtime_session is not None:
             self._runtime_session = runtime_session
-        else:
+        elif not getattr(self._backend, 'simulator', True):
             self._runtime_session = Session(service=self._backend.service,
                                             backend=self._backend.name)
+        else:
+            self._runtime_session = None
 
         self.data_taking_only = False
         self.code_test = False
@@ -157,6 +159,9 @@ class ExperimentsRunner:
 
         if isinstance(experiment, BaseCalibrationExperiment):
             experiment.auto_update = False
+
+        if config.restless:
+            experiment.enable_restless()
 
         return experiment
 
@@ -452,20 +457,24 @@ class ExperimentsRunner:
 
         jobs = []
 
-        # Check all jobs got an id. If not, try resubmitting
-        for ilist, circs in enumerate(circuit_lists):
-            for _ in range(5):
-                options = {'instance': self._backend._instance, 'job_tags': job_tags}
-                inputs = {'circuits': circs, 'skip_transpilation': True, **run_opts}
-                job = self.runtime_session.run('circuit-runner', inputs, options=options)
+        if not getattr(self._backend, 'simulator', True):
+            # Check all jobs got an id. If not, try resubmitting
+            for ilist, circs in enumerate(circuit_lists):
+                for _ in range(5):
+                    options = {'instance': self._backend._instance, 'job_tags': job_tags}
+                    inputs = {'circuits': circs, 'skip_transpilation': True, **run_opts}
+                    job = self.runtime_session.run('circuit-runner', inputs, options=options)
 
-                if job.job_id():
-                    jobs.append(job)
-                    break
-            else:
-                start = sum(len(lst) for lst in circuit_lists[:ilist])
-                end = start + len(circs) - 1
-                raise RuntimeError(f'Failed to submit circuits {start}-{end}')
+                    if job.job_id():
+                        jobs.append(job)
+                        break
+                else:
+                    start = sum(len(lst) for lst in circuit_lists[:ilist])
+                    end = start + len(circs) - 1
+                    raise RuntimeError(f'Failed to submit circuits {start}-{end}')
+        else:
+            jobs = [self._backend.run(circs, job_tags=job_tags, **run_opts)
+                    for circs in circuit_lists]
 
         logger.info('Job IDs: %s', [job.job_id() for job in jobs])
 
