@@ -258,7 +258,6 @@ class EFRamseyPhaseSweep(EFSpaceExperiment, RamseyPhaseSweep):
     """RamseyPhaseSweep for EF space."""
     __sx_gate__ = SX12Gate
     __rz_gate__ = RZ12Gate
-
     def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
         return self._dummy_data((0, 2))
 

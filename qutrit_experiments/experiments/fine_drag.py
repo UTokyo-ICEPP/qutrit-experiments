@@ -80,7 +80,7 @@ class EFFineDrag(EFSpaceExperiment, FineDrag):
         num_qubits = 1
 
         if self.run_options.meas_level == MeasLevel.KERNELED:
-            if self._final_xgate:
+            if self.experiment_options.final_xgate:
                 states = (0, 2)
             else:
                 states = (1, 2)

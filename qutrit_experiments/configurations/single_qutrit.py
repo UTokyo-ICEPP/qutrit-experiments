@@ -1,6 +1,7 @@
 # pylint: disable=import-outside-toplevel, function-redefined, unused-argument
 """Single qutrit calibration and characterization experiments."""
-from .qutrit import (qutrit_rough_frequency, qutrit_rough_amplitude, qutrit_rough_amplitude_post,
+from .qutrit import (qutrit_rough_frequency, qutrit_rough_amplitude, qutrit_discriminator,
+                     qutrit_discriminator_post,
                      qutrit_semifine_frequency,
                      qutrit_fine_frequency, qutrit_rough_x_drag, qutrit_rough_sx_drag,
                      qutrit_fine_sx_amplitude, qutrit_fine_sx_drag, qutrit_fine_x_amplitude,
@@ -20,6 +21,7 @@ def register_single_qutrit_exp(function):
 qutrit_functions = [
     qutrit_rough_frequency,
     qutrit_rough_amplitude,
+    qutrit_discriminator,
     qutrit_semifine_frequency,
     qutrit_fine_frequency,
     qutrit_rough_x_drag,
@@ -38,5 +40,5 @@ qutrit_functions = [
 for func in qutrit_functions:
     register_single_qutrit_exp(func)
 
-register_post(qutrit_rough_amplitude_post, exp_type='qutrit_rough_amplitude')
+register_post(qutrit_discriminator_post, exp_type='qutrit_discriminator')
 register_post(qutrit_assignment_error_post, exp_type='qutrit_assignment_error')

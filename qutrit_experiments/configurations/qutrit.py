@@ -7,6 +7,7 @@ from qiskit_experiments.data_processing import (DataProcessor, DiscriminatorNode
                                                 Probability)
 from qiskit_experiments.visualization import MplDrawer, IQPlotter
 
+from ..calibrations import get_qutrit_pulse_gate
 from ..experiment_config import ExperimentConfig
 from ..util.linear_discriminator import LinearDiscriminator
 
@@ -19,9 +20,24 @@ def qutrit_rough_frequency(runner, qubit):
 
 def qutrit_rough_amplitude(runner, qubit):
     from ..experiments.rough_amplitude import EFRoughXSXAmplitudeCal
-    return ExperimentConfig(EFRoughXSXAmplitudeCal, [qubit])
+    return ExperimentConfig(
+        EFRoughXSXAmplitudeCal,
+        [qubit],
+        experiment_options={'final_x12gate': False},
+        restless=True
+    )
 
-def qutrit_rough_amplitude_post(runner, experiment_data):
+def qutrit_discriminator(runner, qubit):
+    from ..experiments.rabi import EFRabi
+    schedule = get_qutrit_pulse_gate('x12', qubit, runner.backend, runner.calibrations,
+                                     assign_params={'amp': Parameter("amp")})
+    return ExperimentConfig(
+        EFRabi,
+        [qubit],
+        args={'schedule': schedule}
+    )
+
+def qutrit_discriminator_post(runner, experiment_data):
     from ..util.ef_discriminator import ef_discriminator_analysis
 
     amps = np.array([d['metadata']['xval'] for d in experiment_data.data()])

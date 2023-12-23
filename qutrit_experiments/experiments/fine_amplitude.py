@@ -131,7 +131,7 @@ class EFFineXAmplitudeCal(EFFineAmplitudeCal):
             one_probs = np.concatenate(([1., 0.], one_probs))
 
         if self.run_options.meas_level == MeasLevel.KERNELED:
-            if self._final_xgate:
+            if self.experiment_options.final_xgate:
                 states = (0, 2)
             else:
                 states = (1, 2)
@@ -200,7 +200,7 @@ class EFFineSXAmplitudeCal(EFFineAmplitudeCal):
             one_probs = np.concatenate(([1., 0.], one_probs))
 
         if self.run_options.meas_level == MeasLevel.KERNELED:
-            if self._final_xgate:
+            if self.experiment_options.final_xgate:
                 states = (0, 2)
             else:
                 states = (1, 2)

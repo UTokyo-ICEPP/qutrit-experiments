@@ -17,6 +17,7 @@ class ExperimentConfig:
     args: dict[str, Any] = field(default_factory=dict)
     experiment_options: dict[str, Any] = field(default_factory=dict)
     run_options: dict[str, Any] = field(default_factory=dict)
+    restless: bool = False
     postprocessors: list['PostProcessor'] = field(default_factory=list)
     subexperiments: Optional[list['ExperimentConfig']] = None
     analysis: bool = True
@@ -25,7 +26,8 @@ class ExperimentConfig:
     exp_type: str = field(init=False)
 
     def __post_init__(self):
-        self.exp_type = self.cls.__name__
+        self.exp_type = self.cls.__name__ if self.cls else None
+
 
 
 experiments = {}
