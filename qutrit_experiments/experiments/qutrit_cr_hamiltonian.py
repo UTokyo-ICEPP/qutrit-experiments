@@ -102,30 +102,25 @@ and
     \sin \beta^k & = \cos \phi^k / B^k.
 
 """
-
-from typing import List, Tuple, Iterable, Optional, Union, Sequence
-import warnings
-from uncertainties import ufloat, correlated_values, unumpy as unp
+from collections.abc import Iterable, Sequence
+from typing import Optional, Union
+from matplotlib.figure import Figure
 import numpy as np
 import numpy.polynomial as poly
-from matplotlib.figure import Figure
 import scipy.optimize as sciopt
-import lmfit
+from uncertainties import ufloat, correlated_values, unumpy as unp
 
 from qiskit import QuantumCircuit
-from qiskit.pulse import ScheduleBlock
 from qiskit.providers import Backend
+from qiskit.pulse import ScheduleBlock
 from qiskit.result import Counts
 from qiskit_experiments.framework import Options, BaseAnalysis, ExperimentData, AnalysisResultData
 from qiskit_experiments.framework.matplotlib import default_figure_canvas
-import qiskit_experiments.curve_analysis as curve
-from qiskit_experiments.curve_analysis.base_curve_analysis import PARAMS_ENTRY_PREFIX
-from qiskit_experiments.database_service import ExperimentEntryNotFound
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ..common.framework_overrides import CompoundAnalysis, CompositeAnalysis, BatchExperiment
-from ..common.linked_curve_analysis import LinkedCurveAnalysis
-from ..common.util import sparse_poly_fitfunc, PolynomialOrder
+from ..framework.compound_analysis import CompoundAnalysis
+from ..framework_overrides.batch_experiment import BatchExperiment
+from ..util.polynomial import PolynomialOrder, sparse_poly_fitfunc
 from .cr_rabi import cr_rabi_init
 from .hamiltonian_tomography import HamiltonianTomography, HamiltonianTomographyScan
 
@@ -133,6 +128,7 @@ twopi = 2. * np.pi
 
 
 class QutritCRHamiltonian(BatchExperiment):
+    """Hamiltonian tomography of qutrit-qubit CR."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
@@ -163,7 +159,7 @@ class QutritCRHamiltonian(BatchExperiment):
 
         super().__init__(experiments, backend=backend, analysis=analysis)
 
-    def dummy_data(self, transpiled_circuits: List[QuantumCircuit]) -> List[Counts]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
         # Coefficients of [[Ix/2, Iy/2, Iz/2], [zx/2, zy/2, zz/2], [ζx/2, ζy/2, ζz/2]]
         hamiltonian_components = self.experiment_options.dummy_components
         if hamiltonian_components is None:
@@ -173,10 +169,11 @@ class QutritCRHamiltonian(BatchExperiment):
                 [5.49052361e+06, 4.05421662e+06, 1.12147049e+06]
             ])
 
-#         # control_basis_components[c, i] = <c|I|c>*nu_Ii + <c|z|c>*nu_zi + <c|ζ|c>*nu_ζi  (c=0,1,2; i=x,y,z)
-#         #   for c=0,1,2:       [1,1,1]        [1,-1,0]         [0,1,-1]
-#         control_eigvals = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) # [c, I/z/ζ]
-#         state_components = (control_eigvals @ hamiltonian_components) / 2.
+       # control_basis_components[c, i]
+       #               = <c|I|c>*nu_Ii + <c|z|c>*nu_zi + <c|ζ|c>*nu_ζi  (c=0,1,2; i=x,y,z)
+       #   for c=0,1,2:   [1,1,1]        [1,-1,0]         [0,1,-1]
+       # control_eigvals = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) # [c, I/z/ζ]
+       # state_components = (control_eigvals @ hamiltonian_components) / 2.
 
         # A calculation of state components independent from how it's done in the analysis
         paulis = np.array([[[0., 1.], [1., 0.]],
@@ -187,7 +184,9 @@ class QutritCRHamiltonian(BatchExperiment):
         hamiltonian = np.einsum('cij,tkl,ct->ikjl',
                                 control_ops / 2., paulis, hamiltonian_components)
         # Take the trace / 2 with Paulis and extract the diagonal blocks
-        state_components = np.einsum('ikjl,blk->ijb', hamiltonian, paulis)[[0, 1, 2], [0, 1, 2]] / 2.
+        state_components = np.einsum('ikjl,blk->ijb',
+                                     hamiltonian,
+                                     paulis)[[0, 1, 2], [0, 1, 2]] / 2.
 
         counts_list = []
         icirc = 0
@@ -197,7 +196,9 @@ class QutritCRHamiltonian(BatchExperiment):
             options = subexp.experiment_options
             dummy_components = options.dummy_components
             options.dummy_components = state_components[control_state]
-            counts_list.extend(subexp.dummy_data(transpiled_circuits[icirc:icirc + subexp.num_circuits]))
+            counts_list.extend(
+                subexp.dummy_data(transpiled_circuits[icirc:icirc + subexp.num_circuits])
+            )
             options.dummy_components = dummy_components
             icirc += subexp.num_circuits
 
@@ -212,7 +213,7 @@ class QutritCRHamiltonianAnalysis(CompoundAnalysis):
         options.plot = True
         return options
 
-    def __init__(self, analyses: List[BaseAnalysis]):
+    def __init__(self, analyses: list[BaseAnalysis]):
         super().__init__(analyses)
 
         self.figure = Figure(figsize=[9.6, 4.8])
@@ -231,18 +232,19 @@ class QutritCRHamiltonianAnalysis(CompoundAnalysis):
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
-        analysis_results: List[AnalysisResultData],
-        figures: List["matplotlib.figure.Figure"]
-    ) -> Tuple[List[AnalysisResultData], List["matplotlib.figure.Figure"]]:
+        analysis_results: list[AnalysisResultData],
+        figures: list["matplotlib.figure.Figure"]
+    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
         """Compute the Hamiltonian components from the fit results."""
         control_basis_components = np.empty((3, 3), dtype=object)
 
         component_index = experiment_data.metadata["component_child_index"]
 
-        for control_state, analysis in enumerate(self._analyses):
+        for control_state, in range(3):
             child_data = experiment_data.child_data(component_index[control_state])
             # omega^c_g/2
-            control_basis_components[control_state] = child_data.analysis_results('hamiltonian_components').value
+            control_basis_components[control_state] = \
+                child_data.analysis_results('hamiltonian_components').value
 
         control_eigvals = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) # [c, I/z/ζ]
         # Multiply by factor two to obtain omega_[Izζ]
@@ -262,6 +264,7 @@ class QutritCRHamiltonianAnalysis(CompoundAnalysis):
 
 
 class QutritCRHamiltonianScan(BatchExperiment):
+    """Batched QutritCRHamiltonian scanning one or more parameters."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
@@ -274,10 +277,10 @@ class QutritCRHamiltonianScan(BatchExperiment):
 
     def __init__(
         self,
-        physical_qubits: Tuple[int, int],
+        physical_qubits: tuple[int, int],
         schedule: ScheduleBlock,
-        parameter: Union[str, Tuple[str, ...]],
-        values: Union[Sequence[float], Tuple[Sequence[float], ...]],
+        parameter: Union[str, tuple[str, ...]],
+        values: Union[Sequence[float], tuple[Sequence[float], ...]],
         widths: Optional[Iterable[float]] = None,
         secondary_trajectory: bool = False,
         time_unit: Optional[float] = None,
@@ -298,7 +301,7 @@ class QutritCRHamiltonianScan(BatchExperiment):
 
         super().__init__(experiments, backend=backend, analysis=analysis)
 
-    def dummy_data(self, transpiled_circuits: List[QuantumCircuit]) -> List[Counts]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
         if self.experiment_options.dummy_components is not None:
             # [control, target, scan]
             control_eigvals = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) # [c, I/z/ζ]
@@ -311,7 +314,9 @@ class QutritCRHamiltonianScan(BatchExperiment):
                 options = subexp.experiment_options
                 orig_comp = options.dummy_components
                 options.dummy_components = state_components[control_state]
-                counts_list.extend(subexp.dummy_data(transpiled_circuits[icirc:icirc + subexp.num_circuits]))
+                counts_list.extend(
+                    subexp.dummy_data(transpiled_circuits[icirc:icirc + subexp.num_circuits])
+                )
                 options.dummy_components = orig_comp
                 icirc += subexp.num_circuits
 
@@ -321,6 +326,7 @@ class QutritCRHamiltonianScan(BatchExperiment):
 
 
 class QutritCRHamiltonianScanAnalysis(CompoundAnalysis):
+    """Analysis for QutritCRHamiltonianScan."""
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
@@ -335,9 +341,9 @@ class QutritCRHamiltonianScanAnalysis(CompoundAnalysis):
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
-        analysis_results: List[AnalysisResultData],
-        figures: List["matplotlib.figure.Figure"]
-    ) -> Tuple[List[AnalysisResultData], List["matplotlib.figure.Figure"]]:
+        analysis_results: list[AnalysisResultData],
+        figures: list["matplotlib.figure.Figure"]
+    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
         """Linearly transform the c=0, 1, 2 scan results to c=I, z, ζ."""
         xvar = ''
         xval = None
@@ -371,7 +377,8 @@ class QutritCRHamiltonianScanAnalysis(CompoundAnalysis):
                     coeffs = child_data.analysis_results(f'omega_{op}_coeffs').value
                     control_basis_coeffs.append(coeffs)
 
-        control_basis_components = np.transpose(control_basis_components, (0, 2, 1)) # (control, target, xvar)
+        # (control, target, xvar)
+        control_basis_components = np.transpose(control_basis_components, (0, 2, 1))
 
         control_eigvals = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) # [c, I/z/ζ]
         control_to_op = np.linalg.inv(control_eigvals)
@@ -391,7 +398,8 @@ class QutritCRHamiltonianScanAnalysis(CompoundAnalysis):
 
             if self.options.plot_angle:
                 plotter.set_options(subplots=(2, 1))
-                series_params = {f'{cop}{top}': {'canvas': 0} for cop in control_ops for top in target_ops}
+                series_params = {f'{cop}{top}': {'canvas': 0}
+                                 for cop in control_ops for top in target_ops}
                 series_params.update({f'{cop}_angle': {'canvas': 1} for cop in control_ops})
                 plotter.set_figure_options(series_params=series_params)
                 ylabel = [ylabel, 'arctan(y/x)']
@@ -440,14 +448,15 @@ class QutritCRHamiltonianScanAnalysis(CompoundAnalysis):
 
                     coeffs = np.full(order.order + 1, ufloat(0., 0.))
                     try:
-                        coeffs[order.powers] = correlated_values(nom_values=popt, covariance_mat=pcov)
+                        coeffs[order.powers] = correlated_values(nom_values=popt,
+                                                                 covariance_mat=pcov)
                     except np.linalg.LinAlgError:
                         coeffs[order.powers] = [ufloat(v, 0.) for v in popt]
 
                     coeffs *= yval_max
 
-                    analysis_results.append(AnalysisResultData(name=f'omega_{control_op}{target_op}_coeffs',
-                                                               value=coeffs))
+                    name = f'omega_{control_op}{target_op}_coeffs'
+                    analysis_results.append(AnalysisResultData(name=name, value=coeffs))
 
                     if self.options.plot:
                         interp_y = fitfunc(interp_x, *unp.nominal_values(coeffs[order.powers]))
@@ -461,11 +470,12 @@ class QutritCRHamiltonianScanAnalysis(CompoundAnalysis):
 
         elif poly_orders is not None:
             max_orderplus1 = max(coeffs.shape[0] for coeffs in control_basis_coeffs)
-            for idx in range(len(control_basis_coeffs)):
-                coeffs = control_basis_coeffs[idx]
+            for idx, coeffs in enumerate(control_basis_coeffs):
                 if coeffs.shape[0] < max_orderplus1:
                     pad = max_orderplus1 - coeffs.shape[0]
-                    control_basis_coeffs[idx] = np.concatenate((coeffs, np.full(pad, ufloat(0., 0.))))
+                    control_basis_coeffs[idx] = np.concatenate(
+                        (coeffs, np.full(pad, ufloat(0., 0.)))
+                    )
 
             control_basis_coeffs = np.reshape(control_basis_coeffs, (3, 3, -1))
 
@@ -474,8 +484,8 @@ class QutritCRHamiltonianScanAnalysis(CompoundAnalysis):
             for ic, control_op in enumerate(control_ops):
                 for ib, target_op in enumerate(target_ops):
                     coeffs = hamiltonian_coeffs[ic, ib]
-                    analysis_results.append(AnalysisResultData(name=f'omega_{control_op}{target_op}_coeffs',
-                                                               value=coeffs))
+                    name = f'omega_{control_op}{target_op}_coeffs'
+                    analysis_results.append(AnalysisResultData(name=name, value=coeffs))
 
                     if self.options.plot:
                         interp_y = poly.polynomial.polyval(interp_x, unp.nominal_values(coeffs))
@@ -498,5 +508,4 @@ class QutritCRHamiltonianScanAnalysis(CompoundAnalysis):
                         )
 
             return analysis_results, [plotter.figure()]
-        else:
-            return analysis_results, []
+        return analysis_results, []

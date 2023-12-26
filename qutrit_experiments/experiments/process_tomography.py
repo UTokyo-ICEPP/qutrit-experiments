@@ -1,20 +1,22 @@
-from typing import Any, Dict, Union, Optional, Iterable, List, Tuple, Sequence
-import copy
-from itertools import product
+"""QPT experiment with custom target circuit."""
+from collections.abc import Iterable, Sequence
+from typing import Any, Optional
 import numpy as np
 from qiskit import QuantumCircuit, ClassicalRegister
-from qiskit.result import Counts
 from qiskit.providers import Backend
 from qiskit.quantum_info import Operator
+from qiskit.result import Counts
 from qiskit_experiments.library.tomography import basis, ProcessTomographyAnalysis
 from qiskit_experiments.library.tomography.tomography_experiment import TomographyExperiment
 from qiskit_experiments.library.tomography.fitters.cvxpy_utils import cvxpy
 
-from ..common.transpilation import map_to_physical_qubits, map_and_translate
-from ..common.util import default_shots
+from ..constants import DEFAULT_SHOTS
+from ..transpilation.layout_only import map_to_physical_qubits
+from ..transpilation.layout_and_translation import map_and_translate
 
 
 class CircuitTomography(TomographyExperiment):
+    """QPT experiment with custom target circuit."""
     def __init__(
         self,
         circuit: QuantumCircuit,
@@ -25,8 +27,8 @@ class CircuitTomography(TomographyExperiment):
         measurement_indices: Optional[Sequence[int]] = None,
         preparation_basis: basis.PreparationBasis = basis.PauliPreparationBasis(),
         preparation_indices: Optional[Sequence[int]] = None,
-        basis_indices: Optional[Iterable[Tuple[List[int], List[int]]]] = None,
-        extra_metadata: Optional[Dict[str, Any]] = None
+        basis_indices: Optional[Iterable[tuple[list[int], list[int]]]] = None,
+        extra_metadata: Optional[dict[str, Any]] = None
     ):
         target = Operator(target_circuit)
 
@@ -49,7 +51,7 @@ class CircuitTomography(TomographyExperiment):
 
         self.extra_metadata = extra_metadata
 
-    def circuits(self) -> List[QuantumCircuit]:
+    def circuits(self) -> list[QuantumCircuit]:
         circs = super().circuits()
         for circuit in circs:
             for inst in list(circuit.data):
@@ -60,7 +62,7 @@ class CircuitTomography(TomographyExperiment):
 
         return circs
 
-    def _transpiled_circuits(self) -> List[QuantumCircuit]:
+    def _transpiled_circuits(self) -> list[QuantumCircuit]:
         pbasis = self._prep_circ_basis
         pqubits = self._prep_physical_qubits
         mbasis = self._meas_circ_basis
@@ -114,17 +116,17 @@ class CircuitTomography(TomographyExperiment):
 
         return transpiled_circuits
 
-    def _metadata(self) -> Dict[str, Any]:
+    def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
         if self.extra_metadata is not None:
             metadata.update(self.extra_metadata)
 
         return metadata
 
-    def dummy_data(self, transpiled_circuits: List[QuantumCircuit]) -> List[Counts]:
-        shots = self.run_options.get('shots', default_shots)
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
+        shots = self.run_options.get('shots', DEFAULT_SHOTS)
 
-        data = list()
+        data = []
 
         rng = np.random.default_rng()
 
@@ -143,7 +145,7 @@ class CircuitTomography(TomographyExperiment):
 
             icounts = rng.multinomial(shots, probs)
 
-            counts = Counts({idx: n for idx, n in enumerate(icounts)}, memory_slots=nq)
+            counts = Counts(dict(enumerate(icounts)), memory_slots=nq)
 
             data.append(counts)
 

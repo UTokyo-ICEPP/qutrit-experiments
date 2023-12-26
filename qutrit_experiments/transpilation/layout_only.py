@@ -1,5 +1,4 @@
 """Functions to define and run layout-only PassManagers."""
-
 from collections.abc import Sequence
 from typing import Union
 from qiskit import QuantumCircuit, QuantumRegister

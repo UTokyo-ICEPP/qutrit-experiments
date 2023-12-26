@@ -13,9 +13,10 @@ from qiskit_experiments.library import T1
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 import qiskit_experiments.curve_analysis as curve
 
+from ..common.readout_mitigation import MCMLocalReadoutMitigation
 from ..experiment_mixins.ef_space import EFSpaceExperiment
 from ..gates import X12Gate
-from ..common.readout_mitigation import MCMLocalReadoutMitigation
+
 
 class EFT1(EFSpaceExperiment, T1):
     """A T1 experiment for qutrits."""

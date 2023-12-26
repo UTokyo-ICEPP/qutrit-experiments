@@ -54,7 +54,9 @@ class EFRabi(EFSpaceExperiment, Rabi):
         one_probs = np.cos(2. * np.pi * 4. * amplitudes) * 0.49 + 0.51
         num_qubits = 1
 
-        if self.experiment_options.final_xgate:
+        if self.experiment_options.discrimination_basis == '01':
+            states = (0, 1)
+        elif self.experiment_options.discrimination_basis == '02':
             states = (0, 2)
         else:
             states = (1, 2)

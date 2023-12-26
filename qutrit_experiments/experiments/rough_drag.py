@@ -151,4 +151,5 @@ class DragCalAnalysisWithAbort(DragCalAnalysis):
 
 
 class EFRoughDragUpdater(BaseUpdater):
+    """Calibrations updater for EFRoughDrag."""
     __fit_parameter__ = 'beta'

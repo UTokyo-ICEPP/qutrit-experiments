@@ -267,32 +267,55 @@ class RamseyPhaseSweepAnalysis(curve.CurveAnalysis):
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
+        # Whether to use a common sine amplitude for the fit. Value=True reduces the ndof of the
+        # fit, but the amplitude may vary between delays if e.g. relaxation is a major issue
+        options.common_amp = True
         options.nwind_hypotheses = list(range(-2, 3))
         return options
 
     def __init__(self, delay_durations: Sequence[int]):
-        super().__init__(models=[
-            lmfit.models.ExpressionModel(
-                expr=f'amp * cos(x + epsilon + omega_z_dt * {delay}) + base',
-                name=f'delay{delay}'
-            ) for delay in delay_durations
-        ])
+        super().__init__()
 
         self.set_options(
             result_parameters=['omega_z_dt'],
             normalization=False,
             outcome='1',
             data_subfit_map={f'delay{delay}': {'delay': delay} for delay in delay_durations},
-            bounds={
-                'amp': (0., 0.6),
-                'base': (0., 1.),
-                'epsilon': (-np.pi, np.pi)
-            }
+            bounds={'epsilon': (-np.pi, np.pi)}
         )
         self.plotter.set_figure_options(
             xlabel="Phase shift",
             ylabel="$P_e$"
         )
+
+    def _initialize(self, experiment_data: ExperimentData):
+        delay_durations = sorted(m['delay'] for m in self.options.data_subfit_map.values())
+
+        if self.options.common_amp:
+            self._models = [
+                lmfit.models.ExpressionModel(
+                    expr=f'amp * cos(x + epsilon + omega_z_dt * {delay}) + base',
+                    name=f'delay{delay}'
+                ) for delay in delay_durations
+            ]
+            self.options.bounds.update({
+                'amp': (0., 0.6),
+                'base': (0., 1.)
+            })
+        else:
+            self._models = [
+                lmfit.models.ExpressionModel(
+                    expr=f'amp{delay} * cos(x + epsilon + omega_z_dt * {delay}) + base{delay}',
+                    name=f'delay{delay}'
+                ) for delay in delay_durations
+            ]
+            for delay in delay_durations:
+                self.options.bounds.update({
+                    f'amp{delay}': (0., 0.6),
+                    f'base{delay}': (0., 1.)
+                })
+
+        super()._initialize(experiment_data)
 
     def _generate_fit_guesses(
         self,
@@ -312,25 +335,39 @@ class RamseyPhaseSweepAnalysis(curve.CurveAnalysis):
         if user_opt.p0.get('epsilon') is not None or user_opt.p0.get('omega_z_dt') is not None:
             options.append(user_opt)
 
-        data_0 = curve_data.get_subset_of('delay0')
-        base = np.mean(data_0.y)
-        amp = np.sqrt(np.mean(np.square(data_0.y - base)) * 2.)
-        cos_epsilon = np.mean(data_0.y * np.cos(data_0.x)) / amp * 2.
-        sin_epsilon = -np.mean(data_0.y * np.sin(data_0.x)) / amp * 2.
+        def get_data_base_amp(delay):
+            data = curve_data.get_subset_of(f'delay{delay}')
+            base = np.mean(data.y)
+            amp = np.sqrt(np.mean(np.square(data.y - base)) * 2.)
+            return data, base, amp
+
+        data_0, base_0, amp_0 = get_data_base_amp(0)
+        cos_epsilon = np.mean(data_0.y * np.cos(data_0.x)) / amp_0 * 2.
+        sin_epsilon = -np.mean(data_0.y * np.sin(data_0.x)) / amp_0 * 2.
         epsilon = np.arctan2(sin_epsilon, cos_epsilon)
 
         delay_durations = sorted(s['delay'] for s in self.options.data_subfit_map.values())
         min_delay = delay_durations[1]
-        data_1 = curve_data.get_subset_of(f'delay{min_delay}')
-        cos_offset = np.mean(data_1.y * np.cos(data_1.x)) / amp * 2.
-        sin_offset = -np.mean(data_1.y * np.sin(data_1.x)) / amp * 2.
+        data_1, base_1, amp_1 = get_data_base_amp(min_delay)
+        cos_offset = np.mean(data_1.y * np.cos(data_1.x)) / amp_1 * 2.
+        sin_offset = -np.mean(data_1.y * np.sin(data_1.x)) / amp_1 * 2.
         offset_diff = np.arctan2(sin_offset, cos_offset) - epsilon
+
+        user_opt.p0.update(epsilon=epsilon)
+
+        if self.options.common_amp:
+            user_opt.p0.update(amp=amp_0, base=base_0)
+        else:
+            user_opt.p0.update({'amp0': amp_0, 'base0': base_0,
+                                f'amp{min_delay}': amp_1, f'base{min_delay}': base_1})
+            for delay in delay_durations[2:]:
+                _, base, amp = get_data_base_amp(delay)
+                user_opt.p0.update({f'amp{delay}': amp, f'base{delay}': base})
 
         # Account for mod(2pi)s of offset_diff
         for nwind in self.options.nwind_hypotheses:
             new_opt = user_opt.copy()
-            new_opt.p0.update(amp=amp, base=base, epsilon=epsilon,
-                              omega_z_dt=(offset_diff + twopi * nwind) / min_delay)
+            new_opt.p0.update(omega_z_dt=(offset_diff + twopi * nwind) / min_delay)
             options.append(new_opt)
 
         return options

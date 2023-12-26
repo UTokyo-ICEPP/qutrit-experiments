@@ -81,6 +81,9 @@ class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
     def _default_options(cls) -> Options:
         options = super()._default_options()
         options.plot = True
+        options.data_processor = None
+        options.common_amp = True
+        options.nwind_hypotheses = [0]
         return options
 
     def __init__(
@@ -99,8 +102,11 @@ class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
         for subanalysis in self._analyses:
             subanalysis.set_options(
                 plot=self.options.plot,
-                data_processor=self.options.data_processor
+                common_amp=self.options.common_amp,
+                nwind_hypotheses=self.options.nwind_hypotheses
             )
+            if (data_processor := self.options.data_processor) is not None:
+                subanalysis.set_options(data_processor=data_processor)
 
     def _run_additional_analysis(
         self,

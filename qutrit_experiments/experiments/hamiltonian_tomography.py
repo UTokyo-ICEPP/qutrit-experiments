@@ -1,33 +1,32 @@
-from typing import List, Tuple, Iterable, Optional, Union, Sequence, Callable
-import warnings
+"""Hamiltonian tomography experiment."""
+from collections.abc import Callable, Iterable, Sequence
 import logging
-from uncertainties import ufloat, correlated_values, unumpy as unp
-import numpy as np
-from matplotlib.figure import Figure
-import scipy.optimize as sciopt
+from typing import Optional, Union
 import lmfit
+import numpy as np
+import scipy.optimize as sciopt
+from uncertainties import ufloat, correlated_values, unumpy as unp
 
 from qiskit import QuantumCircuit
+from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
 from qiskit.result import Counts
-from qiskit.providers import Backend
-from qiskit_experiments.framework import Options, ExperimentData, AnalysisResultData
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.curve_analysis.base_curve_analysis import PARAMS_ENTRY_PREFIX
-from qiskit_experiments.database_service import ExperimentEntryNotFound
+from qiskit_experiments.framework import Options, ExperimentData, AnalysisResultData
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ..common.framework_overrides import CompoundAnalysis, CompositeAnalysis, BatchExperiment
-from ..common.linked_curve_analysis import LinkedCurveAnalysis
-from ..common.util import sparse_poly_fitfunc, PolynomialOrder
+from ..analyses.linked_curve_analysis import LinkedCurveAnalysis
+from ..framework.compound_analysis import CompoundAnalysis
+from ..framework_overrides.batch_experiment import BatchExperiment
+from ..util.bloch import (amp_matrix, amp_func, phase_matrix, phase_func, base_matrix, base_func,
+                          unit_bound, pos_unit_bound)
+from ..util.polynomial import sparse_poly_fitfunc, PolynomialOrder
 from .gs_rabi import GSRabi, GSRabiAnalysis
-from .bloch import (amp_matrix, amp_func, phase_matrix, phase_func, base_matrix, base_func,
-                    unit_bound, pos_unit_bound)
-from .dummy_data import single_qubit_counts
-
 
 logger = logging.getLogger(__name__)
 twopi = 2. * np.pi
+
 
 class HamiltonianTomography(BatchExperiment):
     r"""Identify the Bloch-space rotation matrix of the qubit under a GaussianSquare tone.
@@ -44,7 +43,8 @@ class HamiltonianTomography(BatchExperiment):
 
         \frac{d}{dt} \langle g \rangle (t) = i\langle [H, g] \rangle.
 
-    For :math:`r(t) := (\langle x \rangle (t), \langle y \rangle (t), \langle z \rangle (t))^T`, we have
+    For :math:`r(t) := (\langle x \rangle (t), \langle y \rangle (t), \langle z \rangle (t))^T`, we
+    have
 
     .. math::
 
@@ -54,7 +54,11 @@ class HamiltonianTomography(BatchExperiment):
 
     .. math::
 
-        G = \begin{pmatrix} 0 & -\omega^z & \omega^y \\ \omega^z & 0 & -\omega^x \\ -\omega^y & \omega^x & 0 \end{pmatrix}.
+        G = \begin{pmatrix}
+            0 & -\omega^z & \omega^y \\
+            \omega^z & 0 & -\omega^x \\
+            -\omega^y & \omega^x & 0
+            \end{pmatrix}.
 
     Exponentiating this, we have for :math:`r(0) = (0, 0, 1)^T`
 
@@ -66,8 +70,9 @@ class HamiltonianTomography(BatchExperiment):
         (\omega^z)^2 + [(\omega^x)^2 + (\omega^y)^2] \cos(\Omega t)
         \end{pmatrix},
 
-    where :math:`\Omega := \sqrt{\sum_g (\omega^g)^2}.` Each component of :math:`r(t)` thus evolves sinusoidally
-    with the same frequency while satisfying :math:`|r(t)|^2 = 1`. Reparametrizing :math:`\omega^g` as
+    where :math:`\Omega := \sqrt{\sum_g (\omega^g)^2}.` Each component of :math:`r(t)` thus evolves
+    sinusoidally with the same frequency while satisfying :math:`|r(t)|^2 = 1`. Reparametrizing
+    :math:`\omega^g` as
 
     .. math::
 
@@ -80,12 +85,15 @@ class HamiltonianTomography(BatchExperiment):
     .. math::
 
         r(t) = \begin{pmatrix}
-        \sin \psi [-\cos \psi \cos \phi \cos(\Omega t) + \sin \phi \sin(\Omega t)] + \sin \psi \cos \psi \cos \phi \\
-        \sin \psi [-\cos \psi \sin \phi \cos(\Omega t) - \cos \phi \sin(\Omega t)] + \sin \psi \cos \psi \sin \phi \\
+        \sin \psi [-\cos \psi \cos \phi \cos(\Omega t) + \sin \phi \sin(\Omega t)]
+            + \sin \psi \cos \psi \cos \phi \\
+        \sin \psi [-\cos \psi \sin \phi \cos(\Omega t) - \cos \phi \sin(\Omega t)]
+            + \sin \psi \cos \psi \sin \phi \\
         \sin^2 \psi \cos(\Omega t) + \cos^2 \psi
         \end{pmatrix}.
 
-    Casting the right hand side into the standard OscillationAnalysis form :math:`a \cos (2 \pi f t + \Phi) + b`,
+    Casting the right hand side into the standard OscillationAnalysis form
+    :math:`a \cos (2 \pi f t + \Phi) + b`,
 
     .. math::
 
@@ -150,7 +158,8 @@ class HamiltonianTomography(BatchExperiment):
             exp = rabi_init(physical_qubits, schedule, widths=widths, initial_state=init,
                             meas_basis=meas_basis, time_unit=time_unit, experiment_index=idx,
                             backend=backend)
-            # convert init and meas_basis to a numerical value (to be used as fit function arguments)
+            # convert init and meas_basis to a numerical value (to be used as fit function
+            # arguments)
             exp.extra_metadata['basis'] = axes.index(init) * 3 + axes.index(meas_basis)
             if not backend.simulator:
                 exp.set_experiment_options(invert_x_sign=True)
@@ -187,15 +196,10 @@ class HamiltonianTomography(BatchExperiment):
 
         return metadata
 
-    def dummy_data(self, transpiled_circuits: List[QuantumCircuit]) -> List[Counts]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
         hamiltonian_components = self.experiment_options.dummy_components
         if hamiltonian_components is None:
             hamiltonian_components = np.array([-1857082.,  -1232100., -138360.])
-
-        paulis = np.array([[[0., 1.], [1., 0.]],
-                           [[0., -1.j], [1.j, 0.]],
-                           [[1., 0.], [0., -1.]]])
-        hamiltonian = np.tensordot(hamiltonian_components, paulis, (0, 0))
 
         counts_list = []
         icirc = 0
@@ -205,7 +209,9 @@ class HamiltonianTomography(BatchExperiment):
             options = subexp.experiment_options
             dummy_components = options.dummy_components
             options.dummy_components = hamiltonian_components
-            counts_list.extend(subexp.dummy_data(transpiled_circuits[icirc:icirc + subexp.num_circuits]))
+            counts_list.extend(
+                subexp.dummy_data(transpiled_circuits[icirc:icirc + subexp.num_circuits])
+            )
             options.dummy_components = dummy_components
             icirc += subexp.num_circuits
 
@@ -234,7 +240,7 @@ class HamiltonianTomographyAnalysis(LinkedCurveAnalysis):
 
         delta = indiv_phase[x_index]
         gamma = indiv_phase[y_index] - delta
-        C = indiv_amp[y_index]
+        C = indiv_amp[y_index] # pylint: disable=invalid-name
         cpsi = -unit_bound(np.sin(gamma) * C)
         psi = np.arccos(cpsi)
         abscphi = pos_unit_bound(np.sqrt(spsi2cphi2 / (1. - (cpsi ** 2))))
@@ -278,7 +284,7 @@ class HamiltonianTomographyAnalysis(LinkedCurveAnalysis):
 
         delta = indiv_phase[y_index]
         beta = delta - indiv_phase[z_index]
-        B = indiv_amp[z_index]
+        B = indiv_amp[z_index] # pylint: disable=invalid-name
         spsicphi = unit_bound(np.sin(beta) * B)
         spsi = pos_unit_bound(np.sqrt(spsicphi ** 2 + spsi2sphi2))
 
@@ -330,7 +336,7 @@ class HamiltonianTomographyAnalysis(LinkedCurveAnalysis):
         spsi = np.sqrt(spsi2)
         delta = indiv_phase[z_index]
         alpha = indiv_phase[x_index] - delta
-        A = indiv_amp[x_index]
+        A = indiv_amp[x_index] # pylint: disable=invalid-name
         sphi = unit_bound(-np.sin(alpha) * A / spsi)
 
         if set_delta:
@@ -362,7 +368,7 @@ class HamiltonianTomographyAnalysis(LinkedCurveAnalysis):
 
         return options
 
-    def __init__(self, analyses: List[GSRabiAnalysis]):
+    def __init__(self, analyses: list[GSRabiAnalysis]):
         super().__init__(
             analyses,
             linked_params={
@@ -372,7 +378,8 @@ class HamiltonianTomographyAnalysis(LinkedCurveAnalysis):
                 'base': lmfit.Model(base_func)
             },
             experiment_params=['basis'],
-            labels=['x', 'y', 'z', 'o1', 'o2'] # o1 and o2 are not used if secondary_trajectory=False
+            # o1 and o2 are not used if secondary_trajectory=False
+            labels=['x', 'y', 'z', 'o1', 'o2']
         )
 
         self.set_options(
@@ -393,13 +400,13 @@ class HamiltonianTomographyAnalysis(LinkedCurveAnalysis):
         self,
         user_opt: curve.FitOptions,
         curve_data: curve.CurveData,
-    ) -> Union[curve.FitOptions, List[curve.FitOptions]]:
+    ) -> Union[curve.FitOptions, list[curve.FitOptions]]:
         """Create algorithmic guess with analysis options and curve data.
         Args:
             user_opt: Fit options filled with user provided guess and bounds.
             curve_data: Formatted` data collection to fit.
         Returns:
-            List of fit options that are passed to the fitter function.
+            list of fit options that are passed to the fitter function.
 
         TODO write the analysis for when azimuthal projections are measured
         """
@@ -410,15 +417,14 @@ class HamiltonianTomographyAnalysis(LinkedCurveAnalysis):
 
         if self._initial_state == 'x':
             return self.fit_guess_x(user_opt, indiv_amp, indiv_phase, indiv_freq)
-        elif self._initial_state == 'y':
+        if self._initial_state == 'y':
             return self.fit_guess_y(user_opt, indiv_amp, indiv_phase, indiv_freq)
-        else:
-            return self.fit_guess_z(user_opt, indiv_amp, indiv_phase, indiv_freq)
+        return self.fit_guess_z(user_opt, indiv_amp, indiv_phase, indiv_freq)
 
     def _run_curve_fit(
         self,
         curve_data: curve.CurveData,
-        models: List[lmfit.Model],
+        models: list[lmfit.Model],
     ) -> curve.CurveFitResult:
         result = super()._run_curve_fit(curve_data, models)
 
@@ -437,9 +443,9 @@ class HamiltonianTomographyAnalysis(LinkedCurveAnalysis):
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
-        analysis_results: List[AnalysisResultData],
-        figures: List["matplotlib.figure.Figure"]
-    ) -> Tuple[List[AnalysisResultData], List["matplotlib.figure.Figure"]]:
+        analysis_results: list[AnalysisResultData],
+        figures: list["matplotlib.figure.Figure"]
+    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
         """Compute the Hamiltonian components."""
         self._initial_state = experiment_data.metadata['initial_state']
         analysis_results, figures = super()._run_additional_analysis(experiment_data,
@@ -452,9 +458,9 @@ class HamiltonianTomographyAnalysis(LinkedCurveAnalysis):
 
         # Divide by factor two to interpret as coefficients of single-qubit X, Y, Z
         components = np.array([
-            omega * unp.sin(popt['psi']) * unp.cos(popt['phi']),
-            omega * unp.sin(popt['psi']) * unp.sin(popt['phi']),
-            omega * unp.cos(popt['psi'])
+            omega * unp.sin(popt['psi']) * unp.cos(popt['phi']), # pylint: disable=no-member
+            omega * unp.sin(popt['psi']) * unp.sin(popt['phi']), # pylint: disable=no-member
+            omega * unp.cos(popt['psi']) # pylint: disable=no-member
         ]) / 2.
 
         analysis_results.append(AnalysisResultData(name='hamiltonian_components', value=components))
@@ -463,6 +469,7 @@ class HamiltonianTomographyAnalysis(LinkedCurveAnalysis):
 
 
 class HamiltonianTomographyAnalysisNew(CompoundAnalysis, curve.CurveAnalysis):
+    """Analysis for HamiltonianTomography."""
     @staticmethod
     def evolution_factory(init, meas):
         def evolution(x, freq, psi, phi, theta, chi, kappa):
@@ -472,7 +479,7 @@ class HamiltonianTomographyAnalysisNew(CompoundAnalysis, curve.CurveAnalysis):
             amp = np.expand_dims(amp_matrix(chi, kappa), xdims)
             phase = np.expand_dims(phase_matrix(chi, kappa, 0.), xdims)
             base = np.expand_dims(base_matrix(chi, kappa), xdims)
-            matrix = (amp * np.cos(theta + phase) + base)
+            matrix = amp * np.cos(theta + phase) + base
 
             amp = np.expand_dims(amp_matrix(psi, phi), xdims)
             phase = np.expand_dims(phase_matrix(psi, phi, 0.), xdims)
@@ -490,7 +497,13 @@ class HamiltonianTomographyAnalysisNew(CompoundAnalysis, curve.CurveAnalysis):
 
         return evolution
 
-    def __init__(self, analyses: List[GSRabiAnalysis]):
+    @classmethod
+    def _default_options(cls) -> Options:
+        options = super()._default_options()
+        options.primary_init = 2
+        return options
+
+    def __init__(self, analyses: list[GSRabiAnalysis]):
         super().__init__(analyses, flatten_results=False)
 
         self.set_options(
@@ -507,6 +520,9 @@ class HamiltonianTomographyAnalysisNew(CompoundAnalysis, curve.CurveAnalysis):
             ylim=(-1.1, 1.1)
         )
 
+        # Fit results of individual components
+        self._component_results = None
+
     def _run_analysis(self, experiment_data: ExperimentData):
         component_index = experiment_data.metadata["component_child_index"]
 
@@ -520,7 +536,7 @@ class HamiltonianTomographyAnalysisNew(CompoundAnalysis, curve.CurveAnalysis):
 
         self._models = []
         subfit_map = {}
-        for idx, analysis in enumerate(self._analyses):
+        for idx in range(len(self._analyses)):
             child_data = experiment_data.child_data(component_index[idx])
             basis = child_data.metadata['basis']
             init = basis // 3
@@ -541,9 +557,9 @@ class HamiltonianTomographyAnalysisNew(CompoundAnalysis, curve.CurveAnalysis):
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
-        analysis_results: List[AnalysisResultData],
-        figures: List["matplotlib.figure.Figure"]
-    ) -> Tuple[List[AnalysisResultData], List["matplotlib.figure.Figure"]]:
+        analysis_results: list[AnalysisResultData],
+        figures: list["matplotlib.figure.Figure"]
+    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
         return curve.CurveAnalysis._run_analysis(self, experiment_data)
 
     def _initialize(
@@ -578,15 +594,14 @@ class HamiltonianTomographyAnalysisNew(CompoundAnalysis, curve.CurveAnalysis):
 
                 results[pname][child_index] = pvalue
 
-        self._primary_init = bases[0] // 3
-        self._secondary_init = None if len(bases) == 3 else bases[3] // 3
+        self.options.primary_init = bases[0] // 3
         self._component_results = results
 
     def _generate_fit_guesses(
         self,
         user_opt: curve.FitOptions,
         curve_data: curve.CurveData,
-    ) -> Union[curve.FitOptions, List[curve.FitOptions]]:
+    ) -> Union[curve.FitOptions, list[curve.FitOptions]]:
         # freq
         freqs = unp.nominal_values(self._component_results['freq'])
         user_opt.p0.set_if_empty(freq=np.mean(freqs))
@@ -606,15 +621,15 @@ class HamiltonianTomographyAnalysisNew(CompoundAnalysis, curve.CurveAnalysis):
         # psi and phi
         amps = unp.nominal_values(self._component_results['amp'])
         args = (user_opt, amps, phases, freqs)
-        if self._primary_init == 0:
+        if self.options.primary_init == 0:
             return HamiltonianTomographyAnalysis.fit_guess_x(*args, set_delta=False)
-        elif self._primary_init == 1:
+        if self.options.primary_init == 1:
             return HamiltonianTomographyAnalysis.fit_guess_y(*args, set_delta=False)
-        elif self._primary_init == 2:
-            return HamiltonianTomographyAnalysis.fit_guess_z(*args, set_delta=False)
+        return HamiltonianTomographyAnalysis.fit_guess_z(*args, set_delta=False)
 
 
 class HamiltonianTomographyScan(BatchExperiment):
+    """Batched HamiltonianTomography scanning one or more variables."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
@@ -627,8 +642,8 @@ class HamiltonianTomographyScan(BatchExperiment):
         self,
         physical_qubits: Sequence[int],
         schedule: ScheduleBlock,
-        parameter: Union[str, Tuple[str, ...]],
-        values: Union[Sequence[float], Tuple[Sequence[float], ...]],
+        parameter: Union[str, tuple[str, ...]],
+        values: Union[Sequence[float], tuple[Sequence[float], ...]],
         rabi_init: Optional[Callable] = None,
         widths: Optional[Iterable[float]] = None,
         initial_state: Optional[str] = None,
@@ -668,7 +683,7 @@ class HamiltonianTomographyScan(BatchExperiment):
     def num_circuits(self) -> int:
         return sum(subexp.num_circuits for subexp in self.component_experiment())
 
-    def dummy_data(self, transpiled_circuits: List[QuantumCircuit]) -> List[Counts]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
         if self.experiment_options.dummy_components is not None:
             # [3, scan]
             counts_list = []
@@ -677,7 +692,9 @@ class HamiltonianTomographyScan(BatchExperiment):
                                           self.experiment_options.dummy_components.T):
                 comp_original = subexp.experiment_options.dummy_components
                 subexp.experiment_options.dummy_components = components
-                counts_list.extend(subexp.dummy_data(transpiled_circuits[icirc:icirc + subexp.num_circuits]))
+                counts_list.extend(
+                    subexp.dummy_data(transpiled_circuits[icirc:icirc + subexp.num_circuits])
+                )
                 subexp.experiment_options.dummy_components = comp_original
                 icirc += subexp.num_circuits
 
@@ -687,6 +704,7 @@ class HamiltonianTomographyScan(BatchExperiment):
 
 
 class HamiltonianTomographyScanAnalysis(CompoundAnalysis):
+    """Analysis for HamiltonianTomographyScan."""
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
@@ -697,9 +715,9 @@ class HamiltonianTomographyScanAnalysis(CompoundAnalysis):
 
     def __init__(
         self,
-        analyses: List[HamiltonianTomographyAnalysis],
+        analyses: list[HamiltonianTomographyAnalysis],
         xvar: str,
-        poly_orders: Optional[Tuple[PolynomialOrder, PolynomialOrder, PolynomialOrder]] = None
+        poly_orders: Optional[tuple[PolynomialOrder, PolynomialOrder, PolynomialOrder]] = None
     ):
         super().__init__(analyses)
         self.xvar = xvar
@@ -708,9 +726,9 @@ class HamiltonianTomographyScanAnalysis(CompoundAnalysis):
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
-        analysis_results: List[AnalysisResultData],
-        figures: List["matplotlib.figure.Figure"]
-    ) -> Tuple[List[AnalysisResultData], List["matplotlib.figure.Figure"]]:
+        analysis_results: list[AnalysisResultData],
+        figures: list["matplotlib.figure.Figure"]
+    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
         """Fit the components as functions of the scan parameter."""
         component_index = experiment_data.metadata["component_child_index"]
 
@@ -720,7 +738,8 @@ class HamiltonianTomographyScanAnalysis(CompoundAnalysis):
         for iexp, child_index in enumerate(component_index):
             child_data = experiment_data.child_data(child_index)
             xval[iexp] = child_data.metadata[self.xvar]
-            hamiltonian_components[:, iexp] = child_data.analysis_results('hamiltonian_components').value
+            hamiltonian_components[:, iexp] = \
+                child_data.analysis_results('hamiltonian_components').value
 
         if self.options.plot:
             plotter = CurvePlotter(MplDrawer())
@@ -740,13 +759,15 @@ class HamiltonianTomographyScanAnalysis(CompoundAnalysis):
         if self.options.poly_orders is not None:
             interp_x = np.linspace(xval[0], xval[-1], 100)
 
-            for op, components, poly_order in zip(['x', 'y', 'z'], hamiltonian_components, self.options.poly_orders):
+            for op, components, poly_order in zip(['x', 'y', 'z'], hamiltonian_components,
+                                                  self.options.poly_orders):
                 order = PolynomialOrder(poly_order)
                 powers = order.powers
 
                 fitfunc = sparse_poly_fitfunc(powers)
 
-                popt, pcov = sciopt.curve_fit(fitfunc, xval, unp.nominal_values(components), p0=np.zeros_like(powers))
+                popt, pcov = sciopt.curve_fit(fitfunc, xval, unp.nominal_values(components),
+                                              p0=np.zeros_like(powers))
 
                 omega_coeffs = np.full(order.order + 1, ufloat(0., 0.))
                 try:
@@ -754,7 +775,8 @@ class HamiltonianTomographyScanAnalysis(CompoundAnalysis):
                 except np.linalg.LinAlgError:
                     omega_coeffs[powers] = list(ufloat(v, 0.) for v in popt)
 
-                analysis_results.append(AnalysisResultData(name=f'omega_{op}_coeffs', value=omega_coeffs))
+                analysis_results.append(AnalysisResultData(name=f'omega_{op}_coeffs',
+                                                           value=omega_coeffs))
 
                 if self.options.plot:
                     plotter.set_series_data(
@@ -765,5 +787,4 @@ class HamiltonianTomographyScanAnalysis(CompoundAnalysis):
 
         if self.options.plot:
             return analysis_results, [plotter.figure()]
-        else:
-            return analysis_results, []
+        return analysis_results, []

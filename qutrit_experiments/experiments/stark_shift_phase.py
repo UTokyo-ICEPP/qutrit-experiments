@@ -12,7 +12,6 @@ from qiskit_experiments.calibration_management import BaseCalibrationExperiment,
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 
-from ..calibrations import get_qutrit_pulse_gate
 from ..constants import DEFAULT_SHOTS
 from ..gates import X12Gate, SX12Gate, RZ12Gate
 from ..transpilation import replace_calibration_and_metadata

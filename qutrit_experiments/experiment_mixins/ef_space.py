@@ -13,8 +13,7 @@ class EFSpaceExperiment:
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
-        options.final_xgate = True
-        options.final_x12gate = True
+        options.discrimination_basis = '01'
         return options
 
     def circuits(self) -> list[QuantumCircuit]:
@@ -28,14 +27,15 @@ class EFSpaceExperiment:
 
             new_circuit.compose(circuit, inplace=True)
 
-            if self.experiment_options.final_xgate:
+            if self.experiment_options.discrimination_basis != '12':
                 idx = 0
                 while idx < len(new_circuit.data):
                     if isinstance(new_circuit.data[idx].operation, Measure):
                         qubits = new_circuit.data[idx].qubits
+                        # 02 or 01
                         new_circuit.data.insert(idx, CircuitInstruction(XGate(), qubits))
                         idx += 1
-                        if self.experiment_options.final_x12gate:
+                        if self.experiment_options.discrimination_basis == '01':
                             new_circuit.data.insert(idx, CircuitInstruction(X12Gate(), qubits))
                             idx += 1
                     idx += 1

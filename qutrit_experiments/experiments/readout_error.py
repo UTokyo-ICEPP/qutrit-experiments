@@ -1,25 +1,30 @@
-from typing import List, Optional, Sequence, Tuple
+"""Readout confusion matrix measurements."""
+from collections.abc import Sequence
+from typing import Optional
+import numpy as np
 from qiskit import QuantumCircuit
-from qiskit.providers import Backend
 from qiskit.circuit import CircuitInstruction, ClassicalRegister
 from qiskit.circuit.library import XGate
+from qiskit.providers import Backend
 from qiskit.result import Counts
-from qiskit_experiments.framework import AnalysisResultData, BaseAnalysis, BaseExperiment, Options, ExperimentData
+from qiskit_experiments.framework import (AnalysisResultData, BaseAnalysis, BaseExperiment,
+                                          ExperimentData, Options)
 from qiskit_experiments.library import CorrelatedReadoutError as CorrelatedReadoutErrorOrig
 
+from ..constants import DEFAULT_SHOTS
+from ..gates import X12Gate
+from ..transpilation.layout_only import map_to_physical_qubits
 
-from ..common.transpilation import map_to_physical_qubits
-from ..common.gates import X12Gate
-from ..common.util import default_shots
 
 class CorrelatedReadoutError(CorrelatedReadoutErrorOrig):
+    """Override of CorrelatedReadoutError with custom transpilation."""
     @classmethod
     def _default_run_options(cls) -> Options:
         options = super()._default_run_options()
         options.shots = 10000
         return options
 
-    def _transpiled_circuits(self) -> List[QuantumCircuit]:
+    def _transpiled_circuits(self) -> list[QuantumCircuit]:
         circuits = self.circuits()
         first_circuit = map_to_physical_qubits(circuits[0], self.physical_qubits,
                                                self.transpile_options.target)
@@ -38,27 +43,23 @@ class CorrelatedReadoutError(CorrelatedReadoutErrorOrig):
 
         return transpiled_circuits
 
-    def dummy_data(self, transpiled_circuits: List[QuantumCircuit]) -> List[Counts]:
-        shots = self.run_options.get('shots', default_shots)
-
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
+        shots = self.run_options.get('shots', DEFAULT_SHOTS)
         template = '{:0%db}' % self.num_qubits
-
-        data = list()
-        for state in range(2 ** self.num_qubits):
-            data.append(Counts({template.format(state): shots}))
-
-        return data
+        return [Counts({template.format(state): shots}) for state in range(2 ** self.num_qubits)]
 
 
 class MCMLocalReadoutError(BaseExperiment):
+    """Ternary readout error confusion measurement using mid-circuit measurements."""
     def __init__(
         self,
         physical_qubits: Sequence[int],
         backend: Optional[Backend] = None
     ):
-        super().__init__(physical_qubits, analysis=MCMLocalReadoutErrorAnalysis(BaseAnalysis), backend=backend)
+        super().__init__(physical_qubits, analysis=MCMLocalReadoutErrorAnalysis(),
+                         backend=backend)
 
-    def circuits(self) -> List[QuantumCircuit]:
+    def circuits(self) -> list[QuantumCircuit]:
         template = QuantumCircuit(1, 1)
         template.metadata = {
             "experiment_type": self._type,
@@ -87,7 +88,7 @@ class MCMLocalReadoutError(BaseExperiment):
 
         return circuits
 
-    def _transpiled_circuits(self) -> List[QuantumCircuit]:
+    def _transpiled_circuits(self) -> list[QuantumCircuit]:
         circuits = super()._transpiled_circuits()
 
         for circ in circuits:
@@ -102,12 +103,12 @@ class MCMLocalReadoutError(BaseExperiment):
         return circuits
 
 
-def MCMLocalReadoutErrorAnalysis(BaseAnalysis):
-#def MCMLocalReadoutErrorAnalysis():
+class MCMLocalReadoutErrorAnalysis(BaseAnalysis):
+    """Analysis for MCMLocalReadoutError."""
     def _run_analysis(
         self,
         experiment_data: ExperimentData,
-    ) -> Tuple[List[AnalysisResultData], List["matplotlib.figure.Figure"]]:
+    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
         assignment_matrix = np.zeros(4, 4)
 
         for datum in experiment_data.data():

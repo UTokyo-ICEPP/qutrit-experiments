@@ -1,31 +1,28 @@
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+"""RamseyXY experiment to measure the frequency shift in a qubit coupled to a qutrit."""
+from collections.abc import Sequence
+from typing import Any, Optional
 from matplotlib.figure import Figure
 import numpy as np
-import lmfit
-from uncertainties import ufloat, unumpy as unp
-from qiskit import QuantumCircuit, pulse
-from qiskit.circuit import Parameter, Delay, Gate, Measure
+from qiskit import QuantumCircuit
+from qiskit.circuit import Delay, Gate, Measure
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
-from qiskit.pulse.channels import PulseChannel
-from qiskit_experiments.curve_analysis.base_curve_analysis import PARAMS_ENTRY_PREFIX
-from qiskit_experiments.curve_analysis.utils import convert_lmfit_result, eval_with_uncertainties
-from qiskit_experiments.framework import AnalysisResultData, BackendData, ExperimentData, Options
+from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 from qiskit_experiments.framework.matplotlib import default_figure_canvas
 from qiskit_experiments.library import RamseyXY
 from qiskit_experiments.library.characterization import RamseyXYAnalysis
-from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ..calibrations.pulse_library import ModulatedGaussianSquare
-from ..common.framework_overrides import BatchExperiment, CompoundAnalysis
-from ..common.gates import SetF12, X12Gate
-from ..common.util import default_shots
-from .dummy_data import single_qubit_counts
+from ..constants import DEFAULT_SHOTS
+from ..framework.compound_analysis import CompoundAnalysis
+from ..framework_overrides.batch_experiment import BatchExperiment
+from ..gates import X12Gate
+from ..util.dummy_data import single_qubit_counts
 
 twopi = 2. * np.pi
 
 
 class QutritRamseyXY(RamseyXY):
+    """RamseyXY experiment to measure the frequency shift in a qubit coupled to a qutrit."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
@@ -37,10 +34,10 @@ class QutritRamseyXY(RamseyXY):
         self,
         physical_qubits: Sequence[int],
         control_state: int,
-        delays: Optional[List] = None,
+        delays: Optional[list] = None,
         osc_freq: Optional[float] = None,
         delay_schedule: Optional[ScheduleBlock] = None,
-        extra_metadata: Optional[Dict[str, Any]] = None,
+        extra_metadata: Optional[dict[str, Any]] = None,
         experiment_index: Optional[int] = None,
         backend: Optional[Backend] = None
     ):
@@ -53,7 +50,7 @@ class QutritRamseyXY(RamseyXY):
         if extra_metadata is None:
             self.extra_metadata = {'control_state': control_state}
         else:
-            self.extra_metadata = dict(control_state=control_state, **extra_metadata)
+            self.extra_metadata = {'control_state': control_state, **extra_metadata}
 
         self.experiment_index = experiment_index
 
@@ -62,7 +59,6 @@ class QutritRamseyXY(RamseyXY):
         if self.control_state == 1:
             circuit.x(1)
         elif self.control_state == 2:
-            circuit.append(SetF12(), [1])
             circuit.x(1)
             circuit.append(X12Gate(), [1])
         circuit.barrier()
@@ -74,7 +70,7 @@ class QutritRamseyXY(RamseyXY):
 
         return metadata
 
-    def circuits(self) -> List[QuantumCircuit]:
+    def circuits(self) -> list[QuantumCircuit]:
         circuits = super().circuits()
 
         if self.experiment_options.reverse_qubit_order:
@@ -109,14 +105,16 @@ class QutritRamseyXY(RamseyXY):
             for circuit in circuits:
                 idx = next(idx for idx, inst in enumerate(circuit.data)
                            if isinstance(inst.operation, Delay))
+                delay = circuit.data[idx].operation.params[0]
                 circuit.data[idx] = Gate(delay_sched.name, 1, [delay])
                 circuit.add_calibration(delay_sched.name, [self.physical_qubits[target_qubit]],
-                                        delay_sched.assign_parameters({delay_param: delay}), [delay])
+                                        delay_sched.assign_parameters({delay_param: delay}),
+                                        [delay])
 
         return circuits
 
-    def dummy_data(self, transpiled_circuits: List[QuantumCircuit]) -> List[np.ndarray]:
-        shots = self.run_options.get('shots', default_shots)
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
+        shots = self.run_options.get('shots', DEFAULT_SHOTS)
         num_qubits = 1
 
         tau = 1.e-5
@@ -127,8 +125,10 @@ class QutritRamseyXY(RamseyXY):
 
         delays = np.array(self.experiment_options.delays)
 
-        p_ground_x = 1. - (amp * np.exp(-delays / tau) * np.cos(twopi * freq * delays + phase) + base)
-        p_ground_y = 1. - (amp * np.exp(-delays / tau) * np.sin(twopi * freq * delays + phase) + base)
+        p_ground_x = 1. - (amp * np.exp(-delays / tau) * np.cos(twopi * freq * delays + phase)
+                           + base)
+        p_ground_y = 1. - (amp * np.exp(-delays / tau) * np.sin(twopi * freq * delays + phase)
+                           + base)
         p_ground = np.empty(2 * delays.shape[0])
         p_ground[::2] = p_ground_x
         p_ground[1::2] = p_ground_y
@@ -137,13 +137,15 @@ class QutritRamseyXY(RamseyXY):
 
 
 class QutritZZRamsey(BatchExperiment):
+    """Measurement of the qutrit-qubit ZZ Hamiltonian through QutritRamseyXY experiments with three
+    control states."""
     def __init__(
         self,
         physical_qubits: Sequence[int],
-        delays: Optional[List] = None,
+        delays: Optional[list] = None,
         osc_freq: Optional[float] = None,
         delay_schedule: Optional[ScheduleBlock] = None,
-        extra_metadata: Optional[Dict[str, Any]] = None,
+        extra_metadata: Optional[dict[str, Any]] = None,
         backend: Optional[Backend] = None
     ):
         experiments = []
@@ -166,6 +168,7 @@ class QutritZZRamsey(BatchExperiment):
 
 
 class QutritZZRamseyAnalysis(CompoundAnalysis):
+    """Analysis for QutritZZRamsey."""
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
@@ -174,7 +177,7 @@ class QutritZZRamseyAnalysis(CompoundAnalysis):
 
     def __init__(
         self,
-        analyses: List[RamseyXYAnalysis]
+        analyses: list[RamseyXYAnalysis]
     ):
         super().__init__(analyses)
 
@@ -194,10 +197,9 @@ class QutritZZRamseyAnalysis(CompoundAnalysis):
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
-        analysis_results: List[AnalysisResultData],
-        figures: List[Figure]
-    ) -> Tuple[List[AnalysisResultData], List[Figure]]:
-        """"""
+        analysis_results: list[AnalysisResultData],
+        figures: list[Figure]
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata["component_child_index"]
 
         omega_zs_by_state = []

@@ -15,19 +15,22 @@ logger = logging.getLogger(__name__)
 
 
 def qutrit_rough_frequency(runner, qubit):
+    """EF frequency measurement based on spectroscopy."""
     from ..experiments.rough_frequency import EFRoughFrequencyCal
     return ExperimentConfig(EFRoughFrequencyCal, [qubit])
 
 def qutrit_rough_amplitude(runner, qubit):
+    """X12 and SX12 amplitude determination from Rabi oscillation."""
     from ..experiments.rough_amplitude import EFRoughXSXAmplitudeCal
     return ExperimentConfig(
         EFRoughXSXAmplitudeCal,
         [qubit],
-        experiment_options={'final_x12gate': False},
+        experiment_options={'discrimination_basis': '02'},
         restless=True
     )
 
 def qutrit_discriminator(runner, qubit):
+    """0-2 discriminator determination using results from a Rabi experiment."""
     from ..experiments.rabi import EFRabi
     schedule = get_qutrit_pulse_gate('x12', qubit, runner.backend, runner.calibrations,
                                      assign_params={'amp': Parameter("amp")})
@@ -59,9 +62,11 @@ def qutrit_semifine_frequency(runner, qubit):
     from ..experiments.delay_phase_offset import EFRamseyPhaseSweepFrequencyCal
     config = ExperimentConfig(
         EFRamseyPhaseSweepFrequencyCal,
-        [qubit]
+        [qubit],
+        analysis_options={'common_amp': False}
     )
-    return _add_iq_discriminator(config, runner)
+    #return _add_iq_discriminator(config, runner)
+    return config
 
 def qutrit_erroramp_frequency(runner, qubit):
     from ..experiments.fine_frequency import EFFineFrequency
@@ -73,19 +78,22 @@ def qutrit_erroramp_frequency(runner, qubit):
         [qubit],
         args={'delay_duration': delay_duration}
     )
-    return _add_iq_discriminator(config, runner)
+    #return _add_iq_discriminator(config, runner)
+    return config
 
 def qutrit_fine_frequency(runner, qubit):
     from ..experiments.fine_frequency_phase import EFRamseyFrequencyScanCal
 
     config = ExperimentConfig(
         EFRamseyFrequencyScanCal,
-        [qubit]
+        [qubit],
+        analysis_options={'common_amp': False}
     )
     if not runner.data_taking_only:
         config.analysis_options['parallelize'] = 0
 
-    return _add_iq_discriminator(config, runner)
+    #return _add_iq_discriminator(config, runner)
+    return config
 
 def nocal_qutrit_fine_frequency(runner, qubit):
     from ..experiments.fine_frequency_phase import EFRamseyFrequencyScan
@@ -101,7 +109,8 @@ def nocal_qutrit_fine_frequency(runner, qubit):
     if not runner.data_taking_only:
         config.analysis_options['parallelize'] = 0
 
-    return _add_iq_discriminator(config, runner)
+    #return _add_iq_discriminator(config, runner)
+    return config
 
 def qutrit_rough_x_drag(runner, qubit):
     from ..experiments.rough_drag import EFRoughDragCal
@@ -114,7 +123,8 @@ def qutrit_rough_x_drag(runner, qubit):
             'betas': np.linspace(-10., 10., 10)
         }
     )
-    return _add_iq_discriminator(config, runner)
+    #return _add_iq_discriminator(config, runner)
+    return config
 
 def qutrit_rough_sx_drag(runner, qubit):
     from ..experiments.rough_drag import EFRoughDragCal
@@ -127,7 +137,8 @@ def qutrit_rough_sx_drag(runner, qubit):
             'betas': np.linspace(-20., 20., 10)
         }
     )
-    return _add_iq_discriminator(config, runner)
+    #return _add_iq_discriminator(config, runner)
+    return config
 
 def qutrit_fine_sx_amplitude(runner, qubit):
     from ..experiments.fine_amplitude import EFFineSXAmplitudeCal
@@ -141,7 +152,8 @@ def qutrit_fine_sx_amplitude(runner, qubit):
             'normalization': False,
         }
     )
-    return _add_iq_discriminator(config, runner)
+    #return _add_iq_discriminator(config, runner)
+    return config
 
 def qutrit_fine_sx_drag(runner, qubit):
     from ..experiments.fine_drag import EFFineSXDragCal
@@ -153,7 +165,8 @@ def qutrit_fine_sx_drag(runner, qubit):
             'repetitions': list(range(12))
         }
     )
-    return _add_iq_discriminator(config, runner)
+    #return _add_iq_discriminator(config, runner)
+    return config
 
 def qutrit_fine_x_amplitude(runner, qubit):
     from ..experiments.fine_amplitude import EFFineXAmplitudeCal
@@ -178,7 +191,8 @@ def qutrit_fine_x_drag(runner, qubit):
             'repetitions': list(range(12)),
         }
     )
-    return _add_iq_discriminator(config, runner)
+    #return _add_iq_discriminator(config, runner)
+    return config
 
 def qutrit_x12_stark_shift(runner, qubit):
     from ..experiments.stark_shift_phase import X12StarkShiftPhaseCal

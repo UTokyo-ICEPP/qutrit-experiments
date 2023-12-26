@@ -1,17 +1,20 @@
-from typing import Sequence, List, Optional, Union, Tuple
+"""Generic circuit runner experiment."""
+from collections.abc import Sequence
+from typing import Optional, Union
 import lmfit
 from qiskit import QuantumCircuit
 from qiskit.providers import Backend
 from qiskit.result import Counts
-from qiskit_experiments.framework import BaseExperiment, ExperimentData, AnalysisResultData, Options
 import qiskit_experiments.curve_analysis as curve
-from qiskit_experiments.visualization import CurvePlotter, MplDrawer
+from qiskit_experiments.framework import BaseExperiment, ExperimentData, Options
 
-from ..common.transpilation import map_and_translate
-from ..common.util import default_shots, get_metadata
+from ..constants import DEFAULT_SHOTS
+from ..transpilation import map_and_translate
+from ..util.get_metadata import get_metadata
 
 
 class CircuitRunner(BaseExperiment):
+    """Generic circuit runner experiment."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
@@ -43,7 +46,7 @@ class CircuitRunner(BaseExperiment):
         else:
             self._circuits = list(circuits)
 
-    def circuits(self) -> List[QuantumCircuit]:
+    def circuits(self) -> list[QuantumCircuit]:
         circuits = []
 
         for circuit in self._circuits:
@@ -58,15 +61,14 @@ class CircuitRunner(BaseExperiment):
 
         return circuits
 
-    def _transpiled_circuits(self) -> List[QuantumCircuit]:
+    def _transpiled_circuits(self) -> list[QuantumCircuit]:
         if self.experiment_options.trivial_transpilation:
             return [map_and_translate(circuit, self.physical_qubits, self.transpile_options.target)
                     for circuit in self.circuits()]
-        else:
-            return super()._transpiled_circuits()
+        return super()._transpiled_circuits()
 
-    def dummy_data(self, transpiled_circuits: List[QuantumCircuit]) -> List[Counts]:
-        shots = self.run_options.get('shots', default_shots)
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
+        shots = self.run_options.get('shots', DEFAULT_SHOTS)
 
         counts = []
         for circuit in transpiled_circuits:
@@ -77,9 +79,10 @@ class CircuitRunner(BaseExperiment):
 
 
 class DataExtraction(curve.CurveAnalysis):
+    """Extract xy data from ExperimentData."""
     def __init__(
         self,
-        series_names: Optional[List[str]] = None,
+        series_names: Optional[list[str]] = None,
         series_key: str = 'series',
         outcome: Optional[str] = None,
         composite_index: Optional[Union[int, Sequence[int]]] = None
@@ -125,7 +128,7 @@ class DataExtraction(curve.CurveAnalysis):
     def _run_curve_fit(
         self,
         curve_data: curve.CurveData,
-        models: List['lmfit.Model'],
+        models: list['lmfit.Model'],
     ) -> curve.CurveFitResult:
         return curve.CurveFitResult(
             success=False,
