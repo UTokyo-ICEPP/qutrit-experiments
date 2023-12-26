@@ -2,14 +2,15 @@
 """Config generator prototypes for qutrit gate calibrations."""
 import logging
 import numpy as np
+from qiskit.circuit import Parameter
 from qiskit.qobj.utils import MeasLevel, MeasReturnType
 from qiskit_experiments.data_processing import (DataProcessor, DiscriminatorNode, MemoryToCounts,
                                                 Probability)
 from qiskit_experiments.visualization import MplDrawer, IQPlotter
 
 from ..calibrations import get_qutrit_pulse_gate
+from ..data_processing import LinearDiscriminator
 from ..experiment_config import ExperimentConfig
-from ..util.linear_discriminator import LinearDiscriminator
 
 logger = logging.getLogger(__name__)
 
@@ -64,19 +65,6 @@ def qutrit_semifine_frequency(runner, qubit):
         EFRamseyPhaseSweepFrequencyCal,
         [qubit],
         analysis_options={'common_amp': False}
-    )
-    #return _add_iq_discriminator(config, runner)
-    return config
-
-def qutrit_erroramp_frequency(runner, qubit):
-    from ..experiments.fine_frequency import EFFineFrequency
-
-    delay_duration = runner.calibrations.get_schedule('sx12', qubit).duration
-
-    config = ExperimentConfig(
-        EFFineFrequency,
-        [qubit],
-        args={'delay_duration': delay_duration}
     )
     #return _add_iq_discriminator(config, runner)
     return config

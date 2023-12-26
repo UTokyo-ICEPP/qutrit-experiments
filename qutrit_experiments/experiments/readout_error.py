@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from typing import Optional
 import numpy as np
 from qiskit import QuantumCircuit
-from qiskit.circuit import CircuitInstruction, ClassicalRegister
+from qiskit.circuit import CircuitInstruction, ClassicalRegister, Measure
 from qiskit.circuit.library import XGate
 from qiskit.providers import Backend
 from qiskit.result import Counts
@@ -27,7 +27,7 @@ class CorrelatedReadoutError(CorrelatedReadoutErrorOrig):
     def _transpiled_circuits(self) -> list[QuantumCircuit]:
         circuits = self.circuits()
         first_circuit = map_to_physical_qubits(circuits[0], self.physical_qubits,
-                                               self.transpile_options.target)
+                                               self._backend.coupling_map)
 
         transpiled_circuits = [first_circuit]
         # first_circuit is for 0
@@ -83,22 +83,30 @@ class MCMLocalReadoutError(BaseExperiment):
         circ.x(0)
         circ.append(X12Gate(), [0])
         circ.measure(0, 0)
+        circ.append(X12Gate(), [0]) # To allow active reset
         circ.metadata['state_label'] = '2'
         circuits.append(circ)
 
         return circuits
 
     def _transpiled_circuits(self) -> list[QuantumCircuit]:
-        circuits = super()._transpiled_circuits()
+        circuits = map_to_physical_qubits(self.circuits(), self.physical_qubits,
+                                          self._backend.coupling_map)
 
         for circ in circuits:
             creg = ClassicalRegister(size=2)
-            circ.remove_final_measurements(inplace=True)
             circ.add_register(creg)
+            measure_idx, inst_orig = next((item for item in enumerate(circ.data)
+                                           if isinstance(item[1].operation, Measure)))
+            # Insert measure-X-measure in reverse order
             # Post-transpilation - logical qubit = physical qubit
-            circ.measure(self.physical_qubits[0], creg[0])
-            circ.x(self.physical_qubits[0])
-            circ.measure(self.physical_qubits[0], creg[1])
+            inst_orig.operation = Measure()
+            inst_orig.clbits = (creg[1],)
+            circ.data.insert(measure_idx,
+                             CircuitInstruction(XGate(), qubits=inst_orig.qubits))
+            circ.data.insert(measure_idx,
+                             CircuitInstruction(Measure(), qubits=inst_orig.qubits,
+                                                clbits=(creg[0],)))
 
         return circuits
 

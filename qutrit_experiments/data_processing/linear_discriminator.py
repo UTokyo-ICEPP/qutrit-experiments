@@ -1,9 +1,11 @@
+"""Linear discriminator in the IQ plane."""
 from typing import Any
 import numpy as np
 from qiskit_experiments.data_processing import BaseDiscriminator
 
 
 class LinearDiscriminator(BaseDiscriminator):
+    """Linear discriminator in the IQ plane."""
     def __init__(self, theta, dist):
         self.theta = theta
         self.vnorm = np.array([np.cos(theta), np.sin(theta)])

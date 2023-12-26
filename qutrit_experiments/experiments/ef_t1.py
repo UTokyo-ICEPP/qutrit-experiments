@@ -1,31 +1,32 @@
 """A T1 experiment for qutrits."""
 from collections.abc import Sequence
 from typing import Optional, Union
-import numpy as np
 import lmfit
-from scipy.integrate import odeint
+import numpy as np
+import scipy.linalg as scilin
+from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.circuit import ClassicalRegister, CircuitInstruction
 from qiskit.circuit.library import XGate
 from qiskit.providers import Backend
-from qiskit_experiments.framework import AnalysisResultData, BaseAnalysis, ExperimentData, Options
-from qiskit_experiments.library import T1
-from qiskit_experiments.visualization import CurvePlotter, MplDrawer
+from qiskit_experiments.data_processing import DataProcessor
+from qiskit_experiments.data_processing.exceptions import DataProcessorError
 import qiskit_experiments.curve_analysis as curve
+from qiskit_experiments.framework import ExperimentData, Options
+from qiskit_experiments.library import T1
 
-from ..common.readout_mitigation import MCMLocalReadoutMitigation
-from ..experiment_mixins.ef_space import EFSpaceExperiment
+from ..data_processing import MultiProbability, ReadoutMitigation, SerializeMultiProbability
 from ..gates import X12Gate
 
 
-class EFT1(EFSpaceExperiment, T1):
+class EFT1(T1):
     """A T1 experiment for qutrits."""
-    _initial_xgate = False
-
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
         options.delays = np.linspace(0., 5.e-4, 30)
+        # Number of empty circuits to insert to let the |2> state relax
+        options.insert_empty_circuits = 0
         return options
 
     def __init__(
@@ -44,13 +45,18 @@ class EFT1(EFSpaceExperiment, T1):
             self.set_experiment_options(delays=delays)
 
     def circuits(self) -> list[QuantumCircuit]:
-        circuits = super().circuits()
-        for circuit in circuits:
+        sup_circuits = super().circuits()
+        measure_0 = QuantumCircuit(1)
+        measure_0.measure_all()
+        circuits = []
+        for circuit in sup_circuits:
             for idx, inst in enumerate(circuit.data):
                 if isinstance(inst.operation, XGate):
                     circuit.data.insert(idx + 1,
                                         CircuitInstruction(X12Gate(), [self.physical_qubits[0]]))
-                    break
+            circuits.append(circuit)
+            for _ in range(self.experiment_options.insert_empty_circuits):
+                circuits.append(measure_0)
 
         return circuits
 
@@ -68,262 +74,89 @@ class EFT1(EFSpaceExperiment, T1):
         return circuits
 
 
-class EFT1Analysis(BaseAnalysis):
+def _three_component_relaxation(time, p0, p1, p2, g10, g20, g21):
+    transition_matrix = np.array(
+        [[0., g10, g20],
+        [0., -g10, g21],
+        [0., 0., -(g20 + g21)]]
+    )
+    return scilin.expm(time * transition_matrix) @ np.array([p0, p1, p2])
+
+def _prob_0(time, p0, p1, p2, g10, g20, g21):
+    return _three_component_relaxation(time, p0, p1, p2, g10, g20, g21)[0]
+
+def _prob_1(time, p0, p1, p2, g10, g20, g21):
+    return _three_component_relaxation(time, p0, p1, p2, g10, g20, g21)[1]
+
+def _prob_2(time, p0, p1, p2, g10, g20, g21):
+    return _three_component_relaxation(time, p0, p1, p2, g10, g20, g21)[2]
+
+
+class EFT1Analysis(curve.CurveAnalysis):
     """Run fit with rate equations."""
 
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
+        options.assignment_matrix = None
+        return options
 
-        plotter = CurvePlotter(MplDrawer())
-        plotter.set_figure_options(
+    def __init__(self, name: Optional[str] = None):
+        super().__init__(models=[
+            lmfit.Model(_prob_0, name='0'),
+            lmfit.Model(_prob_1, name='1'),
+            lmfit.Model(_prob_2, name='2')
+        ], name=name)
+
+        self.options.result_parameters = [
+            curve.ParameterRepr('g10', 'Γ10'),
+            curve.ParameterRepr('g20', 'Γ20'),
+            curve.ParameterRepr('g21', 'Γ21')
+        ]
+
+        self.options.plotter.set_figure_options(
             xlabel="Delay",
             ylabel="Probability",
             xval_unit="s",
         )
-        options.update_options(
-            plotter=plotter,
-            assignment_matrix=None,
-            alpha_prior=[0.5, 0.5],
-        )
-        return options
+
+    def _initialize(self, experiment_data: ExperimentData):
+        if self.options.data_processor is None:
+            nodes = []
+            if (cal_matrix := self.options.assignment_matrix) is not None:
+                nodes.append(ReadoutMitigation(cal_matrix))
+            nodes += [
+                MultiProbability(),
+                SerializeMultiProbability(['10', '01', '11'])
+            ]
+            self.options.data_processor = DataProcessor('counts', nodes)
+
+        super()._initialize(experiment_data)
 
     def _run_data_processing(
         self,
         raw_data: list[dict],
+        models: list[lmfit.Model]
     ) -> curve.CurveData:
+        x_key = self.options.x_key
+        try:
+            xdata = np.asarray([datum["metadata"][x_key] for datum in raw_data], dtype=float)
+        except KeyError as ex:
+            raise DataProcessorError(
+                f"X value key {x_key} is not defined in circuit metadata."
+            ) from ex
 
-        xdata = []
-        ydata = []
-        y_err = []
-        shots = []
-        data_allocation = []
-        for datum in raw_data:
-            if self.options.assignment_matrix is not None:
-                raw_count = {
-                    "0": datum["counts"].get("10", 0),
-                    "1": datum["counts"].get("01", 0),
-                    "2": datum["counts"].get("11", 0),
-                    "3": datum["counts"].get("00", 0),
-                }
-                count_sum = sum(raw_count.values())
-                mitigator = MCMLocalReadoutMitigation(self.options.assignment_matrix)
-                mit_prob = mitigator.quasi_probabilities(raw_count)
-                mit_prob = mit_prob.nearest_probability_distribution()
-                trit_count = {str(k): int(v * count_sum) for k, v in mit_prob.items()}
-            else:
-                trit_count = {
-                    "0": datum["counts"].get("10", 0),
-                    "1": datum["counts"].get("01", 0),
-                    "2": datum["counts"].get("11", 0),
-                }
-            net_shots = sum(trit_count.values())
-
-            for i, state in enumerate(("0", "1", "2")):
-                freq = trit_count.get(state, 0)
-                alpha_posterior = [
-                    freq + self.options.alpha_prior[0],
-                    net_shots - freq + self.options.alpha_prior[1],
-                ]
-                alpha_sum = sum(alpha_posterior)
-                p_mean = alpha_posterior[0] / alpha_sum
-                p_var = p_mean * (1 - p_mean) / (alpha_sum + 1)
-
-                xdata.append(datum["metadata"]["xval"])
-                ydata.append(p_mean)
-                y_err.append(p_var)
-                shots.append(net_shots)
-                data_allocation.append(i)
+        # ydata is serialized multiprobability
+        ydata = self.options.data_processor(raw_data)
+        data_allocation = np.tile(['0', '1', '2'], xdata.shape[0])
+        shots = np.repeat([datum.get("shots", np.nan) for datum in raw_data], 3)
+        xdata = np.repeat(xdata, 3)
 
         return curve.CurveData(
-            x=np.asarray(xdata, dtype=float),
-            y=np.asarray(ydata, dtype=float),
-            y_err=np.asarray(y_err, dtype=float),
-            shots=np.asarray(shots, dtype=int),
-            data_allocation=np.asarray(data_allocation, dtype=int),
-            labels=["0", "1", "2"],
+            x=xdata,
+            y=unp.nominal_values(ydata),
+            y_err=unp.std_devs(ydata),
+            shots=shots,
+            data_allocation=data_allocation,
+            labels=['0', '1', '2']
         )
-
-    def _run_analysis(
-        self,
-        experiment_data: ExperimentData,
-    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
-
-        analysis_results = []
-        figures = []
-
-        curve_data = self._run_data_processing(experiment_data.data())
-        p0_exp = curve_data.get_subset_of("0")
-        p1_exp = curve_data.get_subset_of("1")
-        p2_exp = curve_data.get_subset_of("2")
-
-        x = p0_exp.x
-        assert np.array_equal(x, p1_exp.x)
-        assert np.array_equal(x, p2_exp.x)
-
-        for data in p0_exp, p1_exp, p2_exp:
-            self.options.plotter.set_series_data(
-                data.labels[0],
-                x_formatted=data.x,
-                y_formatted=data.y,
-                y_formatted_err=data.y_err,
-            )
-
-        def _rate_equation(p, _, g10, g20, g21):
-            dp0dt = g10 * p[1] + g20 * p[2]
-            dp1dt = -g10 * p[1] + g21 * p[2]
-            dp2dt = -(g20 + g21) * p[2]
-
-            return [dp0dt, dp1dt, dp2dt]
-
-        def _objective(_params):
-            p_ini = [_params["pi0"].value, _params["pi1"].value, _params["pi2"].value]
-            args = [_params[k].value for k in ["g10", "g20", "g21"]]
-            p = odeint(_rate_equation, p_ini, x, args=tuple(args))
-            resids = [
-                p[:, 0] - p0_exp.y,
-                p[:, 1] - p1_exp.y,
-                p[:, 2] - p2_exp.y,
-            ]
-            return np.concatenate(resids)
-
-        # initial guess
-        p1_dominant = p2_exp.y < 0.2
-        params = lmfit.Parameters()
-        params.add(
-            name="pi0",
-            value=0.0,
-            min=0.0,
-            max=1.0,
-            vary=True,
-        )
-        params.add(
-            name="pi1",
-            value=0.0,
-            min=0.0,
-            max=1.0,
-            vary=True,
-        )
-        params.add(
-            name="pi2",
-            value=1.0,
-            min=0.0,
-            max=1.0,
-            vary=True,
-        )
-        params.add(
-            name="g10",
-            value=- curve.guess.exp_decay(p1_exp.x[p1_dominant], p1_exp.y[p1_dominant]),
-            min=0.0,
-            vary=True,
-        )
-        params.add(
-            name="g20",
-            value=0.0,
-            min=0.0,
-            vary=True,
-        )
-        params.add(
-            name="g21",
-            value=- curve.guess.exp_decay(p2_exp.x, p2_exp.y),
-            min=0.0,
-            vary=True,
-        )
-        try:
-            res = lmfit.minimize(
-                fcn=_objective,
-                params=params,
-                method="least_squares",
-                scale_covar=False,
-                nan_policy="omit",
-            )
-            fit_data = curve.utils.convert_lmfit_result(
-                res, [], curve_data.x, curve_data.y
-            )
-            analysis_results.extend(
-                [
-                    AnalysisResultData(
-                        name="@Parameters_TritT1RateAnalysis",
-                        value=fit_data,
-                    ),
-                    AnalysisResultData(
-                        name="Gamma10",
-                        value=fit_data.ufloat_params["g10"],
-                        chisq=fit_data.reduced_chisq,
-                    ),
-                    AnalysisResultData(
-                        name="Gamma20",
-                        value=fit_data.ufloat_params["g20"],
-                        chisq=fit_data.reduced_chisq,
-                    ),
-                    AnalysisResultData(
-                        name="Gamma21",
-                        value=fit_data.ufloat_params["g21"],
-                        chisq=fit_data.reduced_chisq,
-                    ),
-                ]
-            )
-            self.options.plotter.set_supplementary_data(primary_results=analysis_results[1:])
-
-            # Create fit lines
-            p_ini_fit = [
-                fit_data.ufloat_params["pi0"].n,
-                fit_data.ufloat_params["pi1"].n,
-                fit_data.ufloat_params["pi2"].n,
-            ]
-            args_fit = [
-                fit_data.ufloat_params["g10"].n,
-                fit_data.ufloat_params["g20"].n,
-                fit_data.ufloat_params["g21"].n,
-            ]
-            x_interp = np.linspace(x[0], x[-1], 100)
-            p_fit = odeint(_rate_equation, p_ini_fit, x_interp, args=tuple(args_fit))
-            self.options.plotter.set_series_data(
-                "0",
-                x_interp=x_interp,
-                y_interp=p_fit[:, 0],
-            )
-            self.options.plotter.set_series_data(
-                "1",
-                x_interp=x_interp,
-                y_interp=p_fit[:, 1],
-            )
-            self.options.plotter.set_series_data(
-                "2",
-                x_interp=x_interp,
-                y_interp=p_fit[:, 2],
-            )
-            analysis_results.append(
-                AnalysisResultData(
-                    name="@DataFit_EFT1Analysis",
-                    value={
-                        "0": {
-                            "x": x_interp,
-                            "y": p_fit[:, 0],
-                        },
-                        "1": {
-                            "x": x_interp,
-                            "y": p_fit[:, 1],
-                        },
-                        "2": {
-                            "x": x_interp,
-                            "y": p_fit[:, 2],
-                        },
-                    }
-                )
-            )
-        except Exception:
-            pass
-
-        # Save data points
-        raw_data = {}
-        for data in p0_exp, p1_exp, p2_exp:
-            raw_data[data.labels[0]] = data
-        analysis_results.append(
-            AnalysisResultData(
-                name="@Data_EFT1Analysis",
-                value=raw_data,
-            )
-        )
-        figures.append(self.options.plotter.figure())
-        return analysis_results, figures
