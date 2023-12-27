@@ -236,6 +236,7 @@ def qutrit_t1(runner, qubit):
     return ExperimentConfig(
         EFT1,
         [qubit],
+        run_options={'rep_delay': runner.backend.configuration().rep_delay_range[1]},
         analysis_options={'assignment_matrix': assignment_matrix}
     )
 
