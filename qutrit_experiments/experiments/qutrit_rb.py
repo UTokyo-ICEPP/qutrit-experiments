@@ -25,6 +25,23 @@ class SU3Gate(Gate):
         assert data.shape == (3, 3)
         super().__init__('su3', 1, [data], label=label)
 
+    def validate_parameter(self, parameter):
+        """Unitary gate parameter has to be an ndarray."""
+        if isinstance(parameter, np.ndarray):
+            return parameter
+        else:
+            raise CircuitError(f"invalid param type {type(parameter)} in gate {self.name}")
+
+
+def su3_elements(length: int, rng: Generator):
+    unitaries = unitary_group.rvs(dim=3, size=length, random_state=rng)
+    if length <= 1:
+        unitaries = [unitaries]
+    # Renormalize by the cubic root of the determinant
+    determinants = np.array([det(unitary) for unitary in unitaries])
+    unitaries *= np.exp(-1.j * np.angle(determinants) / 3.)[:, None, None]
+    return unitaries
+
 
 class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
     """Base class for the 1Q qutrit RB."""
@@ -204,22 +221,42 @@ class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
             unitary = givens @ unitary
             rot_params.append((idx_n[0], theta, phi))
 
-        circuit.rz(-2 * np.angle(unitary[0, 0]), qubit)
-        circuit.append(RZ12Gate(2. * np.angle(unitary[2, 2])), [qubit])
+        diag_phases = np.angle(np.diagonal(unitary))
+        circuit.rz(-2 * diag_phases[0], qubit)
+        circuit.append(RZ12Gate(2. * diag_phases[2]), [qubit])
         for space, theta, phi in rot_params[::-1]:
-            # Apply U(-theta, -phi, phi)
+            # Givens matrices above correspond to U(θ,φ,-φ) in the respective qubit space.
+            # To reconstruct the original unitary, we recursively apply
+            # U(-θ,φ,-φ) = [U(θ,φ,-φ)]^{-1}.
+            # The standard decomposition of U(θ,φ,λ) is
+            # U(θ,φ,λ) = P(φ+π) √X Rz(θ+π) √X P(λ)
+            # where
+            # √X = 1/2 [[1+i, 1-i], [1-i, 1+i]] = e^{iπ/4} Rx(π/2).
+            # The qubit-space global phase e^{iπ/4} is a geometric phase in the qutrit space. In
+            # fact our SX gate is implemented more like Rx(π/2), so we express U in terms of Rz and
+            # Rx:
+            # U(θ,φ,λ) = -e^{i(φ+λ)/2} Rz(φ+π) Rx(π/2) Rz(θ+π) Rx(π/2) Rz(λ).
+            # So for U(-θ,φ,-φ) we have
+            # U(-θ,φ,-φ) = -Rz(φ+π) Rx(π/2) Rz(-θ+π) Rx(π/2) Rz(-φ)
+            # i.e. the qubit-space gate sequence results in -U(-θ,φ,-φ).
             if space == 0:
-                circuit.rz(phi - np.pi / 2., qubit)
+                circuit.rz(-phi, qubit)
                 circuit.sx(qubit)
-                circuit.rz(np.pi + theta)
+                circuit.rz(-theta + np.pi, qubit)
                 circuit.sx(qubit)
-                circuit.rz(-phi - np.pi / 2., qubit)
+                circuit.rz(phi + np.pi, qubit)
+                # geometric phase correction
+                circuit.rz(2. * np.pi / 3., qubit)
+                circuit.append(RZ12Gate(4. * np.pi / 3.), [qubit])
             else:
-                circuit.append(RZ12Gate(phi - np.pi / 2.), [qubit])
+                circuit.append(RZ12Gate(-phi), [qubit])
                 circuit.append(SX12Gate(), [qubit])
-                circuit.append(RZ12Gate(np.pi + theta), [qubit])
+                circuit.append(RZ12Gate(-theta + np.pi), [qubit])
                 circuit.append(SX12Gate(), [qubit])
-                circuit.append(RZ12Gate(-phi - np.pi / 2.), [qubit])
+                circuit.append(RZ12Gate(phi + np.pi), [qubit])
+                # geometric phase correction
+                circuit.rz(-4. * np.pi / 3., qubit)
+                circuit.append(RZ12Gate(-2. * np.pi / 3.), [qubit])
 
 
 class QutritRB(BaseQutritRB):
@@ -233,8 +270,7 @@ class QutritRB(BaseQutritRB):
         for isample in range(self.experiment_options.num_samples):
             sequence = []
             final_unitary = np.eye(3, dtype=complex)
-            for unitary in unitary_group.rvs(dim=3, size=length, random_state=rng):
-                unitary /= det(unitary)
+            for unitary in su3_elements(length, rng):
                 sequence.append(SU3Gate(unitary))
                 final_unitary = unitary @ final_unitary
             sequence.append(SU3Gate(np.linalg.inv(final_unitary)))
@@ -263,9 +299,9 @@ class QutritInterleavedRB(QutritRB):
                 raise RuntimeError(f'Gate unitary unknown for {interleaved_gate}') from ex
         self.gate_unitary = np.array(gate_unitary)
 
-        analysis = InterleavedRBAnalysis()
-        analysis.set_options(outcome="0")
-        analysis.plotter.set_figure_options(
+        self.analysis = InterleavedRBAnalysis()
+        self.analysis.set_options(outcome="0")
+        self.analysis.plotter.set_figure_options(
             xlabel="Sequence Length",
             ylabel="Survival Probability",
         )
@@ -279,8 +315,7 @@ class QutritInterleavedRB(QutritRB):
         for isample in range(self.experiment_options.num_samples):
             sequence = []
             final_unitary = np.eye(3, dtype=complex)
-            for unitary in unitary_group.rvs(dim=3, size=length, random_state=rng):
-                unitary /= det(unitary)
+            for unitary in su3_elements(length, rng):
                 sequence.append(SU3Gate(unitary))
                 final_unitary = unitary @ final_unitary
             sequence.append(SU3Gate(np.linalg.inv(final_unitary)))
@@ -288,8 +323,7 @@ class QutritInterleavedRB(QutritRB):
 
             sequence = []
             final_unitary = np.eye(3, dtype=complex)
-            for unitary in unitary_group.rvs(dim=3, size=length, random_state=rng):
-                unitary /= det(unitary)
+            for unitary in su3_elements(length, rng):
                 sequence.append(SU3Gate(unitary))
                 sequence.append(self.interleaved_gate())
                 final_unitary = self.gate_unitary @ unitary @ final_unitary
