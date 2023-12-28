@@ -77,7 +77,16 @@ def add_x12_sx12(
                                   \end{pmatrix},
 
     with $\theta=\pi$ or $\pi/2$. The Stark shift-induced phase $\delta$ can be corrected with
-    P_0 and P_2 gates (phase shifts on the drive and qutrit channels).
+    P_0 and P_2 gates (phase shifts on the drive and qutrit channels). The final
+    :math:`X/SX/\Xi/S\Xi` gates are therefore
+
+    .. math::
+
+        X = P2(\delta_X/2) U_{x}(\pi; \delta_X) \\
+        SX = P2(\delta_{SX}/2) U_{x}(\pi/2; \delta_{SX}) \\
+        \Xi = P0(\delta_{\Xi}/2) U_{\xi}(\pi; \delta_{\Xi}) \\
+        S\Xi = P0(\delta_{S\Xi}/2) U_{\xi}(\pi/2; \delta_{S\Xi}).
+
     """
     drive_channel = pulse.DriveChannel(Parameter('ch0'))
 

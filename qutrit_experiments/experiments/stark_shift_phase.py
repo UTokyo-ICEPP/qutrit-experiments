@@ -12,14 +12,30 @@ from qiskit_experiments.calibration_management import BaseCalibrationExperiment,
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 
-from ..constants import DEFAULT_SHOTS
+from ..constants import DEFAULT_SHOTS, RZ_SIGN
 from ..gates import X12Gate, SX12Gate, RZ12Gate
 from ..transpilation import replace_calibration_and_metadata
 from ..util.dummy_data import single_qubit_counts
 
 
 class BasePhaseRotation(BaseExperiment):
-    """Phase rotation-Rz-SX experiment."""
+    r"""Phase rotation-Rz-SX experiment.
+
+    Subclasses should implement _phase_rotation_sequence that returns a circuit whose final state
+    is of form
+
+    .. math::
+
+        |\psi\rangle = \frac{1}{\sqrt{2}} (|0\rangle - i e^{i\kappa} |1\rangle).
+
+    The probability of outcome '1' in this experiment is then
+
+    .. math::
+
+        P(1) & = |\langle 1 | \sqrt{X} R_z(\phi) | \psi \rangle|^2 \\
+             & = \frac{1}{2} \left( 1 + \cos(\phi + \kappa) \right).
+
+    """
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
@@ -55,7 +71,7 @@ class BasePhaseRotation(BaseExperiment):
 
         template = QuantumCircuit(1)
         template.compose(self._phase_rotation_sequence(), inplace=True)
-        template.rz(phi, 0)
+        template.rz(RZ_SIGN * phi, 0)
         template.sx(0)
         template.measure_all()
 
@@ -97,27 +113,76 @@ class BasePhaseRotation(BaseExperiment):
         return single_qubit_counts(one_probs, shots, num_qubits)
 
 
+class UpdateStarkDelta(BaseCalibrationExperiment):
+    """Mixin to calibrationize standard-gate BasePhaseRotation experiments."""
+    _cal_parameter_name = ''
+
+    def __init__(
+        self,
+        physical_qubits: Sequence[int],
+        calibrations: Calibrations,
+        phase_shifts: Optional[Sequence[float]] = None,
+        backend: Optional[Backend] = None,
+        cal_parameter_name: Optional[str] = None,
+        schedule_name: Optional[str] = None,
+        auto_update: bool = True
+    ):
+        if not cal_parameter_name:
+            cal_parameter_name = self._cal_parameter_name
+
+        super().__init__(
+            calibrations,
+            physical_qubits,
+            schedule_name=schedule_name,
+            phase_shifts=phase_shifts,
+            backend=backend,
+            cal_parameter_name=cal_parameter_name,
+            auto_update=auto_update
+        )
+
+    def _attach_calibrations(self, circuit: QuantumCircuit):
+        pass
+
+    def _metadata(self) -> dict[str, Any]:
+        metadata = super()._metadata()
+        metadata["cal_param_value"] = self._cals.get_parameter_value(
+            self._param_name,
+            self.physical_qubits,
+            schedule=self._sched_name,
+            group=self.experiment_options.group
+        )
+        return metadata
+
+    def update_calibrations(self, experiment_data: ExperimentData):
+        # Extracted phase shift + current correction
+        delta = self._extract_delta(experiment_data)
+        while delta > np.pi:
+            delta -= 2. * np.pi
+        while delta <= -np.pi:
+            delta += 2. * np.pi
+
+        BaseUpdater.add_parameter_value(
+            self._cals, experiment_data, delta, self._param_name, schedule=self._sched_name,
+            group=self.experiment_options.group
+        )
+
+    def _extract_delta(self, experiment_data: ExperimentData) -> float:
+        raise NotImplementedError('ABC')
+
+
 class X12QubitPhaseRotation(BasePhaseRotation):
     r"""Experiment to measure the phase shift on :math:`|0\rangle` by X12.
 
-    For
+    See the docstring of calibrations.add_x12_sx12() for the definition of :math:`\delta` and the
+    :math:`\Xi` gate implementation. This phase rotation sequence results in
 
     .. math::
 
-        U_{\xi}(\theta; \delta) =
-            \begin{pmatrix}
-            e^{-i\delta/2} & 0                        & 0 \\
-            0              & \cos \frac{\theta}{2}    & -i \sin \frac{\theta}{2} \\
-            0              & -i \sin \frac{\theta}{2} & \cos \frac{\theta}{2}
-            \end{pmatrix},
+        | \psi \rangle & = P0(\delta_{\Xi}') U_{\xi}(-\pi; \delta) U_{\xi}(\pi; \delta) \sqrt{X}
+                           | 0 \rangle \\
+                       & ~ | 0 \rangle - i e^{i(-\delta_{\Xi}' + \delta)} | 1 \rangle,
 
-    the gate sequence in this experiment yields
-
-    .. math::
-
-        |\langle 1 | \sqrt{X} R_z(\phi) U_{\xi}(-\pi; \delta) U_{\xi}(\pi; \delta) \sqrt{X}
-            | 0 \rangle|^2
-        \propto 1 + \cos (\delta + \phi).
+    where :math:`\delta_{\Xi}'` is the current correction.
     """
     def _phase_rotation_sequence(self) -> QuantumCircuit:
         template = QuantumCircuit(1)
@@ -126,86 +191,75 @@ class X12QubitPhaseRotation(BasePhaseRotation):
         template.append(RZ12Gate(np.pi), [0])
         template.append(X12Gate(), [0])
         template.append(RZ12Gate(-np.pi), [0])
-
         return template
 
 
-class X12StarkShiftPhaseCal(BaseCalibrationExperiment, X12QubitPhaseRotation):
+class X12StarkShiftPhaseCal(UpdateStarkDelta, X12QubitPhaseRotation):
     """Calibration experiment for X12QubitPhaseRotation."""
-    def __init__(
-        self,
-        physical_qubits: Sequence[int],
-        calibrations: Calibrations,
-        phase_shifts: Optional[Sequence[float]] = None,
-        backend: Optional[Backend] = None,
-        cal_parameter_name: Optional[str] = 'x12stark',
-        auto_update: bool = True
-    ):
-        super().__init__(
-            calibrations,
-            physical_qubits,
-            schedule_name=None,
-            phase_shifts=phase_shifts,
-            backend=backend,
-            cal_parameter_name=cal_parameter_name,
-            auto_update=auto_update
-        )
+    _cal_parameter_name = 'x12stark'
 
-    def _attach_calibrations(self, circuit: QuantumCircuit):
-        pass
+    def _extract_delta(self, experiment_data: ExperimentData) -> float:
+        """See the docstring of X12QubitPhaseRotation."""
+        return (BaseUpdater.get_value(experiment_data, 'phase_offset')
+                + experiment_data.metadata['cal_param_value'])
 
-    def _metadata(self) -> dict[str, Any]:
-        metadata = super()._metadata()
 
-        metadata["cal_param_value"] = self._cals.get_parameter_value(
-            self._param_name,
-            self.physical_qubits,
-            self._sched_name,
-            self.experiment_options.group
-        )
+class SX12QubitPhaseRotation(BasePhaseRotation):
+    r"""Experiment to measure the phase shift on :math:`|0\rangle` by SX12.
 
-        return metadata
+    See the docstring of calibrations.add_x12_sx12() for the definition of :math:`\delta` and the
+    :math:`S\Xi` gate implementation. This phase rotation sequence results in
 
-    def update_calibrations(self, experiment_data: ExperimentData):
-        value = BaseUpdater.get_value(experiment_data, 'phase_offset')
+    .. math::
 
-        # value = delta - current_correction
-        delta = value + experiment_data.metadata['cal_param_value']
+        | \psi \rangle & = P0(\delta_{S\Xi}') U_{\xi}(-\pi/2; \delta) U_{\xi}(\pi/2; \delta)
+                           \sqrt{X} | 0 \rangle \\
+                       & ~ | 0 \rangle - i e^{i(-\delta_{S\Xi}' + \delta)} | 1 \rangle,
 
-        while delta > np.pi:
-            delta -= 2. * np.pi
-        while delta <= -np.pi:
-            delta += 2. * np.pi
+    where :math:`\delta_{S\Xi}'` is the current correction.
+    """
+    def _phase_rotation_sequence(self) -> QuantumCircuit:
+        template = QuantumCircuit(1)
+        template.sx(0)
+        template.append(SX12Gate(), [0])
+        template.append(RZ12Gate(np.pi), [0])
+        template.append(SX12Gate(), [0])
+        template.append(RZ12Gate(-np.pi), [0])
+        return template
 
-        BaseUpdater.add_parameter_value(
-            self._cals, experiment_data, delta, self._param_name,
-            group=self.experiment_options.group
-        )
+
+class SX12StarkShiftPhaseCal(UpdateStarkDelta, SX12QubitPhaseRotation):
+    """Calibration experiment for SX12QubitPhaseRotation."""
+    _cal_parameter_name = 'sx12stark'
+
+    def _extract_delta(self, experiment_data: ExperimentData) -> float:
+        """See the docstring of SX12QubitPhaseRotation."""
+        return (BaseUpdater.get_value(experiment_data, 'phase_offset')
+                + experiment_data.metadata['cal_param_value'])
 
 
 class XQutritPhaseRotation(BasePhaseRotation):
     r"""Experiment to measure the phase shift on :math:`|2\rangle` by X.
 
-    The phase shift on :math:`|0\rangle` by X12 must be corrected already.
-
-    For
-
-    .. math::
-
-        U_{x}(\theta; \delta) =
-            \begin{pmatrix}
-            \cos \frac{\theta}{2}    & -i \sin \frac{\theta}{2} & 0 \\
-            -i \sin \frac{\theta}{2} & \cos \frac{\theta}{2} & 0 \\
-            0                        & 0                     & e^{-i\delta/2} \\
-            \end{pmatrix},
-
-    the gate sequence in this experiment yields
+    The phase shift on :math:`|0\rangle` by X12 must be corrected already. See the docstring of
+    calibrations.add_x12_sx12() for the definition of :math:`\delta` and the :math:`X` gate
+    implementation. This phase rotation sequence results in
 
     .. math::
 
-        | \langle 1 | \sqrt{X} R_{z}(\phi) R_{\xi}(\pi) U_{x}(\pi; \delta) R_{\xi}(\pi/2) X
-            | 0 \rangle |^2
-        \propto 1 + \cos \left( \phi - \frac{\delta}{2} \right).
+        | \psi \rangle & = P0(\delta_{\Xi}/2) U_{\xi}(\pi; \delta_{\Xi})
+                           P2(\delta_X'/2) U_{x}(\pi; \delta)
+                           P0(\delta_{S\Xi}'/2) U_{\xi}(\pi/2; \delta_{S\Xi})
+                           P2(\delta_X'/2) U_{x}(\pi; \delta) | 0 \rangle \\
+                       & = P0(\delta_{\Xi}/2) U_{\xi}(\pi; \delta_{\Xi})
+                           P2(\delta_X'/2) U_{x}(\pi; \delta)
+                           \left[-\frac{i}{\sqrt{2}} (| 1 \rangle - i| 2 \rangle) \right]
+                       & ~ P0(\delta_{\Xi}/2) U_{\xi}(\pi; \delta_{\Xi})
+                           \frac{1}{\sqrt{2}} (|0\rangle
+                                               + e^{\frac{i}{2}(\delta_X' - \delta)}|2\rangle)
+                       & = \frac{1}{\sqrt{2}} (|0\rangle
+                                               - i e^{\frac{i}{2}(\delta_X' - \delta)}|1\rangle).
+
     """
     def _phase_rotation_sequence(self) -> QuantumCircuit:
         template = QuantumCircuit(1)
@@ -213,87 +267,41 @@ class XQutritPhaseRotation(BasePhaseRotation):
         template.append(SX12Gate(), [0])
         template.x(0)
         template.append(X12Gate(), [0])
-
         return template
 
 
-class XStarkShiftPhaseCal(BaseCalibrationExperiment, XQutritPhaseRotation):
+class XStarkShiftPhaseCal(UpdateStarkDelta, XQutritPhaseRotation):
     """Calibration experiment for XQutritPhaseRotation."""
-    def __init__(
-        self,
-        physical_qubits: Sequence[int],
-        calibrations: Calibrations,
-        phase_shifts: Optional[Sequence[float]] = None,
-        backend: Optional[Backend] = None,
-        cal_parameter_name: Optional[str] = 'xstark',
-        auto_update: bool = True
-    ):
-        super().__init__(
-            calibrations,
-            physical_qubits,
-            schedule_name=None,
-            phase_shifts=phase_shifts,
-            backend=backend,
-            cal_parameter_name=cal_parameter_name,
-            auto_update=auto_update
-        )
+    _cal_parameter_name = 'xstark'
 
-    def _attach_calibrations(self, circuit: QuantumCircuit):
-        pass
-
-    def _metadata(self) -> dict[str, Any]:
-        metadata = super()._metadata()
-
-        metadata["cal_param_value"] = self._cals.get_parameter_value(
-            self._param_name,
-            self.physical_qubits,
-            self._sched_name,
-            self.experiment_options.group
-        )
-
-        return metadata
-
-    def update_calibrations(self, experiment_data: ExperimentData):
-        value = BaseUpdater.get_value(experiment_data, 'phase_offset')
-
-        # value = -delta / 2
-        # Current correction value does not enter here because we use the backend default x
-        delta = -2. * value
-
-        while delta > np.pi:
-            delta -= 2. * np.pi
-        while delta <= -np.pi:
-            delta += 2. * np.pi
-
-        BaseUpdater.add_parameter_value(
-            self._cals, experiment_data, delta, self._param_name,
-            group=self.experiment_options.group
-        )
+    def _extract_delta(self, experiment_data: ExperimentData) -> float:
+        """See the docstring of XQutritPhaseRotation."""
+        return (-2. * BaseUpdater.get_value(experiment_data, 'phase_offset')
+                + experiment_data.metadata['cal_param_value'])
 
 
 class SXQutritPhaseRotation(BasePhaseRotation):
     r"""Experiment to measure the phase shift on :math:`|2\rangle` by SX.
 
-    The phase shift on :math:`|0\rangle` by X12 must be corrected already.
-
-    For
-
-    .. math::
-
-        U_{x}(\theta; \delta) =
-            \begin{pmatrix}
-            \cos \frac{\theta}{2}    & -i \sin \frac{\theta}{2} & 0 \\
-            -i \sin \frac{\theta}{2} & \cos \frac{\theta}{2} & 0 \\
-            0                        & 0                     & e^{-i\delta/2} \\
-            \end{pmatrix},
-
-    the gate sequence in this experiment yields
+    The phase shift on :math:`|0\rangle` by X12 must be corrected already. See the docstring of
+    calibrations.add_x12_sx12() for the definition of :math:`\delta` and the :math:`SX` gate
+    implementation. This phase rotation sequence results in
 
     .. math::
 
-        | \langle 1 | \sqrt{X} R_{z}(\phi) \Xi \left[U_{x}(\pi/2; \delta)\right]^2
-                      \sqrt{\Xi} X | 0 \rangle |^2
-        \propto 1 + \cos \left( \phi - \delta \right).
+        | \psi \rangle & = P0(\delta_{\Xi}/2) U_{\xi}(\pi; \delta_{\Xi})
+                           \left[P2(\delta_{SX}'/2) U_{x}(\pi/2; \delta)\right]^2
+                           P0(\delta_{S\Xi}'/2) U_{\xi}(\pi/2; \delta_{S\Xi})
+                           P2(\delta_X'/2) U_{x}(\pi; \delta) | 0 \rangle \\
+                       & = P0(\delta_{\Xi}/2) U_{\xi}(\pi; \delta_{\Xi})
+                           P2(\delta_{SX}') \left[U_{x}(\pi/2; \delta)\right]^2
+                           \left[-\frac{i}{\sqrt{2}} (| 1 \rangle - i| 2 \rangle) \right]
+                       & ~ P0(\delta_{\Xi}/2) U_{\xi}(\pi; \delta_{\Xi})
+                           \frac{1}{\sqrt{2}} (|0\rangle
+                                               + e^{i(\delta_{SX}' - \delta)}|2\rangle)
+                       & = \frac{1}{\sqrt{2}} (|0\rangle
+                                               - i e^{i(\delta_{SX}' - \delta)}|1\rangle).
+
     """
     def _phase_rotation_sequence(self) -> QuantumCircuit:
         template = QuantumCircuit(1)
@@ -302,62 +310,17 @@ class SXQutritPhaseRotation(BasePhaseRotation):
         template.sx(0)
         template.sx(0)
         template.append(X12Gate(), [0])
-
         return template
 
 
-class SXStarkShiftPhaseCal(BaseCalibrationExperiment, SXQutritPhaseRotation):
+class SXStarkShiftPhaseCal(UpdateStarkDelta, SXQutritPhaseRotation):
     """Calibration experiment for SXQutritPhaseRotation."""
-    def __init__(
-        self,
-        physical_qubits: Sequence[int],
-        calibrations: Calibrations,
-        phase_shifts: Optional[Sequence[float]] = None,
-        backend: Optional[Backend] = None,
-        cal_parameter_name: str = 'sxstark',
-        auto_update: bool = True
-    ):
-        super().__init__(
-            calibrations,
-            physical_qubits,
-            schedule_name=None,
-            phase_shifts=phase_shifts,
-            backend=backend,
-            cal_parameter_name=cal_parameter_name,
-            auto_update=auto_update
-        )
+    _cal_parameter_name = 'sxstark'
 
-    def _attach_calibrations(self, circuit: QuantumCircuit):
-        pass
-
-    def _metadata(self) -> dict[str, Any]:
-        metadata = super()._metadata()
-
-        metadata["cal_param_value"] = self._cals.get_parameter_value(
-            self._param_name,
-            self.physical_qubits,
-            self._sched_name,
-            self.experiment_options.group
-        )
-
-        return metadata
-
-    def update_calibrations(self, experiment_data: ExperimentData):
-        value = BaseUpdater.get_value(experiment_data, 'phase_offset')
-
-        # value = -delta
-        # Current correction value does not enter here because we use the backend default x
-        delta = -value
-
-        while delta > np.pi:
-            delta -= 2. * np.pi
-        while delta <= -np.pi:
-            delta += 2. * np.pi
-
-        BaseUpdater.add_parameter_value(
-            self._cals, experiment_data, delta, self._param_name,
-            group=self.experiment_options.group
-        )
+    def _extract_delta(self, experiment_data: ExperimentData) -> float:
+        """See the docstring of XQutritPhaseRotation."""
+        return (-BaseUpdater.get_value(experiment_data, 'phase_offset')
+                + experiment_data.metadata['cal_param_value'])
 
 
 class RotaryQutritPhaseRotation(BasePhaseRotation):
@@ -381,42 +344,55 @@ class RotaryQutritPhaseRotation(BasePhaseRotation):
 
     .. math::
 
-        | \langle 1 | \sqrt{X} R_{z}(\phi) \Xi X U_{x}(-\theta; \delta) U_{x}(\theta; \delta)
-            \sqrt{\Xi} X | 0 \rangle |^2
-        \propto 1 + \cos \left( \phi - \delta \right).
+        | \psi \rangle & = P0(\delta_{\Xi}/2) U_{\xi}(\pi; \delta_{\Xi})
+                           P2(\delta_X/2) U_{x}(\pi; \delta_X)
+                           P2(-\delta)
+                           P0(\delta_{S\Xi}'/2) U_{\xi}(\pi/2; \delta_{S\Xi})
+                           P2(\delta_X/2) U_{x}(\pi; \delta_X) | 0 \rangle \\
+                       & = P0(\delta_{\Xi}/2) U_{\xi}(\pi; \delta_{\Xi})
+                           P2(\delta_X/2) U_{x}(\pi; \delta_X)
+                           P2(-\delta)
+                           \left[-\frac{i}{\sqrt{2}} (| 1 \rangle - i| 2 \rangle) \right]
+                       & ~ \frac{1}{\sqrt{2}} (|0\rangle
+                                               - i e^{-i\delta}|1\rangle).
+
+    Current correction is assumed to be always 0.
     """
+    @classmethod
+    def _default_experiment_options(cls) -> Options:
+        options = super()._default_experiment_options()
+        options.schedule = None
+        return options
+
     def __init__(
         self,
         physical_qubits: Sequence[int],
-        schedule: Union[Schedule, ScheduleBlock],
+        schedule: Optional[Union[Schedule, ScheduleBlock]] = None,
         phase_shifts: Optional[Sequence[float]] = None,
         backend: Optional[Backend] = None
     ):
         super().__init__(physical_qubits, phase_shifts=phase_shifts, backend=backend)
-
-        channel = schedule.channels[0]
-        with pulse.build(name='pump') as sched:
-            pulse.call(schedule)
-            with pulse.phase_offset(np.pi, channel):
-                pulse.call(schedule)
-
-        self.pump_sched = sched
+        self.set_experiment_options(schedule=schedule)
 
     def _phase_rotation_sequence(self) -> QuantumCircuit:
-        gate = Gate('rotary', 1, [])
+        rotary_gate = Gate('rotary', 1, [])
         template = QuantumCircuit(1)
         template.x(0)
         template.append(SX12Gate(), [0])
-        template.append(gate, [0])
+        template.append(rotary_gate, [0])
+        template.rz(np.pi, 0)
+        template.append(rotary_gate, [0])
+        template.rz(-np.pi, 0)
         template.x(0)
         template.append(X12Gate(), [0])
 
-        template.add_calibration(gate, self.physical_qubits, self.pump_sched)
+        template.add_calibration(rotary_gate, self.physical_qubits,
+                                 self.experiment_options.schedule)
 
         return template
 
 
-class RotaryStarkShiftPhaseCal(BaseCalibrationExperiment, RotaryQutritPhaseRotation):
+class RotaryStarkShiftPhaseCal(UpdateStarkDelta, RotaryQutritPhaseRotation):
     """Calibration experiment for RotaryQutritPhaseRotation."""
     def __init__(
         self,
@@ -428,50 +404,19 @@ class RotaryStarkShiftPhaseCal(BaseCalibrationExperiment, RotaryQutritPhaseRotat
         cal_parameter_name: Optional[str] = 'delta',
         auto_update: bool = True
     ):
-        assign_params = {cal_parameter_name: 0.}
-        schedule = calibrations.get_schedule(schedule_name, physical_qubits,
-                                             assign_params=assign_params)
-
         super().__init__(
-            calibrations,
             physical_qubits,
-            schedule,
-            schedule_name=schedule_name,
+            calibrations,
             phase_shifts=phase_shifts,
             backend=backend,
             cal_parameter_name=cal_parameter_name,
+            schedule_name=schedule_name,
             auto_update=auto_update
         )
+        schedule = calibrations.get_schedule(schedule_name, physical_qubits,
+                                             assign_params={cal_parameter_name: 0.})
+        self.set_experiment_options(schedule=schedule)
 
-    def _attach_calibrations(self, circuit: QuantumCircuit):
-        pass
-
-    def _metadata(self) -> dict[str, Any]:
-        metadata = super()._metadata()
-
-        metadata["cal_param_value"] = self._cals.get_parameter_value(
-            self._param_name,
-            self.physical_qubits,
-            self._sched_name,
-            self.experiment_options.group
-        )
-
-        return metadata
-
-    def update_calibrations(self, experiment_data: ExperimentData):
-        value = BaseUpdater.get_value(experiment_data, 'phase_offset')
-
-        # value = -delta
-        # Current correction value does not enter here because we use the backend default x
-        delta = -value
-
-        while delta > np.pi:
-            delta -= 2. * np.pi
-        while delta <= -np.pi:
-            delta += 2. * np.pi
-
-        BaseUpdater.add_parameter_value(
-            self._cals, experiment_data, delta, self._param_name,
-            schedule=self._sched_name,
-            group=self.experiment_options.group
-        )
+    def _extract_delta(self, experiment_data: ExperimentData) -> float:
+        """See the docstring of RotaryQutritPhaseRotation."""
+        return -BaseUpdater.get_value(experiment_data, 'phase_offset')

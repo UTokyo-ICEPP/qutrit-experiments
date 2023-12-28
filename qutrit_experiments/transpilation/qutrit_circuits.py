@@ -96,6 +96,34 @@ class AddQutritCalibrations(TransformationPass):
         - For each X12 or SX12 gate, instantiate a schedule with the calculated phase shift, attach
           it to the circuit as calibration, replace the node with the parametrized version, and
           insert the AC Stark shift correction nodes.
+
+        Notes about Rz and ShiftPhase
+        - In Qiskit, RZGate(phi) is scheduled as ShiftPhase(-phi), which actually effects a physical
+          Rz(-phi) (in the qubit space) on the backend.
+        - For each qutrit gate at time t0, we need to fast-forward the pulse phase to
+          omega12*t0 + qutrit_phase, where qutrit_phase is the accumulated phase shift from Rz,
+          Rz12, and AC Stark corrections on the X12/SX12 pulse. Since the default phase is
+          omega01*t0 + qubit_phase, we apply
+          ShiftPhase((omega12-omega01)*t0 + qutrit_phase - qubit_phase)
+          on each invocation of X12 and SX12 gates. As noted above, this is implemented with
+          sign-inverted RZGates.
+        - The correspondence of shifting the phases of X/SX/X12/SX12 pulses to physical effects
+          has a global-phase ambiguity. For a phase shift of phi, any operator Q(phi) that induces
+          a phase difference of phi between the upper and lower levels is a valid representation.
+          X/SX/X12/SX12 at a shifted phase phi corresponds to Q(-phi) X/SX/X12/SX12 Q(phi). A
+          particularly convenient representation for qutrits is
+          Q(phi) = P0(-phi) = diag(exp(-iphi), 1, 1) for X/SX phase shifts and
+          Q(phi) = P2(phi) = diag(1, 1, exp(iphi)) for X12/SX12. With this representation, for
+          example a physical Rz(phi) gate is decomposed to
+          Rz(phi) ~ diag(exp(-iphi), 1, exp(-iphi/2)) = P0(-phi)P2(-phi/2),
+          which means that Rz(phi) requires a phase shift of +phi for the successive X/SX and -phi/2
+          for X12/SX12. A physical Rz12(phi) is
+          Rz12(phi) ~ diag(exp(iphi/2), 1, exp(iphi)) = P0(phi/2)P2(phi)
+          corresponding to phase shifts of -phi/2 for X/SX and of +phi for X12/SX12.
+        - Because of the sign confusion in Qiskit, however, the logical circuits are executed as
+          their "mirror images" about the XZ plane of the Bloch sphere. Therefore, when we encounter
+          an RZGate(phi) in the circuit, we do not try invert the phase shift but rather count it
+          as P0(phi)P2(phi/2), i.e. count it as a qubit and qutrit phase shifts of -phi and +phi/2.
         """
         node_start_time = self.property_set['node_start_time']
 
@@ -123,22 +151,25 @@ class AddQutritCalibrations(TransformationPass):
                 ) * self.target.dt
                 dag.remove_op_node(node)
             elif isinstance(node.op, RZGate):
-                # Rz(phi) = [ShiftPhase(-phi, qubit_channel), ShiftPhase(0.5phi, qutrit_channel)]
+                # Qiskit convention
+                # Rz(phi) = [ShiftPhase(-phi, qubit), ShiftPhase(0.5phi, qutrit)]
                 phi = node.op.params[0]
                 qubit_phase_offsets[qubit] -= phi
                 qutrit_phase_offsets[qubit] += 0.5 * phi
             elif isinstance(node.op, RZ12Gate):
-                # Rz12(phi) = [ShiftPhase(-phi, qutrit_channel), ShiftPhase(0.5phi, qubit_channel)]
+                # Qiskit convention
+                # Rz12(phi) = [ShiftPhase(-phi, qutrit), ShiftPhase(0.5phi, qubit)]
                 phi = node.op.params[0]
                 qutrit_phase_offsets[qubit] -= phi
                 qubit_phase_offsets[qubit] += 0.5 * phi
-                # This Rz translates simply to ShiftPhase(0.5phi, qubit_channel)
+                # This Rz will not be processed by this pass and translates simply to
+                # ShiftPhase(0.5phi, qubit)
                 dag.substitute_node(node, RZGate(-0.5 * phi), inplace=True)
             elif isinstance(node.op, (XGate, SXGate)):
-                # X/SX = [Play(qubit_channel), ShiftPhase(-0.5delta, qutrit_channel)]
+                # X/SX = [Play(gate_pulse, qubit), ShiftPhase(0.5delta, qutrit)]
                 # See the docstring of add_x12_sx12()
                 delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubit)
-                qutrit_phase_offsets[qubit] -= 0.5 * delta
+                qutrit_phase_offsets[qubit] += 0.5 * delta
             else:
                 if (mod_freq := modulation_frequencies.get(qubit)) is None:
                     mod_freq = (self.calibrations.get_parameter_value('f12', qubit)
@@ -155,17 +186,19 @@ class AddQutritCalibrations(TransformationPass):
                                                                assign_params=assign_params)
                         dag.add_calibration(node.op.name, (qubit,), sched)
 
-                    # X12/SX12 = [Play(qutrit_channel), ShiftPhase(0.5delta, qubit_channel)]
+                    # X12/SX12 = [Play(qutrit), ShiftPhase(-0.5delta, qubit)]
                     delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubit)
-                    qubit_phase_offsets[qubit] += 0.5 * delta
+                    qubit_phase_offsets[qubit] -= 0.5 * delta
                 else:
                     delta = 0.
 
                 subdag = DAGCircuit()
                 subdag.add_qreg((qreg := QuantumRegister(1)))
+                # Qiskit convention: this is ShiftPhase(angle)
                 subdag.apply_operation_back(RZGate(-angle), [qreg[0]])
                 subdag.apply_operation_back(node.op, [qreg[0]])
-                subdag.apply_operation_back(RZGate(angle - 0.5 * delta), [qreg[0]])
+                # ShiftPhase(-angle - 0.5delta)
+                subdag.apply_operation_back(RZGate(angle + 0.5 * delta), [qreg[0]])
                 subst_map = dag.substitute_node_with_dag(node, subdag)
                 # Update the node_start_time map. InstructionDurations passed to the scheduling
                 # pass must be constructed using the same calibrations object and therefore the
