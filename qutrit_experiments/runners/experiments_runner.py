@@ -24,7 +24,7 @@ from qiskit_experiments.framework.composite.composite_experiment import (Composi
 from qiskit_experiments.exceptions import AnalysisError
 from qiskit_ibm_runtime import RuntimeJob, Session
 
-from ..constants import DEFAULT_SHOTS, RESTLESS_REP_DELAY
+from ..constants import DEFAULT_REP_DELAY, DEFAULT_SHOTS, RESTLESS_REP_DELAY
 from ..experiment_config import ExperimentConfig, experiments, postexperiments
 from ..framework.postprocessed_experiment_data import PostprocessedExperimentData
 from ..framework_overrides.composite_analysis import CompositeAnalysis
@@ -140,6 +140,15 @@ class ExperimentsRunner:
         if not config.analysis:
             experiment.analysis = None
 
+        self._set_options(experiment, config)
+
+        return experiment
+
+    def _set_options(
+        self,
+        experiment: BaseExperiment,
+        config: ExperimentConfig
+    ):
         experiment.set_experiment_options(**config.experiment_options)
 
         # CompositeExperiment creates a CompositeAnalysisOrig by default; overwrite to the
@@ -149,14 +158,7 @@ class ExperimentsRunner:
             flatten_results = experiment.analysis._flatten_results
             experiment.analysis = CompositeAnalysis(analyses, flatten_results=flatten_results)
 
-        if type(experiment.analysis) is CompositeAnalysis: # pylint: disable=unidiomatic-typecheck
-            subanalyses = experiment.analysis.component_analysis()
-            if isinstance((ana_opt := config.analysis_options), dict):
-                ana_opt = [ana_opt for _ in range(len(subanalyses))]
-            for subana, opt in zip(subanalyses, ana_opt):
-                if opt is not None:
-                    subana.set_options(**opt)
-        elif experiment.analysis is not None:
+        if experiment.analysis is not None:
             experiment.analysis.set_options(**config.analysis_options)
 
         if isinstance(experiment, BaseCalibrationExperiment):
@@ -164,8 +166,6 @@ class ExperimentsRunner:
 
         if config.restless:
             experiment.enable_restless(rep_delay=RESTLESS_REP_DELAY)
-
-        return experiment
 
     def run_experiment(
         self,
@@ -184,6 +184,8 @@ class ExperimentsRunner:
 
         logger.info('run_experiment(%s)', exp_type)
 
+        if not config.restless:
+            experiment.set_run_options(rep_delay=DEFAULT_REP_DELAY)
         experiment.set_run_options(**config.run_options)
 
         exp_data = None
@@ -578,10 +580,9 @@ class ExperimentsRunner:
         if isinstance(from_qubits, int):
             from_qubits = (from_qubits,)
 
-        parameter_values = self._calibrations._params[(from_param, from_qubits, from_schedule)]
-
-        parameter_values = list(pv for pv in parameter_values if pv.group == from_group)
-
+        param_key = (from_param, from_qubits, from_schedule)
+        parameter_values = [pv for pv in self._calibrations._params[param_key]
+                            if pv.group == from_group]
         from_value = max(enumerate(parameter_values), key=lambda x: (x[1].date_time, x[0]))[1]
 
         if to_param is None:
@@ -597,7 +598,13 @@ class ExperimentsRunner:
         if transform is not None:
             value = transform(value)
 
-        to_value = ParameterValue(value, from_value.date_time, group=to_group)
+        to_value = ParameterValue(
+            value=value,
+            date_time=from_value.date_time,
+            valid=from_value.valid,
+            exp_id=from_value.exp_id,
+            group=to_group
+        )
         self._calibrations.add_parameter_value(to_value, to_param, qubits=to_qubits,
                                                schedule=to_schedule)
 
