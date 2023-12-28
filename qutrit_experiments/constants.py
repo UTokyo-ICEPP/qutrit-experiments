@@ -3,7 +3,7 @@
 DEFAULT_SHOTS = 1000
 """Default number of shots."""
 
-DEFAULT_REP_DELAY = 1.e-4
+DEFAULT_REP_DELAY = 2.5e-4
 """Default delay between circuit executions."""
 
 RESTLESS_REP_DELAY = 1.e-5

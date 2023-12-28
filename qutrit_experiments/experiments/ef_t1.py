@@ -48,7 +48,9 @@ class EFT1(MapToPhysicalQubits, BaseExperiment):
 
         buffer_circuit = QuantumCircuit(1, 2)
         buffer_circuit.measure(0, 0)
+        buffer_circuit.barrier(0)
         buffer_circuit.x(0)
+        buffer_circuit.barrier(0)
         buffer_circuit.measure(0, 1)
         buffer_circuit.metadata = {'unit': None}
 
@@ -61,7 +63,9 @@ class EFT1(MapToPhysicalQubits, BaseExperiment):
             circ.delay(timing.round_delay(time=delay), 0, timing.delay_unit)
             circ.barrier(0)
             circ.measure(0, 0)
+            circ.barrier(0)
             circ.x(0)
+            circ.barrier(0)
             circ.measure(0, 1)
             circ.metadata = {'xval': timing.delay_time(time=delay), 'unit': 's'}
             circuits.append(circ)

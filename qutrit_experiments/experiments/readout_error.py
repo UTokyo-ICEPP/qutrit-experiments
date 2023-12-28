@@ -73,15 +73,20 @@ class MCMLocalReadoutError(MapToPhysicalQubits, BaseExperiment):
 
         circ = template.copy()
         circ.measure(0, 0)
+        circ.barrier(0)
         circ.x(0)
+        circ.barrier(0)
         circ.measure(0, 1)
         circ.metadata['state_label'] = 0
         circuits.append(circ)
 
         circ = template.copy()
         circ.x(0)
+        circ.barrier(0)
         circ.measure(0, 0)
+        circ.barrier(0)
         circ.x(0)
+        circ.barrier(0)
         circ.measure(0, 1)
         circ.metadata['state_label'] = 1
         circuits.append(circ)
@@ -89,8 +94,11 @@ class MCMLocalReadoutError(MapToPhysicalQubits, BaseExperiment):
         circ = template.copy()
         circ.x(0)
         circ.append(X12Gate(), [0])
+        circ.barrier(0)
         circ.measure(0, 0)
+        circ.barrier(0)
         circ.x(0)
+        circ.barrier(0)
         circ.measure(0, 1)
         circ.append(X12Gate(), [0]) # To allow active reset
         circ.metadata['state_label'] = 2

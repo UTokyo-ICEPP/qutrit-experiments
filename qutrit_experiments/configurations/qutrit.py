@@ -190,6 +190,14 @@ def qutrit_x12_stark_shift(runner, qubit):
         [qubit]
     )
 
+def qutrit_sx12_stark_shift(runner, qubit):
+    from ..experiments.stark_shift_phase import SX12StarkShiftPhaseCal
+
+    return ExperimentConfig(
+        SX12StarkShiftPhaseCal,
+        [qubit]
+    )
+
 def qutrit_x_stark_shift(runner, qubit):
     from ..experiments.stark_shift_phase import XStarkShiftPhaseCal
 
@@ -238,6 +246,16 @@ def qutrit_t1(runner, qubit):
         [qubit],
         run_options={'rep_delay': runner.backend.configuration().rep_delay_range[1]},
         analysis_options={'assignment_matrix': assignment_matrix}
+    )
+
+def qutrit_x12_irb(runner, qubit):
+    from ..experiments.qutrit_rb import QutritInterleavedRB
+    from ..gates import X12Gate
+
+    return ExperimentConfig(
+        QutritInterleavedRB,
+        [qubit],
+        args={'interleaved_gate': X12Gate}
     )
 
 def _add_iq_discriminator(config, runner):
