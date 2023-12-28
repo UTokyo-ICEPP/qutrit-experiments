@@ -10,13 +10,12 @@ from qiskit_experiments.framework import (BaseExperiment,
                                           ParallelExperiment as ParallelExperimentOrig)
 
 from .composite_analysis import CompositeAnalysis
-from .composite_experiment import CompositeExperiment
 
 if TYPE_CHECKING:
     from qiskit.providers import Backend
 
 
-class ParallelExperiment(ParallelExperimentOrig, CompositeExperiment):
+class ParallelExperiment(ParallelExperimentOrig):
     """ParallelExperiment with modified functionalities.
 
     Modifications:

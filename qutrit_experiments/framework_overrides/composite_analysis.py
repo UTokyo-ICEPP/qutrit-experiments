@@ -8,11 +8,12 @@ from multiprocessing import Pipe, Pool, Process, cpu_count
 from multiprocessing.connection import Connection
 from threading import Lock
 from typing import Optional
-
 from qiskit_experiments.exceptions import AnalysisError
 from qiskit_experiments.framework import (AnalysisResult, AnalysisStatus, BaseAnalysis,
                                           CompositeAnalysis as CompositeAnalysisOrig,
                                           ExperimentData, FigureData, Options)
+
+from ..framework.child_data import set_child_data_structure
 
 logger = logging.getLogger(__name__)
 
@@ -177,9 +178,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         parent_task_id: tuple[int, ...] = ()
     ):
         """Recursively collect all atomic analyses and identify analysis dependencies."""
-        # experiment_data is assumed to be a PostProcessedExperimentData with the
-        # set_child_data_structure postprocessor having been run
-        # -> experiment_data.child_data() already exists
+        set_child_data_structure(experiment_data)
         component_expdata = analysis._component_experiment_data(experiment_data)
 
         for itask, (sub_analysis, sub_data) in enumerate(zip(analysis._analyses,

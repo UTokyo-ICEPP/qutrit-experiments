@@ -19,16 +19,15 @@ from qiskit_experiments.calibration_management import (BaseCalibrationExperiment
 from qiskit_experiments.framework import (AnalysisStatus, BaseAnalysis, BaseExperiment,
                                           CompositeAnalysis as CompositeAnalysisOrig,
                                           ExperimentData)
-from qiskit_experiments.framework.composite.composite_experiment import (CompositeExperiment
-                                                                         as CompositeExperimentOrig)
+from qiskit_experiments.framework.composite.composite_experiment import CompositeExperiment
 from qiskit_experiments.exceptions import AnalysisError
 from qiskit_ibm_runtime import RuntimeJob, Session
 
 from ..constants import DEFAULT_REP_DELAY, DEFAULT_SHOTS, RESTLESS_REP_DELAY
-from ..experiment_config import ExperimentConfig, experiments, postexperiments
-from ..framework.postprocessed_experiment_data import PostprocessedExperimentData
+from ..experiment_config import (CompositeExperimentConfig, ExperimentConfig, ExperimentConfigBase,
+                                 experiments, postexperiments)
+from ..framework.child_data import set_child_data_structure, fill_child_data
 from ..framework_overrides.composite_analysis import CompositeAnalysis
-from ..framework_overrides.composite_experiment import CompositeExperiment
 from ..gates import QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES
 from ..transpilation.qutrit_circuits import make_instruction_durations, transpile_qutrit_circuits
 # Temporary patch for qiskit-experiments 0.5.1
@@ -121,19 +120,20 @@ class ExperimentsRunner:
 
     def make_experiment(
         self,
-        config: Union[str, ExperimentConfig]
+        config: Union[str, ExperimentConfigBase]
     ) -> BaseExperiment:
         if isinstance(config, str):
             config = experiments[config](self)
 
-        args = dict(config.args)
-        args['backend'] = self._backend
-        if config.physical_qubits is not None:
-            args['physical_qubits'] = config.physical_qubits
-        if issubclass(config.cls, BaseCalibrationExperiment):
-            args['calibrations'] = self._calibrations
-        if config.subexperiments:
+        args = {'backend': self._backend}
+        if isinstance(config, CompositeExperimentConfig):
             args['experiments'] = [self.make_experiment(sub) for sub in config.subexperiments]
+        else:
+            args.update(config.args)
+            if config.physical_qubits is not None:
+                args['physical_qubits'] = config.physical_qubits
+            if issubclass(config.cls, BaseCalibrationExperiment):
+                args['calibrations'] = self._calibrations
 
         experiment = config.cls(**args)
         experiment._type = config.exp_type
@@ -147,31 +147,30 @@ class ExperimentsRunner:
     def _set_options(
         self,
         experiment: BaseExperiment,
-        config: ExperimentConfig
+        config: ExperimentConfigBase
     ):
-        experiment.set_experiment_options(**config.experiment_options)
-
-        # CompositeExperiment creates a CompositeAnalysisOrig by default; overwrite to the
-        # serial version
-        if type(experiment.analysis) is CompositeAnalysisOrig: # pylint: disable=unidiomatic-typecheck
-            analyses = experiment.analysis.component_analysis()
-            flatten_results = experiment.analysis._flatten_results
-            experiment.analysis = CompositeAnalysis(analyses, flatten_results=flatten_results)
+        if isinstance(config, CompositeExperimentConfig):
+            # CompositeExperiment creates a CompositeAnalysisOrig by default; overwrite to the
+            # serial version
+            if type(experiment.analysis) is CompositeAnalysisOrig: # pylint: disable=unidiomatic-typecheck
+                analyses = experiment.analysis.component_analysis()
+                flatten_results = experiment.analysis._flatten_results
+                experiment.analysis = CompositeAnalysis(analyses, flatten_results=flatten_results)
+        else:
+            experiment.set_experiment_options(**config.experiment_options)
+            if isinstance(experiment, BaseCalibrationExperiment):
+                experiment.auto_update = False
+            if config.restless:
+                experiment.enable_restless(rep_delay=RESTLESS_REP_DELAY)
 
         if experiment.analysis is not None:
             experiment.analysis.set_options(**config.analysis_options)
 
-        if isinstance(experiment, BaseCalibrationExperiment):
-            experiment.auto_update = False
-
-        if config.restless:
-            experiment.enable_restless(rep_delay=RESTLESS_REP_DELAY)
-
     def run_experiment(
         self,
-        config: Union[str, ExperimentConfig],
+        config: Union[str, ExperimentConfigBase],
         experiment: Optional[BaseExperiment] = None,
-        postprocess: bool = True,
+        wait_for_job: bool = True,
         analyze: bool = True,
         calibrate: Union[bool, Callable[[ExperimentData], bool]] = True,
         print_level: int = 2
@@ -184,7 +183,7 @@ class ExperimentsRunner:
 
         logger.info('run_experiment(%s)', exp_type)
 
-        if not config.restless:
+        if isinstance(config, ExperimentConfig) and not config.restless:
             experiment.set_run_options(rep_delay=DEFAULT_REP_DELAY)
         experiment.set_run_options(**config.run_options)
 
@@ -194,7 +193,14 @@ class ExperimentsRunner:
             exp_data = self.load_data(exp_type)
         else:
             # Construct the data from running or retrieving jobs -> publish the raw data
-            exp_data = self._new_experiment_data(experiment)
+            # Finalize the experiment before executions
+            experiment._finalize()
+            # Initialize the result container
+            # This line comes after _transpiled_circuits in the original BaseExperiment.run() (see
+            # below) but in terms of good object design there shouldn't be any dependencies between the
+            # two methods
+            exp_data = experiment._initialize_experiment_data()
+
             if self.code_test:
                 logger.info('Generating dummy data for %s.', exp_type)
                 self._run_code_test(experiment, exp_data)
@@ -206,25 +212,22 @@ class ExperimentsRunner:
 
                 exp_data.add_jobs(jobs)
 
-            for name, func in config.postprocessors:
-                exp_data.add_postprocessor(name, func)
+            with exp_data._analysis_callbacks.lock:
+                if isinstance(experiment, CompositeExperiment):
+                    exp_data.add_analysis_callback(set_child_data_structure)
+                exp_data.add_analysis_callback(self.save_data)
 
-            exp_data.add_postprocessor('save_raw_data', self.save_data)
-
-            if postprocess:
-                exp_data.apply_postprocessors()
-                logger.debug('Waiting for postprocessors to complete.')
+            if wait_for_job:
+                logger.debug('Waiting for jobs to complete.')
                 exp_data.block_for_results()
 
-        # Status check was originally a postprocessor, but I later realized that BaseExperiment
-        # cancels all analysis callbacks (which postprocessors are) when job errors are detected
         self._check_status(exp_data)
 
         if not analyze or experiment.analysis is None:
-            if isinstance(experiment, CompositeExperimentOrig):
+            if isinstance(experiment, CompositeExperiment):
                 # Usually analysis fills the child data so we do it manually instead
-                CompositeExperiment.set_child_data_structure(exp_data)
-                CompositeExperiment.fill_child_data(exp_data)
+                with exp_data._analysis_callbacks.lock:
+                    exp_data.add_analysis_callback(fill_child_data)
 
             logger.info('No analysis will be performed for %s.', exp_type)
             return exp_data
@@ -360,9 +363,8 @@ class ExperimentsRunner:
                 return [(pname, sname, exp.physical_qubits)
                         for pname, sname in zip(param_name, sched_name)]
 
-            if isinstance(exp, CompositeExperimentOrig):
+            if isinstance(exp, CompositeExperiment):
                 update_list = []
-
                 for subexp, child_data in zip(exp.component_experiment(), exp_data.child_data()):
                     update_list.extend(_get_update_list(child_data, subexp))
 
@@ -421,23 +423,6 @@ class ExperimentsRunner:
                     logger.info('Program data %s not found.', key)
                 else:
                     raise
-
-    def _new_experiment_data(
-        self,
-        experiment: BaseExperiment,
-    ) -> ExperimentData:
-        # Finalize the experiment before executions
-        experiment._finalize()
-
-        # Initialize the result container
-        # This line comes after _transpiled_circuits in the original BaseExperiment.run() (see
-        # below) but in terms of good object design there shouldn't be any dependencies between the
-        # two methods
-        experiment_data = experiment._initialize_experiment_data()
-        if not isinstance(experiment_data, PostprocessedExperimentData):
-            experiment_data = PostprocessedExperimentData(experiment=experiment)
-
-        return experiment_data
 
     def _submit_jobs(
         self,

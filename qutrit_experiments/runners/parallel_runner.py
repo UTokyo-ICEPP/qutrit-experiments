@@ -14,7 +14,8 @@ from qiskit_experiments.framework.matplotlib import default_figure_canvas
 from qiskit_ibm_runtime import Session
 
 from .experiments_runner import ExperimentsRunner, display, print_details, print_summary
-from ..experiment_config import ExperimentConfig, experiments
+from ..experiment_config import (BatchExperimentConfig, ExperimentConfig, ParallelExperimentConfig,
+                                 experiments)
 from ..framework_overrides.batch_experiment import BatchExperiment
 from ..framework_overrides.parallel_experiment import ParallelExperiment
 from ..util.matplotlib import copy_axes
@@ -70,35 +71,53 @@ class ParallelRunner(ExperimentsRunner):
                 igroup = np.argmin([len(group) for group in group_candidates])
                 group_candidates[igroup].append(qubit)
 
+    def _make_parallel_config(
+        self,
+        config: ExperimentConfig
+    ) -> ParallelExperimentConfig:
+        """Create a configuration of a parallel experiment of batch experiments of experiments."""
+        parallel_subconfs = []
+        for igroup, qubit_group in enumerate(self.qubit_grouping):
+            batch_subconfs = []
+            for qubit in qubit_group:
+                qubit_config = copy.copy(config)
+                qubit_config.physical_qubits = [qubit]
+                qubit_config.exp_type = f'{config.exp_type}-q{qubit}'
+                batch_subconfs.append(qubit_config)
+
+            parallel_subconfs.append(
+                BatchExperimentConfig(batch_subconfs, analysis=config.analysis,
+                                      exp_type=f'{config.exp_type}-group{igroup}')
+            )
+
+        return ParallelExperimentConfig(parallel_subconfs, run_options=config.run_options,
+                                        analysis=config.analysis, exp_type=config.exp_type)
+
     def make_experiment(
         self,
         config: Union[str, ExperimentConfig]
-    ) -> BatchExperiment:
+    ) -> ParallelExperiment:
         """Create a BatchExperiment of ParallelExperiment of exp_cls."""
         if isinstance(config, str):
             config = experiments[config](self)
 
-        subexps = {}
-        if config.subexperiments:
-            active_qubits = self.active_qubits
-            for subconfig in config.subexperiments:
-                qubit = subconfig.physical_qubits[0]
-                if qubit in active_qubits:
-                    subexps[qubit] = super().make_experiment(subconfig)
-        else:
-            for qubit in self.active_qubits:
-                qubit_config = copy.copy(config)
-                qubit_config.physical_qubits = [qubit]
-                qubit_config.exp_type = f'{config.exp_type}-q{qubit}'
-                subexps[qubit] = super().make_experiment(qubit_config)
+        experiment = super().make_experiment(self._make_parallel_config(config))
 
-        return self.compose_experiment(subexps, config.exp_type)
+        if config.analysis:
+            experiment.analysis.set_options(
+                parallelize=self.num_analysis_procs,
+                ignore_failed=True
+            )
+
+        self._set_options(experiment, config)
+
+        return experiment
 
     def run_experiment(
         self,
         config: Union[str, ExperimentConfig],
         experiment: Optional[BatchExperiment] = None,
-        postprocess: bool = True,
+        wait_for_job: bool = True,
         analyze: bool = True,
         calibrate: Union[bool, Callable[[ExperimentData], bool]] = True,
         print_level: int = 2
@@ -109,7 +128,9 @@ class ParallelRunner(ExperimentsRunner):
         if experiment is None:
             experiment = self.make_experiment(config)
 
-        exp_data = super().run_experiment(config, experiment, postprocess=postprocess,
+        parallel_config = self._make_parallel_config(config)
+
+        exp_data = super().run_experiment(parallel_config, experiment, wait_for_job=wait_for_job,
                                           analyze=analyze, calibrate=False, print_level=0)
 
         if not analyze or experiment.analysis is None:
@@ -121,20 +142,19 @@ class ParallelRunner(ExperimentsRunner):
 
             if callable(calibrate):
                 # Run selective calibration
+                active_qubits = []
                 for qubit, child_data in list(qubit_data.items()):
                     try:
                         if calibrate(child_data):
-                            continue
+                            active_qubits.append(qubit)
                     except Exception as ex:
                         logger.warning('Calibration criterion could not be evaluated for qubit %d:'
                                        ' %s', qubit, ex)
-                    qubit_experiments.pop(qubit)
-                    qubit_data.pop(qubit)
 
-                self.set_qubit_grouping(active_qubits=list(sorted(qubit_data.keys())))
+                self.set_qubit_grouping(active_qubits=sorted(active_qubits))
 
-            self.update_calibrations(self.compose_data(qubit_data),
-                                     self.compose_experiment(qubit_experiments, config.exp_type))
+            for qubit in self.active_qubits:
+                self.update_calibrations(qubit_data[qubit], qubit_experiments[qubit])
 
         # Make and show the plots
         figures = self.consolidate_figures(qubit_data)
@@ -194,58 +214,6 @@ class ParallelRunner(ExperimentsRunner):
             figure.set_tight_layout(True)
 
         return figures
-
-    def compose_experiment(
-        self,
-        subexperiments: dict[int, BaseExperiment],
-        exp_type: str
-    ) -> BatchExperiment:
-        """Compose a batch experiment of parallel experiments from single-qubit experiments."""
-        parallel_exps = []
-        for igroup, qubit_group in enumerate(self.qubit_grouping):
-            # Make a ParallelExperiment
-            subexps = [subexperiments[qubit] for qubit in qubit_group
-                       if qubit in subexperiments]
-            if not subexps:
-                continue
-
-            par_exp = ParallelExperiment(subexps, backend=self._backend)
-            par_exp._type = f'{exp_type}-group{igroup}'
-            par_exp.set_run_options(**subexps[0].run_options.__dict__)
-            parallel_exps.append(par_exp)
-
-        if not parallel_exps:
-            return BatchExperiment([], backend=self.backend)
-
-        experiment = BatchExperiment(parallel_exps, backend=self.backend)
-        experiment._type = exp_type
-        run_options_dict = parallel_exps[0].run_options.__dict__
-        experiment.set_run_options(**run_options_dict)
-        experiment.analysis.options.parallelize = self.num_analysis_procs
-        experiment.analysis.options.ignore_failed = True
-
-        return experiment
-
-    def compose_data(
-        self,
-        child_data: dict[int, ExperimentData]
-    ) -> ExperimentData:
-        """Compose an ExperimentData from a list of child data."""
-        service = list(child_data.values())[0].service
-
-        parallel_data = []
-        for qubit_group in self.qubit_grouping:
-            # Make a ParallelExperiment
-            subdata = [child_data[qubit] for qubit in qubit_group
-                       if qubit in child_data]
-            if not subdata:
-                continue
-
-            par_data = ExperimentData(backend=self.backend, service=service,
-                                      child_data=subdata)
-            parallel_data.append(par_data)
-
-        return ExperimentData(backend=self.backend, service=service, child_data=parallel_data)
 
     def decompose_experiment(
         self,

@@ -1,33 +1,57 @@
 """Container for experiment definition and global experiment lists."""
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional
+from dataclasses import KW_ONLY, dataclass, field
+from typing import Any, Optional
+from qiskit_experiments.framework import BaseExperiment, ExperimentData
 
-if TYPE_CHECKING:
-    from qiskit_experiments.framework import BaseExperiment, ExperimentData
-    from .framework.postprocessed_experiment_data import PostProcessor
+from .framework_overrides.batch_experiment import BatchExperiment
+from .framework_overrides.parallel_experiment import ParallelExperiment
 
 
 @dataclass
-class ExperimentConfig:
-    """Experiment configuration."""
-    cls: Optional[type['BaseExperiment']] = None
-    physical_qubits: Optional[Sequence[int]] = None
-    args: dict[str, Any] = field(default_factory=dict)
-    experiment_options: dict[str, Any] = field(default_factory=dict)
+class ExperimentConfigBase:
+    """Base class for experiment configuration."""
+    _: KW_ONLY
     run_options: dict[str, Any] = field(default_factory=dict)
-    restless: bool = False
-    postprocessors: list['PostProcessor'] = field(default_factory=list)
-    subexperiments: Optional[list['ExperimentConfig']] = None
     analysis: bool = True
     analysis_options: dict[str, Any] = field(default_factory=dict)
     plot_depth: int = 0
-    exp_type: str = field(init=False)
+    exp_type: str = ''
 
+
+@dataclass
+class ExperimentConfig(ExperimentConfigBase):
+    """Experiment configuration."""
+    cls: type[BaseExperiment]
+    physical_qubits: Optional[Sequence[int]] = None
+    _: KW_ONLY
+    args: dict[str, Any] = field(default_factory=dict)
+    experiment_options: dict[str, Any] = field(default_factory=dict)
+    restless: bool = False
+
+
+@dataclass
+class CompositeExperimentConfig(ExperimentConfigBase):
+    """Base class for composite experiment configuration."""
+    subexperiments: list[ExperimentConfigBase]
+    _cls: type[BaseExperiment] = field(init=False)
+
+    @property
+    def cls(self) -> type[BaseExperiment]:
+        return self._cls
+
+
+class BatchExperimentConfig(CompositeExperimentConfig):
+    """Configuration of a BatchExperiment."""
     def __post_init__(self):
-        self.exp_type = self.cls.__name__ if self.cls else None
+        self._cls = BatchExperiment
 
+
+class ParallelExperimentConfig(CompositeExperimentConfig):
+    """Configuration of a ParallelExperiment."""
+    def __post_init__(self):
+        self._cls = ParallelExperiment
 
 
 experiments = {}
@@ -35,7 +59,7 @@ postexperiments = {}
 experiment_products = {}
 
 def register_exp(
-    function: Optional[Callable[['ExperimentsRunner'], ExperimentConfig]] = None,
+    function: Optional[Callable[['ExperimentsRunner'], ExperimentConfigBase]] = None,
     *,
     exp_type: Optional[str] = None,
     product: Optional[str] = None
@@ -61,7 +85,7 @@ def register_exp(
 
 
 def register_post(
-    function: Optional[Callable[['ExperimentsRunner', 'ExperimentData'], None]] = None,
+    function: Optional[Callable[['ExperimentsRunner', ExperimentData], None]] = None,
     *,
     exp_type: Optional[str] = None
 ):
