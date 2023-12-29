@@ -161,8 +161,6 @@ class HamiltonianTomography(BatchExperiment):
             # convert init and meas_basis to a numerical value (to be used as fit function
             # arguments)
             exp.extra_metadata['basis'] = axes.index(init) * 3 + axes.index(meas_basis)
-            if not backend.simulator:
-                exp.set_experiment_options(invert_x_sign=True)
             if measured_logical_qubit is not None:
                 exp.set_experiment_options(measured_logical_qubit=measured_logical_qubit)
 

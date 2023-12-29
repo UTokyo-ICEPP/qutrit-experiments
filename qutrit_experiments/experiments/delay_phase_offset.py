@@ -16,7 +16,7 @@ from qiskit_experiments.calibration_management.update_library import BaseUpdater
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.framework import BaseExperiment, ExperimentData, Options
 
-from ..constants import DEFAULT_SHOTS
+from ..constants import DEFAULT_SHOTS, RZ_SIGN
 from ..experiment_mixins.ef_space import EFSpaceExperiment
 from ..experiment_mixins.map_to_physical_qubits import MapToPhysicalQubits
 from ..gates import RZ12Gate, SX12Gate
@@ -109,9 +109,6 @@ class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
         options.delay_schedule = None
         options.num_points = 16
         options.pre_schedule = None
-        # Call Rz(-phi) when Rz(phi) is desired so that the instruction in the schedule reads
-        # shift_phase(-phi), which corresponds to the physical Rz(phi)
-        options.invert_phase_sign = True
         options.dummy_omega_z = 1.e+5
         return options
 
@@ -203,10 +200,7 @@ class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
         circuits = []
         for delay_value in delay_durations:
             for phase_value in phase_shifts:
-                assign_params = {delay: delay_value, phase_shift: phase_value}
-                if self.experiment_options.invert_phase_sign:
-                    assign_params[phase_shift] *= -1.
-
+                assign_params = {delay: delay_value, phase_shift: RZ_SIGN * phase_value}
                 circuit = template.assign_parameters(assign_params, inplace=False)
                 circuit.metadata.update(xval=phase_value, delay=delay_value)
 

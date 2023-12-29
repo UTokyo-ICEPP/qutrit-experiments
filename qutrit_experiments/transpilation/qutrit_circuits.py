@@ -14,6 +14,7 @@ from qiskit.transpiler import (AnalysisPass, InstructionDurations, PassManager, 
 from qiskit.transpiler.passes import ALAPScheduleAnalysis
 from qiskit_experiments.calibration_management import Calibrations
 
+from ..constants import RZ_SIGN
 from ..gates import (QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES, QutritGate, RZ12Gate, SetF12Gate,
                      SX12Gate, X12Gate)
 
@@ -128,8 +129,8 @@ class AddQutritCalibrations(TransformationPass):
         node_start_time = self.property_set['node_start_time']
 
         modulation_frequencies = {}
-        qubit_phase_offsets = defaultdict(float)
-        qutrit_phase_offsets = defaultdict(float)
+        phase_offset_ge = defaultdict(float) # Phase of g-e (|0>-|1>) drive
+        phase_offset_ef = defaultdict(float) # Phase of e-f (|1>-|2>) drive
 
         for node in list(dag.topological_op_nodes()):
             if node not in node_start_time:
@@ -152,32 +153,35 @@ class AddQutritCalibrations(TransformationPass):
                 dag.remove_op_node(node)
             elif isinstance(node.op, RZGate):
                 # Qiskit convention
-                # Rz(phi) = [ShiftPhase(-phi, qubit), ShiftPhase(0.5phi, qutrit)]
+                # Rz(phi) = ShiftPhase[ge](-phi).
+                # To cancel the geometric phase, we must apply ShiftPhase[ef](0.5phi)
                 phi = node.op.params[0]
-                qubit_phase_offsets[qubit] -= phi
-                qutrit_phase_offsets[qubit] += 0.5 * phi
+                phase_offset_ge[qubit] -= phi
+                phase_offset_ef[qubit] += 0.5 * phi
             elif isinstance(node.op, RZ12Gate):
-                # Qiskit convention
-                # Rz12(phi) = [ShiftPhase(-phi, qutrit), ShiftPhase(0.5phi, qubit)]
+                # We follow the Qiskit convention for RZ12 too
+                # Rz12(phi) = ShiftPhase[ef](-phi)
+                # Then the geometric phase cancellation is ShiftPhase[ge](0.5phi, qubit)]
                 phi = node.op.params[0]
-                qutrit_phase_offsets[qubit] -= phi
-                qubit_phase_offsets[qubit] += 0.5 * phi
+                phase_offset_ef[qubit] -= phi
+                phase_offset_ge[qubit] += 0.5 * phi
                 # This Rz will not be processed by this pass and translates simply to
                 # ShiftPhase(0.5phi, qubit)
                 dag.substitute_node(node, RZGate(-0.5 * phi), inplace=True)
             elif isinstance(node.op, (XGate, SXGate)):
-                # X/SX = [Play(gate_pulse, qubit), ShiftPhase(0.5delta, qutrit)]
+                # X/SX = P2(delta/2) U_x
                 # See the docstring of add_x12_sx12()
+                # P2(delta/2) is effected by ShiftPhase[ef](RZ_SIGN * (-delta/2))
                 delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubit)
-                qutrit_phase_offsets[qubit] += 0.5 * delta
+                phase_offset_ef[qubit] -= RZ_SIGN * 0.5 * delta
             else:
                 if (mod_freq := modulation_frequencies.get(qubit)) is None:
                     mod_freq = (self.calibrations.get_parameter_value('f12', qubit)
                                 - self.target.qubit_properties[qubit].frequency) * self.target.dt
                     modulation_frequencies[qubit] = mod_freq
 
-                angle = qutrit_phase_offsets[qubit] - qubit_phase_offsets[qubit]
-                angle += node_start_time[node] * twopi * mod_freq
+                angle = phase_offset_ef[qubit] - phase_offset_ge[qubit]
+                angle -= RZ_SIGN * node_start_time[node] * twopi * mod_freq
 
                 if isinstance(node.op, (X12Gate, SX12Gate)):
                     if ((qubit,), ()) not in dag.calibrations.get(node.op.name, {}):
@@ -186,9 +190,10 @@ class AddQutritCalibrations(TransformationPass):
                                                                assign_params=assign_params)
                         dag.add_calibration(node.op.name, (qubit,), sched)
 
-                    # X12/SX12 = [Play(qutrit), ShiftPhase(-0.5delta, qubit)]
+                    # X12/SX12 = P0(delta/2) U_xi
+                    # P0(delta/2) is effected by ShiftPhase[ge](RZ_SIGN * delta/2)
                     delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubit)
-                    qubit_phase_offsets[qubit] -= 0.5 * delta
+                    phase_offset_ge[qubit] += RZ_SIGN * 0.5 * delta
                 else:
                     delta = 0.
 
@@ -198,7 +203,7 @@ class AddQutritCalibrations(TransformationPass):
                 subdag.apply_operation_back(RZGate(-angle), [qreg[0]])
                 subdag.apply_operation_back(node.op, [qreg[0]])
                 # ShiftPhase(-angle - 0.5delta)
-                subdag.apply_operation_back(RZGate(angle + 0.5 * delta), [qreg[0]])
+                subdag.apply_operation_back(RZGate(angle - RZ_SIGN * 0.5 * delta), [qreg[0]])
                 subst_map = dag.substitute_node_with_dag(node, subdag)
                 # Update the node_start_time map. InstructionDurations passed to the scheduling
                 # pass must be constructed using the same calibrations object and therefore the

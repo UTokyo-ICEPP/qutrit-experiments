@@ -14,7 +14,7 @@ from qiskit_experiments.framework import BaseExperiment, ExperimentData, Options
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.data_processing import DataProcessor, Probability
 
-from ..constants import DEFAULT_SHOTS
+from ..constants import DEFAULT_SHOTS, RZ_SIGN
 from ..data_processing.to_expectation import ToExpectation
 from ..transpilation.layout_only import replace_calibration_and_metadata
 
@@ -35,7 +35,6 @@ class GSRabi(BaseExperiment):
         options.time_unit = None
         options.experiment_index = None
         options.param_name = 'width'
-        options.invert_x_sign = False
         options.dummy_components = None
 
         return options
@@ -105,7 +104,7 @@ class GSRabi(BaseExperiment):
             # ShiftPhase(φ) actually effects a physical Rz(φ). Then, to be physically consistent,
             # at the circuit level we need to use rz(-φ).
             # We also drop the first Rz because the initial state is z+.
-            angle = np.pi / 2. # Need physical Rz(π/2) -> ShiftPhase(-π/2) -> circuit rz(π/2)
+            angle = RZ_SIGN * np.pi / 2. # Need physical Rz(π/2) -> ShiftPhase(-π/2)
             if self.experiment_options.invert_x_sign:
                 angle *= -1. # Need physical Rz(π/2) -> ShiftPhase(π/2) -> circuit rz(-π/2)
             circuit.sx(measured_qubit)
@@ -132,10 +131,7 @@ class GSRabi(BaseExperiment):
 
         if self.experiment_options.meas_basis == 'x':
             # Hadamard with global phase pi/4 sans last rz
-            angle = np.pi / 2.
-            if self.experiment_options.invert_x_sign:
-                angle *= -1.
-            circuit.rz(angle, measured_qubit)
+            circuit.rz(RZ_SIGN * np.pi / 2., measured_qubit)
             circuit.sx(measured_qubit)
         elif self.experiment_options.meas_basis == 'y':
             # Sdg + Hadamard sans last rz
