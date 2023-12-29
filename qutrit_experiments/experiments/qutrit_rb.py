@@ -230,33 +230,35 @@ class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
             # U(-θ,φ,-φ) = [U(θ,φ,-φ)]^{-1}.
             # The standard decomposition of U(θ,φ,λ) is
             # U(θ,φ,λ) = P(φ+π) √X Rz(θ+π) √X P(λ)
-            # where
-            # √X = 1/2 [[1+i, 1-i], [1-i, 1+i]] = e^{iπ/4} Rx(π/2).
-            # The qubit-space global phase e^{iπ/4} is a geometric phase in the qutrit space. In
-            # fact our SX gate is implemented more like Rx(π/2), so we express U in terms of Rz and
-            # Rx:
-            # U(θ,φ,λ) = -e^{i(φ+λ)/2} Rz(φ+π) Rx(π/2) Rz(θ+π) Rx(π/2) Rz(λ).
-            # So for U(-θ,φ,-φ) we have
-            # U(-θ,φ,-φ) = -Rz(φ+π) Rx(π/2) Rz(-θ+π) Rx(π/2) Rz(-φ)
-            # i.e. the qubit-space gate sequence results in -U(-θ,φ,-φ).
+            # where P(φ) is
+            # diag(1, e^{iφ}, 1) ~ Rz(2/3φ) Rz12(-2/3φ)  (g-e space)
+            # diag(1, 1, e^{iφ}) ~ Rz(2/3φ) Rz12(4/3φ)   (e-f space)
             if space == 0:
-                circuit.rz(-phi, qubit)
+                # P(-φ)
+                circuit.rz(-phi * 2. / 3., qubit)
+                circuit.append(RZ12Gate(phi * 2. / 3.), [qubit])
+                # SX
                 circuit.sx(qubit)
+                # Rz
                 circuit.rz(-theta + np.pi, qubit)
+                # SX
                 circuit.sx(qubit)
-                circuit.rz(phi + np.pi, qubit)
-                # geometric phase correction
-                circuit.rz(2. * np.pi / 3., qubit)
-                circuit.append(RZ12Gate(4. * np.pi / 3.), [qubit])
+                # P(φ+π)
+                circuit.rz((phi + np.pi) * 2. / 3., qubit)
+                circuit.append(RZ12Gate(-(phi + np.pi) * 2. / 3.), [qubit])
             else:
-                circuit.append(RZ12Gate(-phi), [qubit])
+                # P(-φ)
+                circuit.rz(-phi * 2. / 3., qubit)
+                circuit.append(RZ12Gate(-phi * 4. / 3.), [qubit])
+                # SX
                 circuit.append(SX12Gate(), [qubit])
+                # Rz
                 circuit.append(RZ12Gate(-theta + np.pi), [qubit])
+                # SX
                 circuit.append(SX12Gate(), [qubit])
-                circuit.append(RZ12Gate(phi + np.pi), [qubit])
-                # geometric phase correction
-                circuit.rz(-4. * np.pi / 3., qubit)
-                circuit.append(RZ12Gate(-2. * np.pi / 3.), [qubit])
+                # P(φ+π)
+                circuit.rz((phi + np.pi) * 2. / 3., qubit)
+                circuit.append(RZ12Gate((phi + np.pi) * 4. / 3.), [qubit])
 
 
 class QutritRB(BaseQutritRB):
@@ -333,23 +335,23 @@ class QutritInterleavedRB(QutritRB):
 
 GATE_UNITARIES = {
     XGate: np.array(
-        [[0., -1.j, 0.],
-         [-1.j, 0., 0.],
+        [[0., 1., 0.],
+         [1., 0., 0.],
          [0., 0., 1.]]
     ),
     SXGate: np.array(
-        [[np.sqrt(0.5), -1.j * np.sqrt(0.5), 0.],
-         [-1.j * np.sqrt(0.5), np.sqrt(0.5), 0.],
+        [[(1. + 1.j) / 2., (1. - 1.j) / 2., 0.],
+         [(1. - 1.j) / 2., (1. + 1.j) / 2., 0.],
          [0., 0., 1.]]
     ),
     X12Gate: np.array(
         [[1., 0., 0.],
-         [0., 0., -1.j],
-         [0., -1.j, 0.]]
+         [0., 0., 1.],
+         [0., 1., 0.]]
     ),
     SX12Gate: np.array(
         [[1., 0., 0.],
-         [0., np.sqrt(0.5), -1.j * np.sqrt(0.5)],
-         [0., -1.j * np.sqrt(0.5), np.sqrt(0.5)]]
+         [0., (1. + 1.j) / 2., (1. - 1.j) / 2.],
+         [0., (1. - 1.j) / 2., (1. + 1.j) / 2.]]
     )
 }

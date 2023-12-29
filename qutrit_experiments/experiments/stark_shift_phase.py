@@ -178,7 +178,7 @@ class X12QubitPhaseRotation(BasePhaseRotation):
 
     .. math::
 
-        | \psi \rangle & = P0(\delta_{\Xi}') U_{\xi}(-\pi; \delta) U_{\xi}(\pi; \delta) \sqrt{X}
+        | \psi \rangle & = P0(\delta_{\Xi}'-\pi) U_{\xi}(\pi; \delta) U_{\xi}(\pi; \delta) \sqrt{X}
                            | 0 \rangle \\
                        & ~ | 0 \rangle - i e^{i(-\delta_{\Xi}' + \delta)} | 1 \rangle,
 
@@ -188,9 +188,7 @@ class X12QubitPhaseRotation(BasePhaseRotation):
         template = QuantumCircuit(1)
         template.sx(0)
         template.append(X12Gate(), [0])
-        template.append(RZ12Gate(np.pi), [0])
         template.append(X12Gate(), [0])
-        template.append(RZ12Gate(-np.pi), [0])
         return template
 
 
@@ -212,8 +210,8 @@ class SX12QubitPhaseRotation(BasePhaseRotation):
 
     .. math::
 
-        | \psi \rangle & = P0(\delta_{S\Xi}') U_{\xi}(-\pi/2; \delta) U_{\xi}(\pi/2; \delta)
-                           \sqrt{X} | 0 \rangle \\
+        | \psi \rangle & = P0(\delta_{S\Xi}'-\pi/2) \mathrm{diag}(1, i, -i) U_{\xi}(\pi/2; \delta)
+                           \mathrm{diag}(1, i, -i) U_{\xi}(\pi/2; \delta) \sqrt{X} | 0 \rangle \\
                        & ~ | 0 \rangle - i e^{i(-\delta_{S\Xi}' + \delta)} | 1 \rangle,
 
     where :math:`\delta_{S\Xi}'` is the current correction.
@@ -224,7 +222,7 @@ class SX12QubitPhaseRotation(BasePhaseRotation):
         template.append(SX12Gate(), [0])
         template.append(RZ12Gate(np.pi), [0])
         template.append(SX12Gate(), [0])
-        template.append(RZ12Gate(-np.pi), [0])
+        template.append(RZ12Gate(np.pi), [0])
         return template
 
 

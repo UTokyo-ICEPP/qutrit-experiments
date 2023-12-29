@@ -9,6 +9,7 @@ from qiskit.pulse import ScheduleBlock
 from qiskit.circuit import Parameter
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 
+from .constants import RZ_SIGN
 from .pulse_library import ModulatedDrag
 
 logger = logging.getLogger(__name__)
@@ -76,17 +77,18 @@ def add_x12_sx12(
                                   0              & -i \sin \frac{\theta}{2} & \cos \frac{\theta}{2}
                                   \end{pmatrix},
 
-    with $\theta=\pi$ or $\pi/2$. The Stark shift-induced phase $\delta$ can be corrected with
-    P_0 and P_2 gates (phase shifts on the drive and qutrit channels). The final
+    with $\theta=\pi$ or $\pi/2$. The Stark shift-induced phase $\delta$ as well as the geometric
+    phases can be corrected with P_0 and P_2 gates. The final
     :math:`X/SX/\Xi/S\Xi` gates are therefore
 
     .. math::
 
-        X = P2(\delta_X/2) U_{x}(\pi; \delta_X) \\
-        SX = P2(\delta_{SX}/2) U_{x}(\pi/2; \delta_{SX}) \\
-        \Xi = P0(\delta_{\Xi}/2) U_{\xi}(\pi; \delta_{\Xi}) \\
-        S\Xi = P0(\delta_{S\Xi}/2) U_{\xi}(\pi/2; \delta_{S\Xi}).
+        X = P2(\delta_X/2 - \pi/2) U_{x}(\pi; \delta_X) \\
+        SX = P2(\delta_{SX}/2 - \pi/4) U_{x}(\pi/2; \delta_{SX}) \\
+        \Xi = P0(\delta_{\Xi}/2 - \pi/2) U_{\xi}(\pi; \delta_{\Xi}) \\
+        S\Xi = P0(\delta_{S\Xi}/2 - \pi/4) U_{\xi}(\pi/2; \delta_{S\Xi}).
 
+    The phase shifts will be taken care of during transpilation.
     """
     drive_channel = pulse.DriveChannel(Parameter('ch0'))
 
