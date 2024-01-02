@@ -9,8 +9,8 @@ DEFAULT_REP_DELAY = 2.5e-4
 RESTLESS_REP_DELAY = 1.e-5
 """Delay between circuit executions in the restless mode."""
 
-RZ_SIGN = -1.
-"""Relative sign between the RZGate parameter and the angle of the resulting physical Rz gate.
-Because RZGate(phi) is scheduled as ShiftPhase(-phi), this is ultimately the negated sign of the
-frequency of the LO factor in the drive Hamiltonian (i.e. H_d = Re[e^{-RZ_SIGN * i omega t}) r(t)].
-"""
+LO_SIGN = 1.
+"""The sign of the frequency in the "local oscillator" factor e^{iωt} in the drive Hamiltonian
+H_d = Re[e^{LO_SIGN * i omega t} r(t)] (b + bdag). Because RZGate(phi) is scheduled as
+ShiftPhase(-phi), the physical angle of the resulting Rz gate is +phi when LO_SIGN==-1 and -phi when
+LO_SIGN==+1."""

@@ -12,7 +12,7 @@ from qiskit_experiments.calibration_management import BaseCalibrationExperiment,
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 
-from ..constants import DEFAULT_SHOTS, RZ_SIGN
+from ..constants import DEFAULT_SHOTS, LO_SIGN
 from ..gates import X12Gate, SX12Gate, RZ12Gate
 from ..transpilation import replace_calibration_and_metadata
 from ..util.dummy_data import single_qubit_counts
@@ -71,7 +71,7 @@ class BasePhaseRotation(BaseExperiment):
 
         template = QuantumCircuit(1)
         template.compose(self._phase_rotation_sequence(), inplace=True)
-        template.rz(RZ_SIGN * phi, 0)
+        template.rz(-LO_SIGN * phi, 0)
         template.sx(0)
         template.measure_all()
 

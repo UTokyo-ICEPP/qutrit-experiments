@@ -9,7 +9,6 @@ from qiskit.pulse import ScheduleBlock
 from qiskit.circuit import Parameter
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 
-from .constants import RZ_SIGN
 from .pulse_library import ModulatedDrag
 
 logger = logging.getLogger(__name__)
