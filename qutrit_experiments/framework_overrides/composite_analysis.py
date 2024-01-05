@@ -43,12 +43,32 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         # Bugfix
         if data_deserialized:
             experiment_data = experiment_data.copy(copy_results=False)
+        else:
+            experiment_data._clear_results()
 
-        analysis.run(experiment_data, replace_results=True).block_for_results()
+        # copied from run_analysis in BaseAnalysis.run
+        try:
+            experiment_components = analysis._get_experiment_components(experiment_data)
+            # making new analysis
+            results, figures = analysis._run_analysis(experiment_data)
+            # Add components
+            analysis_results = [
+                analysis._format_analysis_result(
+                    result, experiment_data.experiment_id, experiment_components
+                )
+                for result in results
+            ]
+            # Update experiment data with analysis results
+            if analysis_results:
+                experiment_data.add_analysis_results(analysis_results)
+            if figures:
+                experiment_data.add_figures(figures, figure_names=analysis.options.figure_names)
 
-        return (experiment_data.analysis_status(),
-                experiment_data.analysis_results(),
-                list(experiment_data._figures.values()))
+            return AnalysisStatus.DONE, (experiment_data.analysis_results(),
+                                         list(experiment_data._figures.values()))
+
+        except Exception as ex:  # pylint: disable=broad-except
+            return AnalysisStatus.ERROR, ex
 
     @staticmethod
     def _run_sub_composite_postanalysis(
@@ -212,46 +232,52 @@ class CompositeAnalysis(CompositeAnalysisOrig):
 
             # Runtime backend cannot be pickled, so unset the attribute temporarily
             # We use a list here but the backend cannot possibly be different among subdata..
-            backends = {}
-            for _, sub_data, task_id in task_list:
-                backends[task_id] = sub_data.backend
+            # Also BaseAnalysis.run is overwritten somewhere, making analysis instances unpickable.
+            # We therefore delete the attribute temporarily and call _run_analysis directly in
+            # _run_sub_analysis.
+            backends = []
+            runfuncs = []
+            for an, sub_data, task_id in task_list:
+                backends.append(sub_data.backend)
                 sub_data.backend = None
-
-            with Pool(processes=max_procs) as pool:
-                all_results = pool.map(CompositeAnalysis._run_sub_analysis,
-                                       [task[:2] + (True,) for task in task_list])
-
-            # Restore the backends
-            for _, sub_data, task_id in task_list:
-                sub_data.backend = backends[task_id]
+                runfuncs.append(an.run)
+                delattr(an, 'run')
+            try:
+                with Pool(processes=max_procs) as pool:
+                    all_results = pool.starmap(CompositeAnalysis._run_sub_analysis,
+                                               [(an, sub_data, True)
+                                                for an, sub_data, _ in task_list])
+            finally:
+                # Restore the original states of the data and analyses
+                for (an, sub_data, _), backend, runfunc in zip(task_list, backends, runfuncs):
+                    sub_data.backend = backend
+                    an.run = runfunc
 
             logger.debug('Done in %.3f seconds.', time.time() - start)
 
-            for (status, results, figures), (_, sub_expdata, task_id) in zip(all_results, task_list):
-                if status != AnalysisStatus.DONE:
+            for (status, retval), (_, sub_expdata, task_id) in zip(all_results, task_list):
+                if status == AnalysisStatus.ERROR:
                     if self.options.ignore_failed:
-                        logger.warning('Analysis failed for analysis %s: status %s', task_id, status)
+                        logger.warning('Analysis failed for analysis %s', task_id)
+                        traceback.print_exception(retval)
                     else:
-                        raise AnalysisError(f'Analysis failed for analysis {task_id}: status {status}')
-
-                sub_expdata._clear_results()
-                if results:
-                    sub_expdata.add_analysis_results(results)
-                if figures:
-                    sub_expdata.add_figures([f.figure for f in figures],
-                                            figure_names=[f.name for f in figures])
+                        raise AnalysisError(f'Analysis failed for analysis {task_id}') from retval
+                else:
+                    sub_expdata._clear_results()
+                    if retval[0]:
+                        sub_expdata.add_analysis_results(retval[0])
+                    if retval[1]:
+                        sub_expdata.add_figures([f.figure for f in retval[1]],
+                                                figure_names=[f.name for f in retval[1]])
         else:
             for analysis, data, task_id in task_list:
-                try:
-                    status, _, _ = CompositeAnalysis._run_sub_analysis(analysis, data)
-                except Exception as exc:
-                    traceback.print_exception(exc)
-
-                if status != AnalysisStatus.DONE:
+                status, retval = CompositeAnalysis._run_sub_analysis(analysis, data)
+                if status == AnalysisStatus.ERROR:
                     if self.options.ignore_failed:
-                        logger.warning('Analysis failed for %s: status %s', task_id, status)
+                        logger.warning('Analysis failed for %s', task_id)
+                        traceback.print_exception(retval)
                     else:
-                        raise AnalysisError(f'Analysis failed for {task_id}: status {status}')
+                        raise AnalysisError(f'Analysis failed for {task_id}') from retval
 
         # Combine the child data if the analysis requires flattening
         # Entries in subdata_map is innermost-first

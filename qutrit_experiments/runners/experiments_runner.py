@@ -122,12 +122,19 @@ class ExperimentsRunner:
         self,
         config: Union[str, ExperimentConfigBase]
     ) -> BaseExperiment:
+        return self._make_experiment(config)
+
+    def _make_experiment(
+        self,
+        config: Union[str, ExperimentConfigBase]
+    ) -> BaseExperiment:
+        """Indirection to avoid infinite loops when making CompositeExperiments from a subclass."""
         if isinstance(config, str):
             config = experiments[config](self)
 
         args = {'backend': self._backend}
         if isinstance(config, CompositeExperimentConfig):
-            args['experiments'] = [self.make_experiment(sub) for sub in config.subexperiments]
+            args['experiments'] = [self._make_experiment(sub) for sub in config.subexperiments]
         else:
             args.update(config.args)
             if config.physical_qubits is not None:

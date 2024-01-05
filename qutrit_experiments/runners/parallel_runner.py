@@ -14,8 +14,8 @@ from qiskit_experiments.framework.matplotlib import default_figure_canvas
 from qiskit_ibm_runtime import Session
 
 from .experiments_runner import ExperimentsRunner, display, print_details, print_summary
-from ..experiment_config import (BatchExperimentConfig, ExperimentConfig, ParallelExperimentConfig,
-                                 experiments)
+from ..experiment_config import (BatchExperimentConfig, ExperimentConfig, ExperimentConfigBase,
+                                 ParallelExperimentConfig, experiments)
 from ..framework_overrides.batch_experiment import BatchExperiment
 from ..framework_overrides.parallel_experiment import ParallelExperiment
 from ..util.matplotlib import copy_axes
@@ -90,18 +90,25 @@ class ParallelRunner(ExperimentsRunner):
                                       exp_type=f'{config.exp_type}-group{igroup}')
             )
 
-        return ParallelExperimentConfig(parallel_subconfs, run_options=config.run_options,
-                                        analysis=config.analysis, exp_type=config.exp_type)
+        parallel_conf = ParallelExperimentConfig(parallel_subconfs, run_options=config.run_options,
+                                                 analysis=config.analysis, exp_type=config.exp_type)
+
+        if (max_circuits := config.experiment_options.get('max_circuits')) is not None:
+            parallel_conf.experiment_options['max_circuits'] = max_circuits
+
+        return parallel_conf
 
     def make_experiment(
         self,
-        config: Union[str, ExperimentConfig]
+        config: Union[str, ExperimentConfigBase]
     ) -> ParallelExperiment:
         """Create a BatchExperiment of ParallelExperiment of exp_cls."""
         if isinstance(config, str):
             config = experiments[config](self)
+        if isinstance(config, ExperimentConfig):
+            config = self._make_parallel_config(config)
 
-        experiment = super().make_experiment(self._make_parallel_config(config))
+        experiment = super().make_experiment(config)
 
         if config.analysis:
             experiment.analysis.set_options(
@@ -125,10 +132,13 @@ class ParallelRunner(ExperimentsRunner):
         """Run the batch experiment."""
         if isinstance(config, str):
             config = experiments[config](self)
-        if experiment is None:
-            experiment = self.make_experiment(config)
+        if isinstance(config, ExperimentConfig):
+            parallel_config = self._make_parallel_config(config)
+        else:
+            parallel_config = config
 
-        parallel_config = self._make_parallel_config(config)
+        if experiment is None:
+            experiment = self.make_experiment(parallel_config)
 
         exp_data = super().run_experiment(parallel_config, experiment, wait_for_job=wait_for_job,
                                           analyze=analyze, calibrate=False, print_level=0)
@@ -136,10 +146,11 @@ class ParallelRunner(ExperimentsRunner):
         if not analyze or experiment.analysis is None:
             return exp_data
 
-        if calibrate and issubclass(config.cls, BaseCalibrationExperiment):
-            qubit_experiments = self.decompose_experiment(experiment)
-            qubit_data = self.decompose_data(exp_data)
+        qubit_data = self.decompose_data(exp_data)
 
+        exp_cls = parallel_config.subexperiments[0].subexperiments[0].cls
+        if calibrate and issubclass(exp_cls, BaseCalibrationExperiment):
+            qubit_experiments = self.decompose_experiment(experiment)
             if callable(calibrate):
                 # Run selective calibration
                 active_qubits = []
@@ -181,7 +192,7 @@ class ParallelRunner(ExperimentsRunner):
         """
         nrow = math.floor(math.sqrt(self._backend.num_qubits))
         ncol = math.ceil(math.sqrt(self._backend.num_qubits))
-        if nrow * ncol > self._backend.num_qubits:
+        if nrow * ncol < self._backend.num_qubits:
             nrow += 1
 
         figures = []

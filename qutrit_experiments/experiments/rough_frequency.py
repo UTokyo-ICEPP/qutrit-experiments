@@ -145,7 +145,7 @@ class EFRoughFrequencyCal(BaseCalibrationExperiment, EFRoughFrequency):
 
         if frequencies is None:
             freq_12_est = calibrations.get_parameter_value(cal_parameter_name, physical_qubits[0])
-            frequencies = np.linspace(freq_12_est - 20.e+6, freq_12_est + 20.e+6, 41)
+            frequencies = np.linspace(freq_12_est - 50.e+6, freq_12_est + 50.e+6, 101)
 
         super().__init__(
             calibrations,

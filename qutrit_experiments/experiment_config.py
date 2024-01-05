@@ -13,6 +13,7 @@ from .framework_overrides.parallel_experiment import ParallelExperiment
 class ExperimentConfigBase:
     """Base class for experiment configuration."""
     _: KW_ONLY
+    experiment_options: dict[str, Any] = field(default_factory=dict)
     run_options: dict[str, Any] = field(default_factory=dict)
     analysis: bool = True
     analysis_options: dict[str, Any] = field(default_factory=dict)
@@ -27,31 +28,31 @@ class ExperimentConfig(ExperimentConfigBase):
     physical_qubits: Optional[Sequence[int]] = None
     _: KW_ONLY
     args: dict[str, Any] = field(default_factory=dict)
-    experiment_options: dict[str, Any] = field(default_factory=dict)
     restless: bool = False
 
 
 @dataclass
 class CompositeExperimentConfig(ExperimentConfigBase):
     """Base class for composite experiment configuration."""
-    subexperiments: list[ExperimentConfigBase]
-    _cls: type[BaseExperiment] = field(init=False)
+    subexperiments: list[ExperimentConfigBase] = field(default_factory=list)
 
     @property
     def cls(self) -> type[BaseExperiment]:
-        return self._cls
+        raise NotImplementedError('CompositeExperimentConfig is an ABC')
 
 
 class BatchExperimentConfig(CompositeExperimentConfig):
     """Configuration of a BatchExperiment."""
-    def __post_init__(self):
-        self._cls = BatchExperiment
+    @property
+    def cls(self) -> type[BaseExperiment]:
+        return BatchExperiment
 
 
 class ParallelExperimentConfig(CompositeExperimentConfig):
     """Configuration of a ParallelExperiment."""
-    def __post_init__(self):
-        self._cls = ParallelExperiment
+    @property
+    def cls(self) -> type[BaseExperiment]:
+        return ParallelExperiment
 
 
 experiments = {}
