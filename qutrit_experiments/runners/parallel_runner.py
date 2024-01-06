@@ -14,6 +14,7 @@ from qiskit_experiments.framework.matplotlib import default_figure_canvas
 from qiskit_ibm_runtime import Session
 
 from .experiments_runner import ExperimentsRunner, display, print_details, print_summary
+from ..constants import RESTLESS_RUN_OPTIONS
 from ..experiment_config import (BatchExperimentConfig, ExperimentConfig, ExperimentConfigBase,
                                  ParallelExperimentConfig, experiments)
 from ..framework_overrides.batch_experiment import BatchExperiment
@@ -44,7 +45,11 @@ class ParallelRunner(ExperimentsRunner):
     def active_qubits(self):
         return set(sum(self.qubit_grouping, []))
 
-    def set_qubit_grouping(self, active_qubits: Optional[Sequence[int]] = None):
+    def set_qubit_grouping(
+        self,
+        active_qubits: Optional[Sequence[int]] = None,
+        max_group_size: int = 0
+    ):
         if active_qubits is None:
             active_qubits = list(range(self.backend.num_qubits))
 
@@ -60,10 +65,9 @@ class ParallelRunner(ExperimentsRunner):
         for qubit in active_qubits:
             group_candidates = []
             for group in self.qubit_grouping:
-                if any((neighbor in group) for neighbor in neighbors(qubit)):
-                    continue
-
-                group_candidates.append(group)
+                if (not any((neighbor in group) for neighbor in neighbors(qubit))
+                    and (max_group_size > 0 and len(group) < max_group_size)):
+                    group_candidates.append(group)
 
             if len(group_candidates) == 0:
                 self.qubit_grouping.append([qubit])
@@ -71,52 +75,72 @@ class ParallelRunner(ExperimentsRunner):
                 igroup = np.argmin([len(group) for group in group_candidates])
                 group_candidates[igroup].append(qubit)
 
-    def _make_parallel_config(
+    def make_batch_config(
         self,
-        config: ExperimentConfig
-    ) -> ParallelExperimentConfig:
-        """Create a configuration of a parallel experiment of batch experiments of experiments."""
-        parallel_subconfs = []
+        config: Union[ExperimentConfig, Callable[[ExperimentsRunner, int], ExperimentConfig]],
+        exp_type: Optional[str] = None
+    ) -> BatchExperimentConfig:
+        """Create a configuration of a batch experiment of parallel experiments of experiments."""
+        if not callable(config):
+            exp_type = config.exp_type
+
+        batch_conf = BatchExperimentConfig(exp_type=exp_type)
+        composite_config = {}
         for igroup, qubit_group in enumerate(self.qubit_grouping):
-            batch_subconfs = []
+            parallel_conf = ParallelExperimentConfig(exp_type=f'{exp_type}-group{igroup}')
             for qubit in qubit_group:
-                qubit_config = copy.copy(config)
-                qubit_config.physical_qubits = [qubit]
-                qubit_config.exp_type = f'{config.exp_type}-q{qubit}'
-                batch_subconfs.append(qubit_config)
+                if callable(config):
+                    qubit_config = config(self, qubit)
+                else:
+                    qubit_config = copy.copy(config)
+                    qubit_config.physical_qubits = [qubit]
+                qubit_config.exp_type = f'{exp_type}-q{qubit}'
 
-            parallel_subconfs.append(
-                BatchExperimentConfig(batch_subconfs, analysis=config.analysis,
-                                      exp_type=f'{config.exp_type}-group{igroup}')
-            )
+                if not composite_config:
+                    composite_config['analysis'] = qubit_config.analysis
+                    composite_config['run_options'] = dict(
+                        qubit_config.cls._default_run_options().items()
+                    )
+                    composite_config['run_options'].update(qubit_config.run_options)
+                    if qubit_config.restless:
+                        composite_config['run_options'].update(RESTLESS_RUN_OPTIONS)
+                    composite_config['max_circuits'] = qubit_config.experiment_options.get('max_circuits')
+                    composite_config['calibration_criterion'] = qubit_config.calibration_criterion
 
-        parallel_conf = ParallelExperimentConfig(parallel_subconfs, run_options=config.run_options,
-                                                 analysis=config.analysis, exp_type=config.exp_type)
+                parallel_conf.subexperiments.append(qubit_config)
 
-        if (max_circuits := config.experiment_options.get('max_circuits')) is not None:
-            parallel_conf.experiment_options['max_circuits'] = max_circuits
+            # Run options on intermediate ParallelExperiments have no effect but warnings may be
+            # issued if meas_level and meas_return_type are different between the parallelized
+            # experiment and any container experiments, so we set the run options here too
+            parallel_conf.analysis = composite_config['analysis']
+            parallel_conf.run_options = composite_config['run_options']
+            batch_conf.subexperiments.append(parallel_conf)
 
-        return parallel_conf
+        batch_conf.analysis = composite_config['analysis']
+        batch_conf.run_options = composite_config['run_options']
+        batch_conf.experiment_options['max_circuits'] = composite_config['max_circuits']
+        batch_conf.calibration_criterion = composite_config['calibration_criterion']
+        return batch_conf
 
     def make_experiment(
         self,
         config: Union[str, ExperimentConfigBase]
-    ) -> ParallelExperiment:
+    ) -> BatchExperiment:
         """Create a BatchExperiment of ParallelExperiment of exp_cls."""
         if isinstance(config, str):
             config = experiments[config](self)
         if isinstance(config, ExperimentConfig):
-            config = self._make_parallel_config(config)
+            batch_config = self.make_batch_config(config)
+        else:
+            batch_config = config
 
-        experiment = super().make_experiment(config)
+        experiment = super().make_experiment(batch_config)
 
         if config.analysis:
             experiment.analysis.set_options(
                 parallelize=self.num_analysis_procs,
                 ignore_failed=True
             )
-
-        self._set_options(experiment, config)
 
         return experiment
 
@@ -126,56 +150,35 @@ class ParallelRunner(ExperimentsRunner):
         experiment: Optional[BatchExperiment] = None,
         wait_for_job: bool = True,
         analyze: bool = True,
-        calibrate: Union[bool, Callable[[ExperimentData], bool]] = True,
+        calibrate: bool = True,
         print_level: int = 2
     ) -> ExperimentData:
         """Run the batch experiment."""
         if isinstance(config, str):
             config = experiments[config](self)
         if isinstance(config, ExperimentConfig):
-            parallel_config = self._make_parallel_config(config)
+            batch_config = self.make_batch_config(config)
         else:
-            parallel_config = config
+            batch_config = config
 
         if experiment is None:
-            experiment = self.make_experiment(parallel_config)
+            experiment = self.make_experiment(batch_config)
 
-        exp_data = super().run_experiment(parallel_config, experiment, wait_for_job=wait_for_job,
-                                          analyze=analyze, calibrate=False, print_level=0)
+        exp_data = super().run_experiment(batch_config, experiment, wait_for_job=wait_for_job,
+                                          analyze=analyze, calibrate=calibrate, print_level=0)
 
         if not analyze or experiment.analysis is None:
             return exp_data
 
-        qubit_data = self.decompose_data(exp_data)
-
-        exp_cls = parallel_config.subexperiments[0].subexperiments[0].cls
-        if calibrate and issubclass(exp_cls, BaseCalibrationExperiment):
-            qubit_experiments = self.decompose_experiment(experiment)
-            if callable(calibrate):
-                # Run selective calibration
-                active_qubits = []
-                for qubit, child_data in list(qubit_data.items()):
-                    try:
-                        if calibrate(child_data):
-                            active_qubits.append(qubit)
-                    except Exception as ex:
-                        logger.warning('Calibration criterion could not be evaluated for qubit %d:'
-                                       ' %s', qubit, ex)
-
-                self.set_qubit_grouping(active_qubits=sorted(active_qubits))
-
-            for qubit in self.active_qubits:
-                self.update_calibrations(qubit_data[qubit], qubit_experiments[qubit])
-
         # Make and show the plots
-        figures = self.consolidate_figures(qubit_data)
+        figures = self.consolidate_figures(exp_data)
         exp_data.add_figures(figures)
 
         if print_level:
             for figure in figures:
                 display(figure)
         if print_level >= 2:
-            for qubit, child_data in qubit_data.items():
+            for qubit, child_data in self.decompose_data(exp_data).items():
                 logger.info('Qubit %d', qubit)
                 if print_level == 2:
                     print_summary(child_data)
@@ -184,7 +187,18 @@ class ParallelRunner(ExperimentsRunner):
 
         return exp_data
 
-    def consolidate_figures(self, qubit_data: dict[int, ExperimentData]) -> list[Figure]:
+    def save_calibrations(
+        self,
+        exp_type: str,
+        update_list: list[tuple[str, str, tuple[int, ...]]]
+    ):
+        """Remove qubits that failed the calibration."""
+        updated_qubits = set(qubits[0] for _, _, qubits in update_list)
+        active_qubits = self.active_qubits & updated_qubits
+        self.set_qubit_grouping(active_qubits=active_qubits)
+        super().save_calibrations(exp_type, update_list)
+
+    def consolidate_figures(self, experiment_data: ExperimentData) -> list[Figure]:
         """Extract the figure objects from the experiment data and combine them in one figure.
 
         The consolidated figure is intended to be a quick-glance summary and therefore only takes
@@ -197,7 +211,7 @@ class ParallelRunner(ExperimentsRunner):
 
         figures = []
 
-        for qubit, subdata in qubit_data.items():
+        for qubit, subdata in self.decompose_data(experiment_data).items():
             if not figures and subdata.figure_names:
                 for _ in range(len(subdata.figure_names)):
                     figure = Figure()
@@ -229,12 +243,10 @@ class ParallelRunner(ExperimentsRunner):
     def decompose_experiment(
         self,
         experiment: BatchExperiment,
-        qubit_grouping: Optional[list[list[int]]] = None
+        active_qubits: Optional[Sequence[int]] = None
     ) -> dict[int, BaseExperiment]:
-        if qubit_grouping is None:
+        if active_qubits is None:
             active_qubits = self.active_qubits
-        else:
-            active_qubits = sum(qubit_grouping, [])
 
         flattened = {exp.physical_qubits[0]: exp
                      for par_exp in experiment.component_experiment()
@@ -244,12 +256,10 @@ class ParallelRunner(ExperimentsRunner):
     def decompose_data(
         self,
         experiment_data: ExperimentData,
-        qubit_grouping: Optional[list[list[int]]] = None
+        active_qubits: Optional[Sequence[int]] = None
     ) -> dict[int, ExperimentData]:
-        if qubit_grouping is None:
+        if active_qubits is None:
             active_qubits = self.active_qubits
-        else:
-            active_qubits = sum(qubit_grouping, [])
 
         flattened = {data.metadata['physical_qubits'][0]: data
                      for par_data in experiment_data.child_data()
