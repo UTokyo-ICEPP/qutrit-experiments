@@ -27,7 +27,10 @@ def qutrit_rough_amplitude(runner, qubit):
         EFRoughXSXAmplitudeCal,
         [qubit],
         experiment_options={'discrimination_basis': '02'},
-        restless=True
+        restless=True,
+        # rabi rate = "freq" of oscillation analysis fit. Must be greater than 0.5 to be able to
+        # make a pi pulse within amp < 1
+        calibration_criterion=lambda data: data.analysis_results('rabi_rate_12').value.n > 0.5
     )
 
 def qutrit_discriminator(runner, qubit):

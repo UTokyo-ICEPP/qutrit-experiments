@@ -13,36 +13,9 @@ from ..experiment_config import (BatchExperimentConfig, ExperimentConfig, Parall
 
 def register_backend_qutrit_exp(function):
     def conf_gen(runner):
-        parallel_conf = ParallelExperimentConfig(
-            experiment_options={'max_circuits': 50}
-        )
-        for igroup, qubit_group in enumerate(runner.qubit_grouping):
-            batch_conf = BatchExperimentConfig()
-            for qubit in qubit_group:
-                qubit_config = function(runner, qubit)
-                qubit_config.exp_type = f'{function.__name__}-q{qubit}'
-                if not batch_conf.subexperiments:
-                    batch_conf.exp_type = f'{function.__name__}-g{igroup}'
-                    batch_conf.analysis = qubit_config.analysis
-                    default_run_options = dict(
-                        qubit_config.cls._default_run_options().items()
-                    )
-                    # Run options on intermediate BatchExperiments have no effect but warnings may
-                    # be issued if meas_level and meas_return_type are different between the
-                    # batched experiment and any container experiments, so we set the run options
-                    # here too
-                    batch_conf.run_options.update(default_run_options)
-                    batch_conf.run_options.update(qubit_config.run_options)
-                    if not parallel_conf.subexperiments:
-                        parallel_conf.analysis = qubit_config.analysis
-                        parallel_conf.run_options.update(default_run_options)
-                        parallel_conf.run_options.update(qubit_config.run_options)
-                batch_conf.subexperiments.append(qubit_config)
-            parallel_conf.subexperiments.append(batch_conf)
-
-        return parallel_conf
-
+        return runner.make_batch_config(function, exp_type=function.__name__)
     register_exp(conf_gen, exp_type=function.__name__)
+
 
 def register_backend_qutrit_postexp(function):
     def postexp(runner, experiment_data):
@@ -55,7 +28,7 @@ def register_backend_qutrit_postexp(function):
 
 qutrit_functions = [
     qutrit_rough_frequency,
-    qutrit_rough_amplitude,
+    #qutrit_rough_amplitude,
     qutrit_semifine_frequency,
     qutrit_fine_frequency,
     qutrit_rough_x_drag,
@@ -73,5 +46,15 @@ qutrit_functions = [
 ]
 for func in qutrit_functions:
     register_backend_qutrit_exp(func)
+
+def qutrit_rough_amplitude_parallel(runner):
+    active_qubits = runner.active_qubits
+    current_max_size = max(len(group) for group in runner.qubit_grouping)
+    runner.set_qubit_grouping(active_qubits=active_qubits, max_group_size=5)
+    conf = runner.make_batch_config(qutrit_rough_amplitude, exp_type='qutrit_rough_amplitude')
+    conf.experiment_options['max_circuits'] = 150
+    runner.set_qubit_grouping(active_qubits=active_qubits, max_group_size=current_max_size)
+    return conf
+register_exp(qutrit_rough_amplitude_parallel, exp_type='qutrit_rough_amplitude')
 
 register_backend_qutrit_postexp(qutrit_assignment_error_post)
