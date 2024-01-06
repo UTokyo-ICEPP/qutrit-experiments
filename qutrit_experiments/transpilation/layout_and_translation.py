@@ -1,5 +1,6 @@
 """Transpilation with layout and translation."""
 from collections.abc import Sequence
+from typing import Union
 from qiskit import QuantumCircuit
 from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary as sel
 from qiskit.providers import Backend
@@ -21,13 +22,13 @@ def generate_translation_passmanager(
 
 
 def map_and_translate(
-    circuit: QuantumCircuit,
+    circuit: Union[QuantumCircuit, list[QuantumCircuit]],
     physical_qubits: Sequence[int],
     backend: Backend
 ) -> QuantumCircuit:
     """Run a pass manager with layout and translation stages only."""
     return StagedPassManager(
         ["layout", "translation"],
-        layout=generate_layout_passmanager(circuit, physical_qubits, backend.coupling_map),
+        layout=generate_layout_passmanager(physical_qubits, backend.coupling_map),
         translation=generate_translation_passmanager(backend.operation_names)
     ).run(circuit)

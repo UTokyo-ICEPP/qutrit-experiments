@@ -13,16 +13,13 @@ from qiskit.transpiler.passes import (
 
 
 def generate_layout_passmanager(
-    qregs: list[QuantumRegister],
     physical_qubits: Sequence[int],
     coupling_map: CouplingMap
 ) -> PassManager:
     """A trivial layout pass manager."""
-    initial_layout = Layout.from_intlist(list(physical_qubits), *qregs)
-
     return PassManager(
         [
-            SetLayout(initial_layout),
+            SetLayout(list(physical_qubits)),
             FullAncillaAllocation(coupling_map),
             EnlargeWithAncilla(),
             ApplyLayout(),
@@ -37,14 +34,9 @@ def map_to_physical_qubits(
 ) -> QuantumCircuit:
     """Run a pass manager with layout stage only. Assumes all input circuits have the same qreg
     structure."""
-    if isinstance(circuit, list):
-        qregs = circuit[0].qregs
-    else:
-        qregs = circuit.qregs
-
     return StagedPassManager(
         ["layout"],
-        layout=generate_layout_passmanager(qregs, physical_qubits, coupling_map)
+        layout=generate_layout_passmanager(physical_qubits, coupling_map)
     ).run(circuit)
 
 
