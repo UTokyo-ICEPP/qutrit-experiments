@@ -3,6 +3,7 @@
 import logging
 import os
 import pickle
+import time
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -16,6 +17,7 @@ from qiskit.qobj.utils import MeasLevel
 from qiskit.result import Counts
 from qiskit_experiments.calibration_management import (BaseCalibrationExperiment, Calibrations,
                                                        ParameterValue)
+from qiskit_experiments.database_service import ExperimentEntryNotFound
 from qiskit_experiments.framework import (AnalysisStatus, BaseAnalysis, BaseExperiment,
                                           CompositeAnalysis as CompositeAnalysisOrig,
                                           ExperimentData)
@@ -27,7 +29,9 @@ from ..constants import DEFAULT_REP_DELAY, DEFAULT_SHOTS, RESTLESS_REP_DELAY
 from ..experiment_config import (CompositeExperimentConfig, ExperimentConfig, ExperimentConfigBase,
                                  experiments, postexperiments)
 from ..framework.child_data import set_child_data_structure, fill_child_data
+from ..framework_overrides.batch_experiment import BatchExperiment
 from ..framework_overrides.composite_analysis import CompositeAnalysis
+from ..framework_overrides.parallel_experiment import ParallelExperiment
 from ..gates import QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES
 from ..transpilation.qutrit_circuits import make_instruction_durations, transpile_qutrit_circuits
 # Temporary patch for qiskit-experiments 0.5.1
@@ -147,15 +151,7 @@ class ExperimentsRunner:
         if not config.analysis:
             experiment.analysis = None
 
-        self._set_options(experiment, config)
-
-        return experiment
-
-    def _set_options(
-        self,
-        experiment: BaseExperiment,
-        config: ExperimentConfigBase
-    ):
+        experiment.set_experiment_options(**config.experiment_options)
         if isinstance(config, CompositeExperimentConfig):
             # CompositeExperiment creates a CompositeAnalysisOrig by default; overwrite to the
             # serial version
@@ -164,7 +160,6 @@ class ExperimentsRunner:
                 flatten_results = experiment.analysis._flatten_results
                 experiment.analysis = CompositeAnalysis(analyses, flatten_results=flatten_results)
         else:
-            experiment.set_experiment_options(**config.experiment_options)
             if isinstance(experiment, BaseCalibrationExperiment):
                 experiment.auto_update = False
             if config.restless:
@@ -173,13 +168,15 @@ class ExperimentsRunner:
         if experiment.analysis is not None:
             experiment.analysis.set_options(**config.analysis_options)
 
+        return experiment
+
     def run_experiment(
         self,
         config: Union[str, ExperimentConfigBase],
         experiment: Optional[BaseExperiment] = None,
         wait_for_job: bool = True,
         analyze: bool = True,
-        calibrate: Union[bool, Callable[[ExperimentData], bool]] = True,
+        calibrate: bool = True,
         print_level: int = 2
     ) -> ExperimentData:
         if isinstance(config, str):
@@ -190,7 +187,7 @@ class ExperimentsRunner:
 
         logger.info('run_experiment(%s)', exp_type)
 
-        if isinstance(config, ExperimentConfig) and not config.restless:
+        if not getattr(config, 'restless', False):
             experiment.set_run_options(rep_delay=DEFAULT_REP_DELAY)
         experiment.set_run_options(**config.run_options)
 
@@ -209,7 +206,6 @@ class ExperimentsRunner:
             exp_data = experiment._initialize_experiment_data()
 
             if self.code_test:
-                logger.info('Generating dummy data for %s.', exp_type)
                 self._run_code_test(experiment, exp_data)
             else:
                 if self.job_ids_exist(exp_type):
@@ -241,12 +237,13 @@ class ExperimentsRunner:
 
         self.run_analysis(exp_data, experiment.analysis)
 
-        if callable(calibrate):
-            calibrate = calibrate(exp_data)
         if calibrate:
-            self.update_calibrations(exp_data, experiment)
+            self.update_calibrations(exp_data, experiment=experiment,
+                                     exp_type=experiment.experiment_type,
+                                     criterion=config.calibration_criterion)
 
         if exp_type in postexperiments:
+            logger.info('Performing the postexperiment for %s.', exp_type)
             postexperiments[exp_type](self, exp_data)
 
         if print_level == 1:
@@ -266,7 +263,11 @@ class ExperimentsRunner:
         if analysis is None:
             analysis = experiment_data.experiment.analysis
 
+        start = time.time()
         analysis.run(experiment_data).block_for_results()
+        end = time.time()
+        logger.debug('Analysis of %s took %.1f seconds.',
+                     experiment_data.experiment_type, end - start)
 
         if experiment_data.analysis_status() != AnalysisStatus.DONE:
             raise AnalysisError(f'Analysis status = {experiment_data.analysis_status().value}')
@@ -298,9 +299,18 @@ class ExperimentsRunner:
                 instruction_durations=instruction_durations
             )
 
-        return transpile_qutrit_circuits(experiment._transpiled_circuits(),
-                                         self._backend, self._calibrations,
-                                         instruction_durations=instruction_durations)
+        start = time.time()
+        transpiled_circuits = experiment._transpiled_circuits()
+        end = time.time()
+        logger.debug('Initial transpilation took %.1f seconds.', end - start)
+
+        start = time.time()
+        transpiled_circuits = transpile_qutrit_circuits(transpiled_circuits,
+                                                        self._backend, self._calibrations,
+                                                        instruction_durations=instruction_durations)
+        end = time.time()
+        logger.debug('Qutrit-specific transpilation took %.1f seconds.', end - start)
+        return transpiled_circuits
 
     def save_data(
         self,
@@ -313,6 +323,16 @@ class ExperimentsRunner:
         backend = experiment_data.backend
         experiment_data._experiment = None
         experiment_data.backend = None
+
+        def _convert_memory_to_array(data):
+            for datum in data.data():
+                if 'memory' in datum:
+                    datum['memory'] = np.array(datum['memory'])
+            for child_data in data.child_data():
+                _convert_memory_to_array(child_data)
+
+        _convert_memory_to_array(experiment_data)
+
         pickle_name = os.path.join(self._data_dir, f'{experiment_data.experiment_type}.pkl')
         with open(pickle_name, 'wb') as out:
             pickle.dump(deep_copy_no_results(experiment_data), out)
@@ -333,10 +353,22 @@ class ExperimentsRunner:
     def load_data(self, exp_type: str) -> ExperimentData:
         if not self._data_dir:
             raise RuntimeError('ExperimentsRunner does not have a data_dir set')
+        start = time.time()
         with open(os.path.join(self._data_dir, f'{exp_type}.pkl'), 'rb') as source:
             exp_data = deep_copy_no_results(pickle.load(source))
 
+        def _convert_memory_to_list(data):
+            for datum in data.data():
+                if 'memory' in datum:
+                    datum['memory'] = datum['memory'].tolist()
+            for child_data in data.child_data():
+                _convert_memory_to_list(child_data)
+
+        _convert_memory_to_list(exp_data)
+        end = time.time()
+
         logger.info('Unpickled experiment data for %s.', exp_type)
+        logger.debug('Loading data required %.1f seconds.', end - start)
         return exp_data
 
     def load_jobs(self, exp_type: str) -> list[RuntimeJob]:
@@ -354,11 +386,29 @@ class ExperimentsRunner:
     def update_calibrations(
         self,
         experiment_data: ExperimentData,
-        experiment: Optional[BaseExperiment] = None
+        experiment: Optional[BaseExperiment] = None,
+        exp_type: Optional[str] = None,
+        criterion: Optional[Callable[[ExperimentData], bool]] = None
     ):
+        if experiment is None:
+            experiment = experiment_data.experiment
+        if exp_type is None:
+            exp_type = experiment.experiment_type
+
+        logger.info('Updating calibrations for %s.', exp_type)
+
         def _get_update_list(exp_data, exp):
             if isinstance(exp, BaseCalibrationExperiment):
-                exp.update_calibrations(exp_data)
+                try:
+                    if criterion and not criterion(exp_data):
+                        logger.warning('%s qubits %s failed calibration criterion', exp_type,
+                                       exp.physical_qubits)
+                        return []
+
+                    exp.update_calibrations(exp_data)
+                except ExperimentEntryNotFound as exc:
+                    logger.warning('%s qubits %s %s', exp_type, exp.physical_qubits, exc.message)
+                    return []
 
                 param_name = exp._param_name
                 sched_name = exp._sched_name
@@ -366,11 +416,10 @@ class ExperimentsRunner:
                     return [(param_name, sched_name, exp.physical_qubits)]
                 if isinstance(sched_name, str):
                     return [(pname, sched_name, exp.physical_qubits) for pname in param_name]
-
                 return [(pname, sname, exp.physical_qubits)
                         for pname, sname in zip(param_name, sched_name)]
 
-            if isinstance(exp, CompositeExperiment):
+            elif type(exp) in [BatchExperiment, ParallelExperiment]:
                 update_list = []
                 for subexp, child_data in zip(exp.component_experiment(), exp_data.child_data()):
                     update_list.extend(_get_update_list(child_data, subexp))
@@ -379,12 +428,8 @@ class ExperimentsRunner:
 
             return []
 
-        if experiment is None:
-            experiment = experiment_data.experiment
-
         update_list = _get_update_list(experiment_data, experiment)
-
-        self.save_calibrations(experiment.experiment_type, update_list)
+        self.save_calibrations(exp_type, update_list)
 
     def save_calibrations(
         self,
@@ -435,10 +480,13 @@ class ExperimentsRunner:
         self,
         experiment: BaseExperiment,
     ) -> ExperimentData:
-        logger.info('Submitting experiment circuit jobs for %s.', experiment.experiment_type)
-
+        logger.info('Creating transpiled circuits for %s.', experiment.experiment_type)
         # Generate and transpile circuits
+        start = time.time()
         transpiled_circuits = self.get_transpiled_circuits(experiment)
+        end = time.time()
+        logger.debug('Created %d circuits for %s in %.1f seconds.',
+                     len(transpiled_circuits), experiment.experiment_type, end - start)
 
         # Run options
         run_opts = {**experiment.run_options.__dict__}
@@ -450,10 +498,12 @@ class ExperimentsRunner:
         # Run jobs (reimplementing BaseExperiment._run_jobs because we need to a handle
         # on job splitting)
         circuit_lists = self._split_circuits(experiment, transpiled_circuits)
+        logger.debug('Circuits will be split into %d jobs.', len(circuit_lists))
 
         jobs = []
 
         if not getattr(self._backend, 'simulator', True):
+            logger.info('Submitting experiment circuit jobs for %s.', experiment.experiment_type)
             # Check all jobs got an id. If not, try resubmitting
             for ilist, circs in enumerate(circuit_lists):
                 for _ in range(5):
@@ -513,6 +563,7 @@ class ExperimentsRunner:
 
     def _run_code_test(self, experiment, experiment_data):
         """Test circuit generation and then fill the container with dummy data."""
+        logger.info('Generating dummy data for %s.', experiment.experiment_type)
         run_opts = experiment.run_options.__dict__
 
         shots = run_opts.get('shots', DEFAULT_SHOTS)

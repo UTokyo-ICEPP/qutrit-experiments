@@ -19,6 +19,7 @@ class ExperimentConfigBase:
     analysis_options: dict[str, Any] = field(default_factory=dict)
     plot_depth: int = 0
     exp_type: str = ''
+    calibration_criterion: Optional[Callable[[ExperimentData], bool]] = None
 
 
 @dataclass
