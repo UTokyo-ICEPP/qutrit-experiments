@@ -198,8 +198,11 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         parent_task_id: tuple[int, ...] = ()
     ):
         """Recursively collect all atomic analyses and identify analysis dependencies."""
+        logger.debug('Setting child data structure for task %s..', parent_task_id)
         set_child_data_structure(experiment_data)
+        logger.debug('Extracting component data for task %s..', parent_task_id)
         component_expdata = analysis._component_experiment_data(experiment_data)
+        logger.debug('Extracted component data for task %s..', parent_task_id)
 
         for itask, (sub_analysis, sub_data) in enumerate(zip(analysis._analyses,
                                                              component_expdata)):
