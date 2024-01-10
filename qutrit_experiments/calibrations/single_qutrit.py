@@ -9,7 +9,8 @@ from qiskit.pulse import ScheduleBlock
 from qiskit.circuit import Parameter
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 
-from .pulse_library import ModulatedDrag
+from .util import get_operational_qubits
+from ..pulse_library import ModulatedDrag
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ def set_f12_default(
     if 'f12' not in set(p.name for p in calibrations.parameters.keys()):
         calibrations._register_parameter(Parameter('f12'), ())
 
-    operational_qubits = _get_operational_qubits(backend)
+    operational_qubits = get_operational_qubits(backend)
     for qubit in operational_qubits:
         qubit_props = backend.qubit_properties(qubit)
         freq_12_est = qubit_props.frequency
@@ -102,7 +103,7 @@ def add_x12_sx12(
 
     # Parameter default values
     inst_map = backend.defaults().instruction_schedule_map
-    operational_qubits = _get_operational_qubits(backend)
+    operational_qubits = get_operational_qubits(backend)
     for gate_name, qubit_gate_name in [('x12', 'x'), ('sx12', 'sx')]:
         for qubit in operational_qubits:
             qubit_sched = inst_map.get(qubit_gate_name, qubit)
@@ -130,7 +131,7 @@ def set_xstark_sxstark_default(
     calibrations: Calibrations
 ) -> None:
     # Stark delta parameters
-    operational_qubits = _get_operational_qubits(backend)
+    operational_qubits = get_operational_qubits(backend)
     for name in ['xstark', 'sxstark']:
         if name not in set(p.name for p in calibrations.parameters.keys()):
             calibrations._register_parameter(Parameter(name), ())
@@ -155,12 +156,3 @@ def get_qutrit_pulse_gate(
 
     return calibrations.get_schedule(gate_name, qubit, assign_params=assign_params_dict,
                                      group=group)
-
-
-def _get_operational_qubits(backend: Backend) -> set[int]:
-    try:
-        faulty_qubits = set(backend.properties().faulty_qubits())
-    except AttributeError:
-        # Simulator
-        faulty_qubits = set()
-    return set(range(backend.num_qubits)) - faulty_qubits
