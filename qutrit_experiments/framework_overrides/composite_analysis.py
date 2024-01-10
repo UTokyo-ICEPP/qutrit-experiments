@@ -100,13 +100,18 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                 continue
 
             logger.debug('Waiting for results from analysis of task %s', task_id)
-            try:
-                analysis_results, figures = future.result()
-            except Exception as exc:
-                traceback.print_exception(exc)
-                raise AnalysisError(f'Postanalysis failed for {task_id}') from exc
+            task_result = future.result()
+            if isinstance(task_result, Exception):
+                logger.debug('Received exception from %s:', task_id)
+                if analysis.options.get('ignore_failed', False):
+                    logger.warning('Ignoring postanalysis failure for %s:', task_id)
+                    traceback.print_exception(task_result)
+                    continue
 
-            logger.debug('Received results for %s: %s', task_id, analysis_results)
+                return task_result
+
+            analysis_results, figures = task_result
+            logger.debug('Received results from %s: %s', task_id, analysis_results)
 
             subdata._clear_results()
             if analysis_results:
@@ -132,25 +137,19 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             proc.join()
             logger.debug('%s finished in %.2f seconds.',
                          parent_data.experiment_id, time.time() - start)
-
-            if isinstance(msg, Exception):
-                if analysis.options.get('ignore_failed', False):
-                    logger.warning('Postanalysis failed for %s', parent_task_id)
-                    return [], []
-
-                traceback.print_exception(type(msg), msg, None)
-                raise AnalysisError(f'Postanalysis failed for {parent_task_id}') from msg
-
-            analysis_results, figures = msg
         else:
             try:
-                analysis_results, figures = CompositeAnalysis._postanalysis(analysis, parent_data,
-                                                                            component_data)
+                msg = CompositeAnalysis._postanalysis(analysis, parent_data, component_data)
             except Exception as exc:
-                traceback.print_exception(exc)
-                raise AnalysisError(f'Postanalysis failed for {parent_task_id}') from exc
+                msg = exc
 
-        return analysis_results, figures
+        if isinstance(msg, Exception) and analysis.options.get('ignore_failed', False):
+            logger.warning('Ignoring postanalysis failure for %s:', parent_task_id)
+            traceback.print_exception(msg)
+            return [], []
+
+        # (analysis_results, figures) or exception
+        return msg
 
     @staticmethod
     def _postanalysis(
@@ -210,6 +209,8 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             if isinstance(sub_analysis, CompositeAnalysisOrig):
                 self._gather_tasks(sub_analysis, sub_data, task_list, subdata_map, task_id)
             elif len(sub_data.analysis_results()) == 0 or self.options.clear_results:
+                logger.debug('Booked %s for data from qubits %s',
+                             sub_analysis.__class__.__name__, sub_data.metadata['physical_qubits'])
                 task_list.append((sub_analysis, sub_data, task_id))
 
         if hasattr(analysis, '_set_subanalysis_options'):
@@ -233,7 +234,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
 
             start = time.time()
 
-            # Runtime backend cannot be pickled, so unset the attribute temporarily
+            # Backend cannot be pickled, so unset the attribute temporarily.
             # We use a list here but the backend cannot possibly be different among subdata..
             # Also BaseAnalysis.run is overwritten somewhere, making analysis instances unpickable.
             # We therefore delete the attribute temporarily and call _run_analysis directly in
@@ -244,7 +245,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                 backends.append(sub_data.backend)
                 sub_data.backend = None
                 runfuncs.append(an.run)
-                delattr(an, 'run')
+                an.run = None
             try:
                 with Pool(processes=max_procs) as pool:
                     all_results = pool.starmap(CompositeAnalysis._run_sub_analysis,
@@ -258,29 +259,25 @@ class CompositeAnalysis(CompositeAnalysisOrig):
 
             logger.debug('Done in %.3f seconds.', time.time() - start)
 
-            for (status, retval), (_, sub_expdata, task_id) in zip(all_results, task_list):
-                if status == AnalysisStatus.ERROR:
-                    if self.options.ignore_failed:
-                        logger.warning('Analysis failed for analysis %s', task_id)
-                        traceback.print_exception(retval)
-                    else:
-                        raise AnalysisError(f'Analysis failed for analysis {task_id}') from retval
-                else:
-                    sub_expdata._clear_results()
-                    if retval[0]:
-                        sub_expdata.add_analysis_results(retval[0])
-                    if retval[1]:
-                        sub_expdata.add_figures([f.figure for f in retval[1]],
-                                                figure_names=[f.name for f in retval[1]])
         else:
-            for analysis, data, task_id in task_list:
-                status, retval = CompositeAnalysis._run_sub_analysis(analysis, data)
-                if status == AnalysisStatus.ERROR:
-                    if self.options.ignore_failed:
-                        logger.warning('Analysis failed for %s', task_id)
-                        traceback.print_exception(retval)
-                    else:
-                        raise AnalysisError(f'Analysis failed for {task_id}') from retval
+            all_results = [CompositeAnalysis._run_sub_analysis(analysis, sub_expdata)
+                           for analysis, sub_expdata, _ in task_list]
+
+        for (status, retval), (_, sub_expdata, task_id) in zip(all_results, task_list):
+            if status == AnalysisStatus.ERROR:
+                if self.options.ignore_failed:
+                    logger.warning('Ignoring analysis failure for analysis %s:', task_id)
+                    traceback.print_exception(retval)
+                else:
+                    raise AnalysisError(f'Analysis failed for analysis {task_id}') from retval
+            elif max_procs != 0:
+                # Multiprocess -> need to insert results to the experiment data in this process
+                sub_expdata._clear_results()
+                if retval[0]:
+                    sub_expdata.add_analysis_results(retval[0])
+                if retval[1]:
+                    sub_expdata.add_figures([f.figure for f in retval[1]],
+                                             figure_names=[f.name for f in retval[1]])
 
         # Combine the child data if the analysis requires flattening
         # Entries in subdata_map is innermost-first
@@ -308,11 +305,9 @@ class CompositeAnalysis(CompositeAnalysisOrig):
 
                 if self.options.parallelize == 0 and task_id != ():
                     # Wait for completion
-                    try:
-                        future.result()
-                    except Exception as exc:
-                        traceback.print_exception(exc)
-                        raise AnalysisError(f'Postanalysis failed for {task_id}') from exc
+                    result = future.result()
+                    if isinstance(result, Exception) and analysis.options.get('ignore_failed', False):
+                        raise AnalysisError(f'Postanalysis failed for {task_id}') from result
 
         try:
             future = futures[()]
@@ -320,12 +315,16 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             # Postanalysis did not run because results already existed and clear_results was False
             return (experiment_data.analysis_results(),
                     [experiment_data.figures(name) for name in experiment_data.figure_names])
-        try:
-            analysis_results, figures = future.result()
-        except Exception as exc:
-            traceback.print_exception(exc)
-            raise AnalysisError('Postanalysis failed') from exc
+
+        result = future.result()
+        if isinstance(result, Exception):
+            if self.options.ignore_failed:
+                logger.warning('Ignoring postanalysis failure')
+                traceback.print_exception(result)
+                return [], []
+
+            raise AnalysisError('Postanalysis failed') from result
 
         logger.debug('Done in %.3f seconds.', time.time() - start)
-
-        return analysis_results, figures
+        # analysis_results, figures
+        return result
