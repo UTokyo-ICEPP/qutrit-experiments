@@ -6,6 +6,7 @@ from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary as sel
 from qiskit.providers import Backend
 from qiskit.transpiler import PassManager, StagedPassManager
 from qiskit.transpiler.coupling import CouplingMap
+from qiskit.transpiler.passes import BasisTranslator
 
 from .layout_only import generate_layout_passmanager
 
