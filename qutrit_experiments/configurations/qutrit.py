@@ -9,7 +9,7 @@ from qiskit_experiments.data_processing import (DataProcessor, DiscriminatorNode
 from qiskit_experiments.visualization import MplDrawer, IQPlotter
 
 from ..calibrations import get_qutrit_pulse_gate
-from ..data_processing import LinearDiscriminator
+from ..data_processing import LinearDiscriminator, ReadoutMitigation
 from ..experiment_config import ExperimentConfig
 
 logger = logging.getLogger(__name__)
@@ -62,25 +62,39 @@ def qutrit_discriminator_post(runner, experiment_data):
             plotter.set_supplementary_data(discriminator=discriminator)
             experiment_data.add_figures(plotter.figure(), f'iq_{iamp}')
 
+def qubit_assignment_error(runner, qubit):
+    from ..experiments.readout_error import CorrelatedReadoutError
+    return ExperimentConfig(
+        CorrelatedReadoutError,
+        [qubit]
+    )
+
+def qubit_assignment_error_post(runner, experiment_data):
+    qubit = experiment_data.metadata['physical_qubits'][0]
+    mitigator = experiment_data.analysis_results('Correlated Readout Mitigator').value
+    runner.program_data.setdefault('qubit_assignment_matrix', {})[qubit] = mitigator._assigment_mat
+
 def qutrit_semifine_frequency(runner, qubit):
     from ..experiments.delay_phase_offset import EFRamseyPhaseSweepFrequencyCal
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFRamseyPhaseSweepFrequencyCal,
         [qubit],
         analysis_options={'common_amp': False}
     )
+    return _add_readout_mitigation(config, runner)
 
 def qutrit_fine_frequency(runner, qubit):
     from ..experiments.fine_frequency_phase import EFRamseyFrequencyScanCal
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFRamseyFrequencyScanCal,
         [qubit],
         analysis_options={'common_amp': False}
     )
+    return _add_readout_mitigation(config, runner)
 
 def nocal_qutrit_fine_frequency(runner, qubit):
     from ..experiments.fine_frequency_phase import EFRamseyFrequencyScan
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFRamseyFrequencyScan,
         [qubit],
         args={
@@ -88,11 +102,11 @@ def nocal_qutrit_fine_frequency(runner, qubit):
                             + runner.calibrations.get_parameter_value('f12', qubit))
         }
     )
-    return config
+    return _add_readout_mitigation(config, runner)
 
 def qutrit_rough_x_drag(runner, qubit):
     from ..experiments.rough_drag import EFRoughDragCal
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFRoughDragCal,
         [qubit],
         args={
@@ -100,10 +114,11 @@ def qutrit_rough_x_drag(runner, qubit):
             'betas': np.linspace(-10., 10., 10)
         }
     )
+    return _add_readout_mitigation(config, runner)
 
 def qutrit_rough_sx_drag(runner, qubit):
     from ..experiments.rough_drag import EFRoughDragCal
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFRoughDragCal,
         [qubit],
         args={
@@ -111,6 +126,7 @@ def qutrit_rough_sx_drag(runner, qubit):
             'betas': np.linspace(-20., 20., 10)
         }
     )
+    _add_readout_mitigation(config, runner)
 
 def qutrit_fine_sx_amplitude(runner, qubit):
     from ..experiments.fine_amplitude import EFFineSXAmplitudeCal
@@ -124,7 +140,7 @@ def qutrit_fine_sx_amplitude(runner, qubit):
         return abs(prev_amp * target_angle / (target_angle + d_theta)) < 1.
 
     # qutrit T1 is short - shouldn't go too far with repetitions
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFFineSXAmplitudeCal,
         [qubit],
         experiment_options={
@@ -133,16 +149,18 @@ def qutrit_fine_sx_amplitude(runner, qubit):
         },
         calibration_criterion=calibration_criterion
     )
+    _add_readout_mitigation(config, runner)
 
 def qutrit_fine_sx_drag(runner, qubit):
     from ..experiments.fine_drag import EFFineSXDragCal
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFFineSXDragCal,
         [qubit],
         experiment_options={
             'repetitions': list(range(12))
         }
     )
+    _add_readout_mitigation(config, runner)
 
 def qutrit_fine_x_amplitude(runner, qubit):
     from ..experiments.fine_amplitude import EFFineXAmplitudeCal
@@ -156,7 +174,7 @@ def qutrit_fine_x_amplitude(runner, qubit):
         return abs(prev_amp * target_angle / (target_angle + d_theta)) < 1.
 
     # qutrit T1 is short - shouldn't go too far with repetitions
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFFineXAmplitudeCal,
         [qubit],
         experiment_options={
@@ -164,51 +182,58 @@ def qutrit_fine_x_amplitude(runner, qubit):
         },
         calibration_criterion=calibration_criterion
     )
+    _add_readout_mitigation(config, runner)
 
 def qutrit_fine_x_drag(runner, qubit):
     from ..experiments.fine_drag import EFFineXDragCal
-    return ExperimentConfig(
+    config = ExperimentConfig(
         EFFineXDragCal,
         [qubit],
         experiment_options={
             'repetitions': list(range(12)),
         }
     )
+    _add_readout_mitigation(config, runner)
 
 def qutrit_x12_stark_shift(runner, qubit):
     from ..experiments.stark_shift_phase import X12StarkShiftPhaseCal
-    return ExperimentConfig(
+    config = ExperimentConfig(
         X12StarkShiftPhaseCal,
         [qubit]
     )
+    _add_readout_mitigation(config, runner)
 
 def qutrit_sx12_stark_shift(runner, qubit):
     from ..experiments.stark_shift_phase import SX12StarkShiftPhaseCal
-    return ExperimentConfig(
+    config = ExperimentConfig(
         SX12StarkShiftPhaseCal,
         [qubit]
     )
+    _add_readout_mitigation(config, runner)
 
 def qutrit_x_stark_shift(runner, qubit):
     from ..experiments.stark_shift_phase import XStarkShiftPhaseCal
-    return ExperimentConfig(
+    config = ExperimentConfig(
         XStarkShiftPhaseCal,
         [qubit]
     )
+    _add_readout_mitigation(config, runner)
 
 def qutrit_sx_stark_shift(runner, qubit):
     from ..experiments.stark_shift_phase import SXStarkShiftPhaseCal
-    return ExperimentConfig(
+    config = ExperimentConfig(
         SXStarkShiftPhaseCal,
         [qubit]
     )
+    _add_readout_mitigation(config, runner)
 
 def qutrit_rotary_stark_shift(runner, qubit):
     from ..experiments.stark_shift_phase import RotaryStarkShiftPhaseCal
-    return ExperimentConfig(
+    config = ExperimentConfig(
         RotaryStarkShiftPhaseCal,
         [qubit]
     )
+    _add_readout_mitigation(config, runner)
 
 def qutrit_assignment_error(runner, qubit):
     from ..experiments.readout_error import MCMLocalReadoutError
@@ -236,11 +261,12 @@ def qutrit_t1(runner, qubit):
 def qutrit_x12_irb(runner, qubit):
     from ..experiments.qutrit_rb import QutritInterleavedRB
     from ..gates import X12Gate
-    return ExperimentConfig(
+    config = ExperimentConfig(
         QutritInterleavedRB,
         [qubit],
         args={'interleaved_gate': X12Gate}
     )
+    return _add_readout_mitigation(config, runner)
 
 def _add_iq_discriminator(config, runner):
     qubit = config.physical_qubits[0]
@@ -256,6 +282,25 @@ def _add_iq_discriminator(config, runner):
     config.analysis_options['data_processor'] = DataProcessor('memory', [
         DiscriminatorNode(discriminator),
         MemoryToCounts(),
+        Probability(config.analysis_options.get('outcome', '1'))
+    ])
+    return config
+
+def _add_readout_mitigation(config, runner):
+    qubit = config.physical_qubits[0]
+
+    if (matrix := runner.program_data.get('qubit_assignment_matrix', {}).get(qubit)) is None:
+        logger.warning('Assignment matrix is missing; not applying readout mitigation for qubit %d',
+                       qubit)
+        return config
+
+    if config.run_options.get('meas_level', MeasLevel.CLASSIFIED) != MeasLevel.CLASSIFIED:
+        logger.warning('MeasLevel is not CLASSIFIED; not applying readout mitigation for qubit %d',
+                       qubit)
+        return config
+
+    config.analysis_options['data_processor'] = DataProcessor('counts', [
+        ReadoutMitigation(matrix),
         Probability(config.analysis_options.get('outcome', '1'))
     ])
     return config
