@@ -17,6 +17,7 @@ from ..framework.compound_analysis import CompoundAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
 from ..gates import X12Gate
 from ..util.dummy_data import single_qubit_counts
+from ..util.matplotlib import copy_axes
 
 twopi = 2. * np.pi
 
@@ -175,21 +176,6 @@ class QutritZZRamseyAnalysis(CompoundAnalysis):
         options.plot = True
         return options
 
-    def __init__(
-        self,
-        analyses: list[RamseyXYAnalysis]
-    ):
-        super().__init__(analyses)
-
-        self.figure = Figure(figsize=[9.6, 9.6])
-        _ = default_figure_canvas(self.figure)
-        axs = self.figure.subplots(3, 1, sharex=True)
-        for control_state, (analysis, ax) in enumerate(zip(analyses, axs)):
-            analysis.plotter.set_options(axis=ax)
-            analysis.plotter.set_figure_options(
-                figure_title=fr'Control: $|{control_state}\rangle$'
-            )
-
     def _set_subanalysis_options(self, experiment_data: ExperimentData):
         for analysis in self._analyses:
             analysis.options.plot = self.options.plot
@@ -219,6 +205,14 @@ class QutritZZRamseyAnalysis(CompoundAnalysis):
         )
 
         if self.options.plot:
-            figures.append(self.figure)
+            figure = Figure(figsize=[9.6, 9.6])
+            _ = default_figure_canvas(figure)
+            axs = figure.subplots(3, 1, sharex=True)
+            for control_state, (child_index, analysis, to_ax) in enumerate(zip(component_index,
+                                                                               analyses, axs)):
+                child_data = experiment_data.child_data(child_index)
+                copy_axes(child_data.figure(0).figure.axes[0], to_ax)
+                to_ax.set_title(fr'Control: $|{control_state}\rangle$')
+            figures.append(figure)
 
         return analysis_results, figures

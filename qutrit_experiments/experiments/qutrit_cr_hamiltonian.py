@@ -120,6 +120,7 @@ from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ..framework.compound_analysis import CompoundAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
+from ..util.matplotlib import copy_axes
 from ..util.polynomial import PolynomialOrder, sparse_poly_fitfunc
 from .cr_rabi import cr_rabi_init
 from .hamiltonian_tomography import HamiltonianTomography, HamiltonianTomographyScan
@@ -213,18 +214,6 @@ class QutritCRHamiltonianAnalysis(CompoundAnalysis):
         options.plot = True
         return options
 
-    def __init__(self, analyses: list[BaseAnalysis]):
-        super().__init__(analyses)
-
-        self.figure = Figure(figsize=[9.6, 4.8])
-        _ = default_figure_canvas(self.figure)
-        axs = self.figure.subplots(3, 1, sharex=True)
-        for control_state, (analysis, ax) in enumerate(zip(analyses, axs)):
-            analysis.plotter.set_options(axis=ax)
-            analysis.plotter.set_figure_options(
-                figure_title=fr'Control: $|{control_state}\rangle$'
-            )
-
     def _set_subanalysis_options(self, experiment_data: ExperimentData):
         for analysis in self._analyses:
             analysis.options.plot = self.options.plot
@@ -258,7 +247,15 @@ class QutritCRHamiltonianAnalysis(CompoundAnalysis):
         )
 
         if all(subanalysis.options.plot for subanalysis in self._analyses):
-            figures.append(self.figure)
+            figure = Figure(figsize=[9.6, 4.8])
+            _ = default_figure_canvas(figure)
+            axs = figure.subplots(3, 1, sharex=True)
+            for control_state, (child_index, analysis, to_ax) in enumerate(zip(component_index,
+                                                                               analyses, axs)):
+                child_data = experiment_data.child_data(child_index)
+                copy_axes(child_data.figure(0).figure.axes[0], to_ax)
+                to_ax.set_title(fr'Control: $|{control_state}\rangle$')
+            figures.append(figure)
 
         return analysis_results, figures
 

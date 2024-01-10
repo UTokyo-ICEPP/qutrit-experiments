@@ -18,6 +18,7 @@ from .delay_phase_offset import EFRamseyPhaseSweep, RamseyPhaseSweepAnalysis
 from ..framework.compound_analysis import CompoundAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
 from ..gates import SetF12Gate
+from ..util.matplotlib import copy_axes
 
 twopi = 2. * np.pi
 
@@ -92,12 +93,6 @@ class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
     ):
         super().__init__(analyses, flatten_results=False)
 
-        self.list_figure = Figure(figsize=[6.4, 2.4 * len(analyses)])
-        _ = default_figure_canvas(self.list_figure)
-        axs = self.list_figure.subplots(len(analyses), 1, sharex=True)
-        for analysis, ax in zip(analyses, axs):
-            analysis.plotter.set_options(axis=ax)
-
     def _set_subanalysis_options(self, experiment_data: ExperimentData):
         for subanalysis in self._analyses:
             subanalysis.set_options(
@@ -164,13 +159,19 @@ class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
 
             figures.append(plotter.figure())
 
+            list_figure = Figure(figsize=[6.4, 2.4 * len(self._analyses)])
+            _ = default_figure_canvas(list_figure)
+            axs = list_figure.subplots(len(self._analyses), 1, sharex=True)
+
             ## Set the titles of the list plot components
-            for ax, frequency in zip(self.list_figure.axes, frequencies):
-                ax.set_title(f'f12 = {frequency * 1.e-6:.1f} MHz')
+            for child_index, to_ax, frequency in zip(component_index, list_figure.axes, frequencies):
+                child_data = experiment_data.child_data(child_index)
+                copy_axes(child_data.figure(0).figure.axes[0], to_ax)
+                to_ax.set_title(f'f12 = {frequency * 1.e-6:.1f} MHz')
 
-            self.list_figure.tight_layout()
+            list_figure.tight_layout()
 
-            figures.append(self.list_figure)
+            figures.append(list_figure)
 
         return analysis_results, figures
 
