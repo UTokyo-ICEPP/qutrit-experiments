@@ -212,7 +212,7 @@ class SX12QubitPhaseRotation(BasePhaseRotation):
 
         | \psi \rangle & = P0(\delta_{S\Xi}'-\pi/2) \mathrm{diag}(1, i, -i) U_{\xi}(\pi/2; \delta)
                            \mathrm{diag}(1, i, -i) U_{\xi}(\pi/2; \delta) \sqrt{X} | 0 \rangle \\
-                       & ~ | 0 \rangle - i e^{i(-\delta_{S\Xi}' + \delta)} | 1 \rangle,
+                       & ~ | 0 \rangle - i e^{i(-\delta_{S\Xi}' + \delta - pi/2)} | 1 \rangle,
 
     where :math:`\delta_{S\Xi}'` is the current correction.
     """
@@ -233,7 +233,7 @@ class SX12StarkShiftPhaseCal(UpdateStarkDelta, SX12QubitPhaseRotation):
     def _extract_delta(self, experiment_data: ExperimentData) -> float:
         """See the docstring of SX12QubitPhaseRotation."""
         return (BaseUpdater.get_value(experiment_data, 'phase_offset')
-                + experiment_data.metadata['cal_param_value'])
+                + experiment_data.metadata['cal_param_value'] + np.pi / 2.)
 
 
 class XQutritPhaseRotation(BasePhaseRotation):
