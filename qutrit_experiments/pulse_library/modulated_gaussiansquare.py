@@ -123,11 +123,10 @@ def modulated_gaussiansquare(
     ncomp = len(freq)
 
     if len(fractions) == ncomp:
-        norm = sum(fractions)
+        norm = sum(fractions, 0.)
         if norm == 0.:
             raise ValueError('Invalid fractions adding up to zero')
-        if norm != 1.:
-            fractions = tuple(f / norm for f in fractions)
+        fractions = tuple(f / norm for f in fractions)
     elif len(fractions) == ncomp - 1:
         fractions = (1. - sum(fractions, 0.),) + fractions
     else:
