@@ -279,7 +279,7 @@ class QutritRB(BaseQutritRB):
             yield sequence, {'sample': isample}
 
 
-class QutritInterleavedRB(QutritRB):
+class QutritInterleavedRB(BaseQutritRB):
     """Interleaved randomized benchmarking for a single qutrit gate."""
     def __init__(
         self,
