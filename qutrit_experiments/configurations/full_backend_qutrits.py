@@ -1,14 +1,18 @@
 # pylint: disable=import-outside-toplevel, function-redefined, unused-argument
 """Single qutrit calibration and characterization experiments for a full backend."""
+import logging
 from .qutrit import (qutrit_rough_frequency, qutrit_rough_amplitude,
                      qutrit_semifine_frequency,
                      qutrit_fine_frequency, qutrit_rough_x_drag, qutrit_rough_sx_drag,
                      qutrit_fine_sx_amplitude, qutrit_fine_sx_drag, qutrit_fine_x_amplitude,
-                     qutrit_fine_x_drag, qutrit_x12_stark_shift, qutrit_x_stark_shift,
+                     qutrit_fine_x_drag, qutrit_x12_stark_shift, qutrit_sx12_stark_shift,
+                     qutrit_x_stark_shift,
                      qutrit_sx_stark_shift, qutrit_rotary_stark_shift, qutrit_assignment_error,
-                     qutrit_assignment_error_post, qutrit_t1)
+                     qutrit_assignment_error_post, qutrit_t1, qutrit_x12_irb)
 from ..experiment_config import (BatchExperimentConfig, ExperimentConfig, ParallelExperimentConfig,
                                  register_exp, register_post)
+
+logger = logging.getLogger(__name__)
 
 
 def register_backend_qutrit_exp(function):
@@ -21,7 +25,12 @@ def register_backend_qutrit_postexp(function):
     def postexp(runner, experiment_data):
         for parallel_data in experiment_data.child_data():
             for qutrit_data in parallel_data.child_data():
-                function(runner, qutrit_data)
+                try:
+                    function(runner, qutrit_data)
+                except Exception as ex:
+                    logger.error('Postexperiment error at qubit %d',
+                                 qutrit_data.metadata['physical_qubits'][0])
+                    raise ex
 
     register_post(postexp, exp_type=function.__name__[:-5])
 
@@ -38,11 +47,13 @@ qutrit_functions = [
     qutrit_fine_x_amplitude,
     qutrit_fine_x_drag,
     qutrit_x12_stark_shift,
+    qutrit_sx12_stark_shift,
     qutrit_x_stark_shift,
     qutrit_sx_stark_shift,
     qutrit_rotary_stark_shift,
     qutrit_assignment_error,
-    qutrit_t1
+    qutrit_t1,
+    qutrit_x12_irb
 ]
 for func in qutrit_functions:
     register_backend_qutrit_exp(func)
