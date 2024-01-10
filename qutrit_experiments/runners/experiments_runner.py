@@ -177,7 +177,8 @@ class ExperimentsRunner:
         wait_for_job: bool = True,
         analyze: bool = True,
         calibrate: bool = True,
-        print_level: int = 2
+        print_level: int = 2,
+        force_resubmit: bool = False
     ) -> ExperimentData:
         if isinstance(config, str):
             config = experiments[config](self)
@@ -190,6 +191,9 @@ class ExperimentsRunner:
         if not getattr(config, 'restless', False):
             experiment.set_run_options(rep_delay=DEFAULT_REP_DELAY)
         experiment.set_run_options(**config.run_options)
+
+        if force_resubmit:
+            self.delete_data(exp_type)
 
         exp_data = None
         ## Try retrieving exp_data from the pickle
@@ -342,6 +346,13 @@ class ExperimentsRunner:
     def saved_data_exists(self, exp_type: str) -> bool:
         return self._file_exists(f'{exp_type}.pkl')
 
+    def delete_data(self, exp_type: str):
+        for suffix in ['_jobs.dat', '_failedjobs.dat', '.pkl']:
+            try:
+                os.unlink(os.path.join(self._data_dir, f'{exp_type}{suffix}'))
+            except FileNotFoundError:
+                continue
+
     def job_ids_exist(self, exp_type: str) -> bool:
         return self._file_exists(f'{exp_type}_jobs.dat')
 
@@ -398,52 +409,56 @@ class ExperimentsRunner:
         logger.info('Updating calibrations for %s.', exp_type)
 
         def _get_update_list(exp_data, exp):
+            update_list = []
             if isinstance(exp, BaseCalibrationExperiment):
+                updated = False
                 try:
                     if criterion and not criterion(exp_data):
                         logger.warning('%s qubits %s failed calibration criterion', exp_type,
                                        exp.physical_qubits)
-                        return []
-
-                    exp.update_calibrations(exp_data)
+                    else:
+                        exp.update_calibrations(exp_data)
+                        updated = True
                 except ExperimentEntryNotFound as exc:
                     logger.warning('%s qubits %s %s', exp_type, exp.physical_qubits, exc.message)
-                    return []
 
                 param_name = exp._param_name
                 sched_name = exp._sched_name
                 if isinstance(param_name, str):
-                    return [(param_name, sched_name, exp.physical_qubits)]
-                if isinstance(sched_name, str):
-                    return [(pname, sched_name, exp.physical_qubits) for pname in param_name]
-                return [(pname, sname, exp.physical_qubits)
-                        for pname, sname in zip(param_name, sched_name)]
+                    update_list = [(param_name, sched_name, exp.physical_qubits, updated)]
+                elif isinstance(sched_name, str):
+                    update_list = [(pname, sched_name, exp.physical_qubits, updated)
+                                   for pname in param_name]
+                else:
+                    update_list = [(pname, sname, exp.physical_qubits, updated)
+                                   for pname, sname in zip(param_name, sched_name)]
 
             elif type(exp) in [BatchExperiment, ParallelExperiment]:
-                update_list = []
                 for subexp, child_data in zip(exp.component_experiment(), exp_data.child_data()):
                     update_list.extend(_get_update_list(child_data, subexp))
 
-                return update_list
-
-            return []
+            return update_list
 
         update_list = _get_update_list(experiment_data, experiment)
+        logger.info('%d/%d parameters to update.',
+                    len([x for x in update_list if x[-1]]), len(update_list))
         self.save_calibrations(exp_type, update_list)
 
     def save_calibrations(
         self,
         exp_type: str,
-        update_list: list[tuple[str, str, tuple[int, ...]]]
+        update_list: list[tuple[str, str, tuple[int, ...], bool]]
     ):
-        for pname, sname, qubits in update_list:
-            logger.info('Tagging calibration parameter %s:%s:%s from experiment %s',
-                        pname, sname, qubits, exp_type)
+        for pname, sname, qubits, updated in update_list:
+            if not updated:
+                continue
 
+            logger.debug('Tagging calibration parameter %s:%s:%s from experiment %s',
+                        pname, sname, qubits, exp_type)
             self.pass_parameter_value(pname, qubits, from_schedule=sname, from_group='default',
                                       to_group=exp_type)
 
-        if update_list and self._data_dir and not self._read_only:
+        if any(x[-1] for x in update_list) and self._data_dir and not self._read_only:
             self._calibrations.save(folder=self._data_dir, overwrite=True)
 
     def save_program_data(self, key: str):

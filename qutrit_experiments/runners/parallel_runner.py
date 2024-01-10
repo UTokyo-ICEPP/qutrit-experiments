@@ -66,7 +66,7 @@ class ParallelRunner(ExperimentsRunner):
             group_candidates = []
             for group in self.qubit_grouping:
                 if (not any((neighbor in group) for neighbor in neighbors(qubit))
-                    and (max_group_size > 0 and len(group) < max_group_size)):
+                    and (max_group_size <= 0 or len(group) < max_group_size)):
                     group_candidates.append(group)
 
             if len(group_candidates) == 0:
@@ -141,6 +141,8 @@ class ParallelRunner(ExperimentsRunner):
                 parallelize=self.num_analysis_procs,
                 ignore_failed=True
             )
+            for parallel_exp in experiment.component_experiment():
+                parallel_exp.analysis.set_options(ignore_failed=True)
 
         return experiment
 
@@ -151,7 +153,8 @@ class ParallelRunner(ExperimentsRunner):
         wait_for_job: bool = True,
         analyze: bool = True,
         calibrate: bool = True,
-        print_level: int = 2
+        print_level: int = 2,
+        force_resubmit: bool = False
     ) -> ExperimentData:
         """Run the batch experiment."""
         if isinstance(config, str):
@@ -165,7 +168,8 @@ class ParallelRunner(ExperimentsRunner):
             experiment = self.make_experiment(batch_config)
 
         exp_data = super().run_experiment(batch_config, experiment, wait_for_job=wait_for_job,
-                                          analyze=analyze, calibrate=calibrate, print_level=0)
+                                          analyze=analyze, calibrate=calibrate, print_level=0,
+                                          force_resubmit=force_resubmit)
 
         if not analyze or experiment.analysis is None:
             return exp_data
@@ -190,13 +194,13 @@ class ParallelRunner(ExperimentsRunner):
     def save_calibrations(
         self,
         exp_type: str,
-        update_list: list[tuple[str, str, tuple[int, ...]]]
+        update_list: list[tuple[str, str, tuple[int, ...], bool]]
     ):
-        """Remove qubits that failed the calibration."""
-        updated_qubits = set(qubits[0] for _, _, qubits in update_list)
-        active_qubits = self.active_qubits & updated_qubits
-        self.set_qubit_grouping(active_qubits=active_qubits)
+        """Save the calibrations and remove qubits that failed the calibration."""
         super().save_calibrations(exp_type, update_list)
+        failed_qubits = set(qubits[0] for _, _, qubits, updated in update_list if not updated)
+        active_qubits = self.active_qubits - failed_qubits
+        self.set_qubit_grouping(active_qubits=active_qubits)
 
     def consolidate_figures(self, experiment_data: ExperimentData) -> list[Figure]:
         """Extract the figure objects from the experiment data and combine them in one figure.
@@ -212,6 +216,11 @@ class ParallelRunner(ExperimentsRunner):
         figures = []
 
         for qubit, subdata in self.decompose_data(experiment_data).items():
+            if subdata is None:
+                # Discrepancy in the experiment data and active_qubits; implies an error somewhere
+                # but we won't worry here
+                continue
+
             if not figures and subdata.figure_names:
                 for _ in range(len(subdata.figure_names)):
                     figure = Figure()
@@ -226,6 +235,7 @@ class ParallelRunner(ExperimentsRunner):
                 origax = subdata.figure(ifig).figure.axes[0]
 
                 copy_axes(origax, subax)
+                subax.set_title(f'Q{qubit}')
 
                 # if qubit == self._backend.num_qubits // 2:
                 #     label = origax.yaxis.get_label()
