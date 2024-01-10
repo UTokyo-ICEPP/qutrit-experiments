@@ -72,13 +72,13 @@ class CircuitTomography(TomographyExperiment):
         meas_shape = mbasis.index_shape(mqubits)
 
         channel = map_to_physical_qubits(self._circuit.decompose(), self.physical_qubits,
-                                         self.transpile_options.target)
+                                         self._backend.coupling_map)
 
         prep_circuits = []
         for physical_qubit, basis_size in zip(pqubits, prep_shape):
             prep_circuits.append([
                 map_and_translate(pbasis.circuit((idx,), [physical_qubit]).decompose(),
-                                  [physical_qubit], self.transpile_options.target)
+                                  [physical_qubit], self._backend)
                 for idx in range(basis_size)
             ])
 
@@ -86,7 +86,7 @@ class CircuitTomography(TomographyExperiment):
         for physical_qubit, basis_size in zip(mqubits, meas_shape):
             circuits = [
                 map_and_translate(mbasis.circuit((idx,), [physical_qubit]).decompose(),
-                                  [physical_qubit], self.transpile_options.target)
+                                  [physical_qubit], self._backend)
                 for idx in range(basis_size)
             ]
             for circuit in circuits:
