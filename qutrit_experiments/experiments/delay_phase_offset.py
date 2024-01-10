@@ -16,7 +16,7 @@ from qiskit_experiments.calibration_management.update_library import BaseUpdater
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.framework import BaseExperiment, ExperimentData, Options
 
-from ..constants import DEFAULT_SHOTS, LO_SIGN
+from ..constants import DEFAULT_SHOTS
 from ..experiment_mixins.ef_space import EFSpaceExperiment
 from ..experiment_mixins.map_to_physical_qubits import MapToPhysicalQubits
 from ..gates import RZ12Gate, SX12Gate
@@ -200,7 +200,7 @@ class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
         circuits = []
         for delay_value in delay_durations:
             for phase_value in phase_shifts:
-                assign_params = {delay: delay_value, phase_shift: -LO_SIGN * phase_value}
+                assign_params = {delay: delay_value, phase_shift: phase_value}
                 circuit = template.assign_parameters(assign_params, inplace=False)
                 circuit.metadata.update(xval=phase_value, delay=delay_value)
 

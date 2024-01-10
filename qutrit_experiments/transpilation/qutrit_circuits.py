@@ -98,39 +98,48 @@ class AddQutritCalibrations(TransformationPass):
         - For each X12 or SX12 gate, instantiate a schedule with the calculated phase shift, attach
           it to the circuit as calibration, replace the node with the parametrized version, and
           insert the geometric phase and AC Stark shift correction nodes.
+        - Invert the sign of Rz and Rz12 angles if LO_SIGN>0
 
         Notes about Rz and ShiftPhase
-        - In Qiskit, RZGate(phi) is scheduled as ShiftPhase(-phi), which actually effects a physical
-          Rz(-LO_SIGN*phi) (in the qubit space) on the backend.
+        - In Qiskit, RZGate(phi) is scheduled as ShiftPhase(-phi).
         - For each qutrit gate at time t0, we need to fast-forward the pulse phase to
-          LO_SIGN*omega12*t0 + qutrit_phase, where qutrit_phase is the accumulated phase shift from
+          LO_SIGN*omega12*t0 + qutrit_phase, where qutrit_phase is the cumululated phase shift from
           Rz, Rz12, and AC Stark corrections on the X12/SX12 pulse. Since the default phase is
           LO_SIGN*omega01*t0 + qubit_phase, we apply
           ShiftPhase(LO_SIGN*(omega12-omega01)*t0 + qutrit_phase - qubit_phase)
           on each invocation of X12 and SX12 gates. As noted above, this is implemented with
           sign-inverted RZGates.
         - The correspondence of shifting the phases of X/SX/X12/SX12 pulses to physical effects
-          has a global-phase ambiguity. For a phase shift of phi, any operator Q(phi) that induces
-          a phase difference of phi between the upper and lower levels is a valid representation.
-          X/SX/X12/SX12 at a shifted phase phi corresponds to
-          Q(-LO_SIGN*phi) X/SX/X12/SX12 Q(LO_SIGN*phi). A particularly convenient representation for
+          depends on the LO sign and also has a global-phase ambiguity. Drive Hamiltonian H with its
+          pulse phase shifted by phi (with ShiftPhase(phi)) corresponds to
+          Q(-LO_SIGN*phi) H Q(LO_SIGN*phi)
+          where Q(phi) is a diagonal operator that induces a phase difference of phi between the two
+          levels addressed by the drive. A particularly convenient representation of Q for
           qutrits is Q(phi) = P0(-phi) = diag(exp(-iphi), 1, 1) for X/SX phase shifts and
           Q(phi) = P2(phi) = diag(1, 1, exp(iphi)) for X12/SX12. With this representation, for
           example a physical Rz(phi) gate is decomposed to
           Rz(phi) ~ diag(exp(-iphi), 1, exp(-iphi/2)) = P0(-phi)P2(-phi/2),
           which means that Rz(phi) requires a phase shift of LO_SIGN*phi for the successive X/SX and
           -LO_SIGN*phi/2 for X12/SX12.
-        - When we encounter an RZGate(phi) in the circuit, we do not try to convert it to the
-          physical counterpart by considering LO_SIGN, but rather simply count it as
-          P0(phi)P2(phi/2), i.e., as a qubit and qutrit phase shifts of -phi and phi/2. For
-          LO_SIGN = +1, then, this results in logical circuits executing as their "mirror images"
-          about the ZX plane of the Bloch space.
+          Shift(phi)         -> Q(LO_SIGN*phi) = P0(-LO_SIGN*phi)
+          Shift(LO_SIGN*phi) <- Q(phi)         = P0(-phi)
+        - Comparing the above with the first statement in this paragraph, we see that the Qiskit
+          RZGate(phi) is actually effecting a physical Rz(-LO_SIGN*phi) on the qubit. Furthermore,
+          as of January 2024, IBM backends have LO_SIGN=+1. When we only work in the qubit space,
+          have X/SX/Rz/CX as basis gates, and measure along the Z axis, this sign confusion has no
+          observable effect because the entire circuits are executed as their mirror images about
+          the ZX plane of the qubit Bloch spaces. However, when a third level is considered and what
+          was a global phase in the qubit space has become an observable geometric phase, this is no
+          longer true. We therefore need to invert the sign of the angles of all occurrences of Rz
+          and Rz12 gates. Sign inversion should be done centrally in this function so that the
+          experiments do not have to worry about this issue for most part (They still need to
+          account for the LO sign when using phase offsets directly in some calibration schedules).
         """
         node_start_time = self.property_set['node_start_time']
 
         modulation_frequencies = {}
-        phase_offset_ge = defaultdict(float) # Phase of g-e (|0>-|1>) drive
-        phase_offset_ef = defaultdict(float) # Phase of e-f (|1>-|2>) drive
+        cumul_phase_ge = defaultdict(float) # Phase of g-e (|0>-|1>) drive
+        cumul_phase_ef = defaultdict(float) # Phase of e-f (|1>-|2>) drive
 
         for node in list(dag.topological_op_nodes()):
             if node not in node_start_time:
@@ -154,21 +163,25 @@ class AddQutritCalibrations(TransformationPass):
                 ) * self.target.dt
                 dag.remove_op_node(node)
             elif isinstance(node.op, RZGate):
+                # To make the gate correspond to its intended physical effect, fix the sign
+                node.op.params[0] *= -LO_SIGN
+                phi = node.op.params[0]
                 # Qiskit convention
                 # Rz(phi) = ShiftPhase[ge](-phi).
                 # To cancel the geometric phase, we must apply ShiftPhase[ef](phi/2)
-                phi = node.op.params[0]
-                phase_offset_ge[qubit] -= phi
-                phase_offset_ef[qubit] += phi / 2.
+                cumul_phase_ge[qubit] -= phi
+                cumul_phase_ef[qubit] += phi / 2.
                 logger.debug('%s[%d] Phase[ge] -= %f', node.op.name, qubit, phi)
                 logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubit, phi / 2.)
             elif isinstance(node.op, RZ12Gate):
                 # We follow the Qiskit convention for RZ12 too
+                # To make the gate correspond to its intended physical effect, fix the sign
+                node.op.params[0] *= -LO_SIGN
+                phi = node.op.params[0]
                 # Rz12(phi) = ShiftPhase[ef](-phi)
                 # Then the geometric phase cancellation is ShiftPhase[ge](phi/2, qubit)]
-                phi = node.op.params[0]
-                phase_offset_ef[qubit] -= phi
-                phase_offset_ge[qubit] += phi / 2.
+                cumul_phase_ef[qubit] -= phi
+                cumul_phase_ge[qubit] += phi / 2.
                 logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qubit, phi / 2.)
                 logger.debug('%s[%d] Phase[ef] -= %f', node.op.name, qubit, phi)
                 # This Rz will not be processed by this pass and translates simply to
@@ -181,12 +194,12 @@ class AddQutritCalibrations(TransformationPass):
                 # See the docstring of add_x12_sx12()
                 # P2(phi) is effected by ShiftPhase[ef](LO_SIGN * phi)
                 geom_phase = np.pi / 2. if isinstance(node.op, XGate) else np.pi / 4.
-                logger.debug('%s[%d] Geometric phase %f', node.op.name, qubit, geom_phase)
                 delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubit)
-                logger.debug('%s[%d] AC Stark correction %f', node.op.name, qubit, delta / 2.)
-                phase_offset_ef[qubit] += LO_SIGN * (delta / 2. - geom_phase)
-                logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubit,
-                             LO_SIGN * (delta / 2. - geom_phase))
+                logger.debug('%s[%d] Geometric phase %f, AC Stark correction %f',
+                             node.op.name, qubit, geom_phase, delta / 2.)
+                offset = LO_SIGN * (delta / 2. - geom_phase)
+                cumul_phase_ef[qubit] += offset
+                logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubit, offset)
             else:
                 if (mod_freq := modulation_frequencies.get(qubit)) is None:
                     mod_freq = (self.calibrations.get_parameter_value('f12', qubit)
@@ -194,7 +207,7 @@ class AddQutritCalibrations(TransformationPass):
                     modulation_frequencies[qubit] = mod_freq
                     logger.debug('%s[%d] EF modulation frequency %f', node.op.name, qubit, mod_freq)
 
-                angle = phase_offset_ef[qubit] - phase_offset_ge[qubit]
+                angle = cumul_phase_ef[qubit] - cumul_phase_ge[qubit]
                 angle += LO_SIGN * node_start_time[node] * twopi * mod_freq
                 logger.debug('%s[%d] Qubit-qutrit control switching phase %f', node.op.name, qubit,
                              angle)
@@ -211,23 +224,22 @@ class AddQutritCalibrations(TransformationPass):
                     # SX12 = P0(delta/2 - pi/4) U_xi(pi/2)
                     # P0(phi) is effected by ShiftPhase[ge](-LO_SIGN * phi)
                     geom_phase = np.pi / 2. if isinstance(node.op, X12Gate) else np.pi / 4.
-                    logger.debug('%s[%d] Geometric phase %f', node.op.name, qubit, geom_phase)
                     delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubit)
-                    logger.debug('%s[%d] AC Stark correction %f', node.op.name, qubit, delta / 2.)
-                    phase_offset_ge[qubit] -= LO_SIGN * (delta / 2. - geom_phase)
-                    logger.debug('%s[%d] Phase[ge] -= %f', node.op.name, qubit,
-                                 LO_SIGN * (delta / 2. - geom_phase))
+                    logger.debug('%s[%d] Geometric phase %f, AC Stark correction %f',
+                                 node.op.name, qubit, geom_phase, delta / 2.)
+                    offset = -LO_SIGN * (delta / 2. - geom_phase)
                 else:
-                    geom_phase = 0.
-                    delta = 0.
+                    offset = 0.
+
+                cumul_phase_ge[qubit] += offset
+                logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qubit, offset)
 
                 subdag = DAGCircuit()
                 subdag.add_qreg((qreg := QuantumRegister(1)))
                 # Qiskit convention: this is ShiftPhase(angle)
                 subdag.apply_operation_back(RZGate(-angle), [qreg[0]])
                 subdag.apply_operation_back(node.op, [qreg[0]])
-                subdag.apply_operation_back(RZGate(angle + LO_SIGN * (delta / 2. - geom_phase)),
-                                            [qreg[0]])
+                subdag.apply_operation_back(RZGate(angle - offset), [qreg[0]])
                 subst_map = dag.substitute_node_with_dag(node, subdag)
                 # Update the node_start_time map. InstructionDurations passed to the scheduling
                 # pass must be constructed using the same calibrations object and therefore the
