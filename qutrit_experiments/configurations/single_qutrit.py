@@ -1,5 +1,6 @@
 # pylint: disable=import-outside-toplevel, function-redefined, unused-argument
 """Single qutrit calibration and characterization experiments."""
+from functools import wraps
 from .qutrit import (
     qutrit_rough_frequency,
     qutrit_rough_amplitude,
@@ -29,10 +30,11 @@ from ..experiment_config import register_exp, register_post
 
 
 def register_single_qutrit_exp(function):
+    @wraps(function)
     def conf_gen(runner):
         return function(runner, runner.program_data['qubit'])
 
-    register_exp(conf_gen, exp_type=function.__name__)
+    register_exp(conf_gen)
 
 
 qutrit_functions = [

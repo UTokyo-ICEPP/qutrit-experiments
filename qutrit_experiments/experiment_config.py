@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Sequence
 from dataclasses import KW_ONLY, dataclass, field
+from functools import wraps
 from typing import Any, Optional
 from qiskit_experiments.framework import BaseExperiment, ExperimentData
 
@@ -77,6 +78,7 @@ def register_exp(
 
         return register_exp_and_product
 
+    @wraps(function)
     def registered_exp(runner):
         config = function(runner)
         config.exp_type = exp_type

@@ -1,5 +1,6 @@
 # pylint: disable=import-outside-toplevel, function-redefined, unused-argument
 """Config generator prototypes for qutrit gate calibrations."""
+from functools import wraps
 import logging
 import numpy as np
 from qiskit.circuit import Parameter
@@ -13,6 +14,57 @@ from ..data_processing import LinearDiscriminator, ReadoutMitigation
 from ..experiment_config import ExperimentConfig
 
 logger = logging.getLogger(__name__)
+
+
+def add_iq_discriminator(gen):
+    """Decorator to convert an experiment meas_level to kerneled and add the IQ-plane discriminator
+    node to the DataProcessor."""
+    @wraps(gen)
+    def converted_gen(runner, qubit):
+        config = gen(runner, qubit)
+        if (discriminator := runner.program_data.get('iq_discriminator', {}).get(qubit)) is None:
+            logger.warning('IQ discriminator is missing; proceeding with meas_level=2')
+            return config
+
+        config.run_options.update({
+            'meas_level': MeasLevel.KERNELED,
+            'meas_return': MeasReturnType.SINGLE
+        })
+        config.analysis_options['data_processor'] = DataProcessor('memory', [
+            DiscriminatorNode(discriminator),
+            MemoryToCounts(),
+            Probability(config.analysis_options.get('outcome', '1'))
+        ])
+        return config
+
+    return converted_gen
+
+def add_readout_mitigation(gen):
+    """Decorator to add a readout error mitigation node to the DataProcessor."""
+    @wraps(gen)
+    def converted_gen(runner, qubit):
+        config = gen(runner, qubit)
+        if config.run_options.get('meas_level', MeasLevel.CLASSIFIED) != MeasLevel.CLASSIFIED:
+            logger.warning('MeasLevel is not CLASSIFIED; no readout mitigation for qubit %d',
+                           qubit)
+            return config
+        if (matrix := runner.program_data.get('qubit_assignment_matrix', {}).get(qubit)) is None:
+            logger.warning('Assignment matrix missing; no readout mitigation for qubit %d',
+                           qubit)
+            return config
+
+        if (processor := config.analysis_options.get('data_processor')) is None:
+            config.analysis_options['data_processor'] = DataProcessor('counts', [
+                ReadoutMitigation(matrix),
+                Probability(config.analysis_options.get('outcome', '1'))
+            ])
+        else:
+            probability_pos = next(i for i, node in enumerate(processor._nodes)
+                                   if isinstance(node, Probability))
+            processor._nodes.insert(probability_pos, ReadoutMitigation(matrix))
+        return config
+
+    return converted_gen
 
 
 def qutrit_rough_frequency(runner, qubit):
@@ -72,29 +124,31 @@ def qubit_assignment_error(runner, qubit):
 def qubit_assignment_error_post(runner, experiment_data):
     qubit = experiment_data.metadata['physical_qubits'][0]
     mitigator = experiment_data.analysis_results('Correlated Readout Mitigator').value
-    runner.program_data.setdefault('qubit_assignment_matrix', {})[qubit] = mitigator._assigment_mat
+    runner.program_data.setdefault('qubit_assignment_matrix', {})[qubit] = \
+        mitigator.assignment_matrix([qubit])
 
+@add_readout_mitigation
 def qutrit_semifine_frequency(runner, qubit):
     from ..experiments.delay_phase_offset import EFRamseyPhaseSweepFrequencyCal
-    config = ExperimentConfig(
+    return ExperimentConfig(
         EFRamseyPhaseSweepFrequencyCal,
         [qubit],
         analysis_options={'common_amp': False}
     )
-    return _add_readout_mitigation(config, runner)
 
+@add_readout_mitigation
 def qutrit_fine_frequency(runner, qubit):
     from ..experiments.fine_frequency_phase import EFRamseyFrequencyScanCal
-    config = ExperimentConfig(
+    return ExperimentConfig(
         EFRamseyFrequencyScanCal,
         [qubit],
         analysis_options={'common_amp': False}
     )
-    return _add_readout_mitigation(config, runner)
 
+@add_readout_mitigation
 def nocal_qutrit_fine_frequency(runner, qubit):
     from ..experiments.fine_frequency_phase import EFRamseyFrequencyScan
-    config = ExperimentConfig(
+    return ExperimentConfig(
         EFRamseyFrequencyScan,
         [qubit],
         args={
@@ -102,11 +156,11 @@ def nocal_qutrit_fine_frequency(runner, qubit):
                             + runner.calibrations.get_parameter_value('f12', qubit))
         }
     )
-    return _add_readout_mitigation(config, runner)
 
+@add_readout_mitigation
 def qutrit_rough_x_drag(runner, qubit):
     from ..experiments.rough_drag import EFRoughDragCal
-    config = ExperimentConfig(
+    return ExperimentConfig(
         EFRoughDragCal,
         [qubit],
         args={
@@ -114,11 +168,11 @@ def qutrit_rough_x_drag(runner, qubit):
             'betas': np.linspace(-10., 10., 10)
         }
     )
-    return _add_readout_mitigation(config, runner)
 
+@add_readout_mitigation
 def qutrit_rough_sx_drag(runner, qubit):
     from ..experiments.rough_drag import EFRoughDragCal
-    config = ExperimentConfig(
+    return ExperimentConfig(
         EFRoughDragCal,
         [qubit],
         args={
@@ -126,8 +180,8 @@ def qutrit_rough_sx_drag(runner, qubit):
             'betas': np.linspace(-20., 20., 10)
         }
     )
-    _add_readout_mitigation(config, runner)
 
+@add_readout_mitigation
 def qutrit_fine_sx_amplitude(runner, qubit):
     from ..experiments.fine_amplitude import EFFineSXAmplitudeCal
 
@@ -140,7 +194,7 @@ def qutrit_fine_sx_amplitude(runner, qubit):
         return abs(prev_amp * target_angle / (target_angle + d_theta)) < 1.
 
     # qutrit T1 is short - shouldn't go too far with repetitions
-    config = ExperimentConfig(
+    return ExperimentConfig(
         EFFineSXAmplitudeCal,
         [qubit],
         experiment_options={
@@ -149,19 +203,19 @@ def qutrit_fine_sx_amplitude(runner, qubit):
         },
         calibration_criterion=calibration_criterion
     )
-    _add_readout_mitigation(config, runner)
 
+@add_readout_mitigation
 def qutrit_fine_sx_drag(runner, qubit):
     from ..experiments.fine_drag import EFFineSXDragCal
-    config = ExperimentConfig(
+    return ExperimentConfig(
         EFFineSXDragCal,
         [qubit],
         experiment_options={
             'repetitions': list(range(12))
         }
     )
-    _add_readout_mitigation(config, runner)
 
+@add_readout_mitigation
 def qutrit_fine_x_amplitude(runner, qubit):
     from ..experiments.fine_amplitude import EFFineXAmplitudeCal
 
@@ -174,7 +228,7 @@ def qutrit_fine_x_amplitude(runner, qubit):
         return abs(prev_amp * target_angle / (target_angle + d_theta)) < 1.
 
     # qutrit T1 is short - shouldn't go too far with repetitions
-    config = ExperimentConfig(
+    return ExperimentConfig(
         EFFineXAmplitudeCal,
         [qubit],
         experiment_options={
@@ -182,58 +236,56 @@ def qutrit_fine_x_amplitude(runner, qubit):
         },
         calibration_criterion=calibration_criterion
     )
-    _add_readout_mitigation(config, runner)
 
+@add_readout_mitigation
 def qutrit_fine_x_drag(runner, qubit):
     from ..experiments.fine_drag import EFFineXDragCal
-    config = ExperimentConfig(
+    return ExperimentConfig(
         EFFineXDragCal,
         [qubit],
         experiment_options={
             'repetitions': list(range(12)),
         }
     )
-    _add_readout_mitigation(config, runner)
 
+@add_readout_mitigation
 def qutrit_x12_stark_shift(runner, qubit):
     from ..experiments.stark_shift_phase import X12StarkShiftPhaseCal
-    config = ExperimentConfig(
+    return ExperimentConfig(
         X12StarkShiftPhaseCal,
         [qubit]
     )
-    _add_readout_mitigation(config, runner)
 
+@add_readout_mitigation
 def qutrit_sx12_stark_shift(runner, qubit):
     from ..experiments.stark_shift_phase import SX12StarkShiftPhaseCal
-    config = ExperimentConfig(
+    return ExperimentConfig(
         SX12StarkShiftPhaseCal,
         [qubit]
     )
-    _add_readout_mitigation(config, runner)
 
 def qutrit_x_stark_shift(runner, qubit):
     from ..experiments.stark_shift_phase import XStarkShiftPhaseCal
-    config = ExperimentConfig(
+    return ExperimentConfig(
         XStarkShiftPhaseCal,
         [qubit]
     )
-    _add_readout_mitigation(config, runner)
 
+@add_readout_mitigation
 def qutrit_sx_stark_shift(runner, qubit):
     from ..experiments.stark_shift_phase import SXStarkShiftPhaseCal
-    config = ExperimentConfig(
+    return ExperimentConfig(
         SXStarkShiftPhaseCal,
         [qubit]
     )
-    _add_readout_mitigation(config, runner)
 
+@add_readout_mitigation
 def qutrit_rotary_stark_shift(runner, qubit):
     from ..experiments.stark_shift_phase import RotaryStarkShiftPhaseCal
-    config = ExperimentConfig(
+    return ExperimentConfig(
         RotaryStarkShiftPhaseCal,
         [qubit]
     )
-    _add_readout_mitigation(config, runner)
 
 def qutrit_assignment_error(runner, qubit):
     from ..experiments.readout_error import MCMLocalReadoutError
@@ -258,49 +310,12 @@ def qutrit_t1(runner, qubit):
         analysis_options={'assignment_matrix': assignment_matrix}
     )
 
+@add_readout_mitigation
 def qutrit_x12_irb(runner, qubit):
     from ..experiments.qutrit_rb import QutritInterleavedRB
     from ..gates import X12Gate
-    config = ExperimentConfig(
+    return ExperimentConfig(
         QutritInterleavedRB,
         [qubit],
         args={'interleaved_gate': X12Gate}
     )
-    return _add_readout_mitigation(config, runner)
-
-def _add_iq_discriminator(config, runner):
-    qubit = config.physical_qubits[0]
-
-    if (discriminator := runner.program_data.get('iq_discriminator', {}).get(qubit)) is None:
-        logger.warning('IQ discriminator is missing; proceeding with meas_level=2')
-        return config
-
-    config.run_options.update({
-        'meas_level': MeasLevel.KERNELED,
-        'meas_return': MeasReturnType.SINGLE
-    })
-    config.analysis_options['data_processor'] = DataProcessor('memory', [
-        DiscriminatorNode(discriminator),
-        MemoryToCounts(),
-        Probability(config.analysis_options.get('outcome', '1'))
-    ])
-    return config
-
-def _add_readout_mitigation(config, runner):
-    qubit = config.physical_qubits[0]
-
-    if (matrix := runner.program_data.get('qubit_assignment_matrix', {}).get(qubit)) is None:
-        logger.warning('Assignment matrix is missing; not applying readout mitigation for qubit %d',
-                       qubit)
-        return config
-
-    if config.run_options.get('meas_level', MeasLevel.CLASSIFIED) != MeasLevel.CLASSIFIED:
-        logger.warning('MeasLevel is not CLASSIFIED; not applying readout mitigation for qubit %d',
-                       qubit)
-        return config
-
-    config.analysis_options['data_processor'] = DataProcessor('counts', [
-        ReadoutMitigation(matrix),
-        Probability(config.analysis_options.get('outcome', '1'))
-    ])
-    return config
