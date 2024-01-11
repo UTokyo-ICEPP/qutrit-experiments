@@ -40,7 +40,7 @@ class QutritZZRamsey(BatchExperiment):
 
         super().__init__(experiments, backend=backend, analysis=QutritZZRamseyAnalysis(analyses))
 
-        self.extra_metadata = extra_metadata
+        self.extra_metadata = extra_metadata or {}
 
     def _metadata(self):
         metadata = super()._metadata()

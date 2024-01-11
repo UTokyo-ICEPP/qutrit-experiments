@@ -163,7 +163,7 @@ class AddQutritCalibrations(TransformationPass):
                 ) * self.target.dt
                 dag.remove_op_node(node)
             elif isinstance(node.op, RZGate):
-                # To make the gate correspond to its intended physical effect, fix the sign
+                # Fix the sign to make the gate correspond to its intended physical operation
                 node.op.params[0] *= -LO_SIGN
                 phi = node.op.params[0]
                 # Qiskit convention
@@ -175,7 +175,7 @@ class AddQutritCalibrations(TransformationPass):
                 logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubit, phi / 2.)
             elif isinstance(node.op, RZ12Gate):
                 # We follow the Qiskit convention for RZ12 too
-                # To make the gate correspond to its intended physical effect, fix the sign
+                # Fix the sign to make the gate correspond to its intended physical operation
                 node.op.params[0] *= -LO_SIGN
                 phi = node.op.params[0]
                 # Rz12(phi) = ShiftPhase[ef](-phi)

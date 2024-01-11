@@ -83,28 +83,27 @@ class SpectatorRamseyXY(RamseyXY):
             target_qubit = 0
 
         for circuit in circuits:
-            if self.control_state != 0:
-                # Remove the measure instruction for control
-                idx = next(idx for idx, inst in enumerate(circuit.data)
-                           if isinstance(inst.operation, Measure) and
-                              inst.qubits[0] == circuit.qregs[0][control_qubit])
-                circuit.data.remove(idx)
+            # Remove the measure instruction for control
+            inst = next(inst for inst in circuit.data
+                        if isinstance(inst.operation, Measure) and
+                           inst.qubits[0] == circuit.qregs[0][control_qubit])
+            circuit.data.remove(inst)
 
             circuit.metadata['readout_qubits'] = [self.physical_qubits[target_qubit]]
             if self.experiment_index is not None:
                 circuit.metadata['experiment_index'] = self.experiment_index
 
         if (delay_sched := self.experiment_options.delay_schedule):
-            delay_param = delay_sched.parameters('delay')[0]
+            delay_param = delay_sched.get_parameters('delay')[0]
 
             for circuit in circuits:
-                idx = next(idx for idx, inst in enumerate(circuit.data)
-                           if isinstance(inst.operation, Delay))
-                delay = circuit.data[idx].operation.params[0]
-                circuit.data[idx] = Gate(delay_sched.name, 1, [delay])
+                delay_inst = next(inst for inst in circuit.data
+                                  if isinstance(inst.operation, Delay))
+                delay_val = delay_inst.operation.params[0]
+                sched = delay_sched.assign_parameters({delay_param: delay_val}, inplace=False)
+                delay_inst.operation = Gate(delay_sched.name, 1, [delay_val])
                 circuit.add_calibration(delay_sched.name, [self.physical_qubits[target_qubit]],
-                                        delay_sched.assign_parameters({delay_param: delay}),
-                                        [delay])
+                                        sched, [delay_val])
 
         return circuits
 
