@@ -317,5 +317,6 @@ def qutrit_x12_irb(runner, qubit):
     return ExperimentConfig(
         QutritInterleavedRB,
         [qubit],
-        args={'interleaved_gate': X12Gate}
+        args={'interleaved_gate': X12Gate},
+        analysis_options={'outcome': '0'} # Needed because add_readout_mitigation sets this to '1'
     )
