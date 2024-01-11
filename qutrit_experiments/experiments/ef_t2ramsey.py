@@ -18,7 +18,7 @@ from ..gates import SX12Gate
 twopi = 2. * np.pi
 
 
-class EFRamsey(EFSpaceExperiment, T2Ramsey):
+class EFT2Ramsey(EFSpaceExperiment, T2Ramsey):
     """Ramsey experiment for 1-2 space to see the modulated cosine curve arising from charge
     fluctuation."""
     def __init__(
@@ -40,7 +40,7 @@ class EFRamsey(EFSpaceExperiment, T2Ramsey):
         return circuits
 
 
-class EFRamseyAnalysis(curve.CurveAnalysis):
+class EFT2RamseyAnalysis(curve.CurveAnalysis):
     """Curve analysis with cosine envelope."""
     @staticmethod
     def modulated_cosine(x, amp, freq, beat_freq, phase, beat_phase, base):
