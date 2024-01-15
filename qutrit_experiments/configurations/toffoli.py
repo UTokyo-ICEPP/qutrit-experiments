@@ -137,7 +137,7 @@ def c2t_sizzle_frequency_scan(runner):
 @register_post
 def c2t_sizzle_frequency_scan(runner, data):
     frequencies = np.empty(len(data.child_data()), dtype=float)
-    shifts = np.empty((len(data.child_data(), 3)), dtype=float)
+    shifts = np.empty((len(data.child_data()), 3), dtype=float)
     component_index = data.metadata["component_child_index"]
     for ichild, child_index in enumerate(component_index):
         child_data = data.child_data(child_index)
