@@ -6,7 +6,7 @@ import numpy as np
 from numpy.random import Generator, RandomState
 from qiskit import QuantumCircuit
 from qiskit.circuit import CircuitError, Gate
-from qiskit.circuit.library import SXGate, XGate
+from qiskit.circuit.library import RZGate, SXGate, XGate
 from qiskit.providers import Backend
 from qiskit_experiments.framework import BaseExperiment, Options
 from qiskit_experiments.library.randomized_benchmarking import InterleavedRBAnalysis, RBAnalysis
@@ -48,6 +48,7 @@ class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
         options.lengths = np.arange(1, 100, 7)
         options.num_samples = 5
         options.seed = None
+        options.qubit_mode = None # for debugging
         return options
 
     def __init__(
@@ -97,11 +98,12 @@ class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
 
         Subclasses must implement this function. Each outermost entry defines a circuit by the gate
         sequence and a metadata dict. The gate sequence must consist of backend basis gates and
-        UnitaryGates, where the latter is decomposed by _append_su3().
+        UnitaryGates, where the latter is decomposed by _append_su().
         """
 
     def circuits(self) -> list[QuantumCircuit]:
         rng = np.random.default_rng(seed=self.experiment_options.seed)
+        dim = 2 if self.experiment_options else 3
 
         circuits = []
         for length in self.experiment_options.lengths:
@@ -112,22 +114,32 @@ class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
                     "qubits": self.physical_qubits,
                     **metadata
                 }
+                if self.experiment_options.qubit_mode == 1:
+                    rb_circ.x(0)
+                    rb_circ.barrier()
                 for gate in sequence:
                     if isinstance(gate, UnitaryGate):
-                        self._append_su3(rb_circ, gate)
+                        self._append_su(rb_circ, gate, dim_shift=self.experiment_options.qubit_mode)
                     else:
                         rb_circ.append(gate, [0])
                     rb_circ.barrier()
+                if self.experiment_options.qubit_mode == 1:
+                    rb_circ.x(0)
                 rb_circ.measure_all()
                 circuits.append(rb_circ)
 
         return circuits
 
     @staticmethod
-    def _append_su3(circuit: QuantumCircuit, gate: UnitaryGate, qubit: int = 0):
-        r"""Iteratively decompose the SU(3) element into SX, SX12, RZ, and RZ12 gates.
+    def _append_su(
+        circuit: QuantumCircuit,
+        gate: UnitaryGate,
+        qubit: int = 0,
+        dim_shift: Optional[int] = None
+    ):
+        r"""Iteratively decompose the SU(2)/SU(3) element into SX, SX12, RZ, and RZ12 gates.
 
-        Given a unitary
+        With :math:`U \in SU(3)` as an example,
 
         .. math::
 
@@ -190,8 +202,21 @@ class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
 
         """
         unitary = gate.params[0]
+        dim = unitary.shape[0]
+        if dim_shift is None:
+            dim_shift = 0
+
+        def embed(subunitary, row):
+            embedded = np.eye(dim, dtype=complex)
+            embedded[row:row + 2, row:row + 2] = subunitary
+            return embedded
+
+        zeroed_elements = [(row, col)
+                           for col in range(dim - 1, -1, -1)
+                           for row in range(0, col)]
+
         rot_params = []
-        for idx_n in [(0, 2), (1, 2), (0, 1)]:
+        for idx_n in zeroed_elements:
             idx_d = (idx_n[0] + 1, idx_n[1])
             if np.isclose(unitary[idx_d], 0.):
                 theta = np.pi
@@ -202,64 +227,52 @@ class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
 
             cos = np.cos(theta / 2.)
             sin = np.sin(theta / 2.)
-            phase = np.exp(1.j * phi)
-            if idx_n[0] == 0:
-                givens = np.array(
-                    [[cos, -np.conjugate(phase) * sin, 0.],
-                     [phase * sin, cos, 0.],
-                     [0., 0., 1.]]
-                )
-            else:
-                givens = np.array(
-                    [[1., 0., 0.],
-                     [0., cos, -np.conjugate(phase) * sin],
-                     [0., phase * sin, cos]]
-
-                )
-
-            unitary = givens @ unitary
+            subunitary = np.array(
+                [[cos, -np.exp(-1.j * phi) * sin],
+                 [np.exp(1.j * phi) * sin, cos]]
+            )
+            unitary = embed(subunitary, idx_n[0]) @ unitary
             rot_params.append((idx_n[0], theta, phi))
 
         diag_phases = np.angle(np.diagonal(unitary))
         # global phase correction
         diag_phases -= np.mean(diag_phases)
-        circuit.rz(-2 * diag_phases[0], qubit)
-        circuit.append(RZ12Gate(2. * diag_phases[2]), [qubit])
-        for space, theta, phi in rot_params[::-1]:
+
+        rz_gates = [RZGate, RZ12Gate]
+        sx_gates = [SXGate, SX12Gate]
+
+        def append_phase_gates(diag_phases):
+            phase = 0.
+            for idim in range(dim - 1):
+                phase += diag_phases[idim]
+                circuit.append(rz_gates[idim + dim_shift](-2 * phase), [qubit])
+
+        append_phase_gates(diag_phases)
+
+        for row, theta, phi in rot_params[::-1]:
             # Givens matrices above correspond to U(θ,φ,-φ) in the respective qubit space.
             # To reconstruct the original unitary, we recursively apply
             # U(-θ,φ,-φ) = [U(θ,φ,-φ)]^{-1}.
             # The standard decomposition of U(θ,φ,λ) is
             # U(θ,φ,λ) = P(φ+π) √X Rz(θ+π) √X P(λ)
             # where P(φ) is
-            # diag(1, e^{iφ}, 1) ~ Rz(2/3φ) Rz12(-2/3φ)  (g-e space)
-            # diag(1, 1, e^{iφ}) ~ Rz(2/3φ) Rz12(4/3φ)   (e-f space)
-            if space == 0:
-                # P(-φ)
-                circuit.rz(-phi * 2. / 3., qubit)
-                circuit.append(RZ12Gate(phi * 2. / 3.), [qubit])
-                # SX
-                circuit.sx(qubit)
-                # Rz
-                circuit.rz(-theta + np.pi, qubit)
-                # SX
-                circuit.sx(qubit)
-                # P(φ+π)
-                circuit.rz((phi + np.pi) * 2. / 3., qubit)
-                circuit.append(RZ12Gate(-(phi + np.pi) * 2. / 3.), [qubit])
-            else:
-                # P(-φ)
-                circuit.rz(-phi * 2. / 3., qubit)
-                circuit.append(RZ12Gate(-phi * 4. / 3.), [qubit])
-                # SX
-                circuit.append(SX12Gate(), [qubit])
-                # Rz
-                circuit.append(RZ12Gate(-theta + np.pi), [qubit])
-                # SX
-                circuit.append(SX12Gate(), [qubit])
-                # P(φ+π)
-                circuit.rz((phi + np.pi) * 2. / 3., qubit)
-                circuit.append(RZ12Gate((phi + np.pi) * 4. / 3.), [qubit])
+            # diag(1, e^{iφ}, 1) ~ exp(diag(-i/3φ, 2i/3φ, -i/3φ))  (g-e space)
+            # diag(1, 1, e^{iφ}) ~ exp(diag(-i/3φ, -i/3φ, 2i/3φ))  (e-f space)
+
+            # P(-φ)
+            diag_phases = np.full(dim, phi / dim)
+            diag_phases[row + 1] -= phi
+            append_phase_gates(diag_phases)
+            # SX
+            circuit.append(sx_gates[row + dim_shift](), [qubit])
+            # Rz
+            circuit.append(rz_gates[row + dim_shift](-theta + np.pi), [qubit])
+            # SX
+            circuit.append(sx_gates[row + dim_shift](), [qubit])
+            # P(φ+π)
+            diag_phases = np.full(dim, -(phi  + np.pi) / dim)
+            diag_phases[row + 1] += (phi + np.pi)
+            append_phase_gates(diag_phases)
 
 
 class QutritRB(BaseQutritRB):
@@ -270,10 +283,11 @@ class QutritRB(BaseQutritRB):
         rng: Generator
     ) -> Iterable[tuple[list[Gate], dict[str, Any]]]:
         """A helper function to return random Clifford sequence generator."""
+        dim = 3 if self.experiment_options.qubit_mode is None else 2
         for isample in range(self.experiment_options.num_samples):
             sequence = []
-            product = np.eye(3, dtype=complex)
-            for unitary in unitary_elements(3, length, rng):
+            product = np.eye(dim, dtype=complex)
+            for unitary in unitary_elements(dim, length, rng):
                 sequence.append(UnitaryGate(unitary))
                 product = unitary @ product
             sequence.append(UnitaryGate(np.linalg.inv(product)))
@@ -321,10 +335,16 @@ class QutritInterleavedRB(BaseQutritRB):
         rng: Generator
     ) -> Iterable[tuple[list[Gate], dict[str, Any]]]:
         """A helper function to return random Clifford sequence generator."""
+        dim = 3 if self.experiment_options.qubit_mode is None else 2
+        if self.experiment_options.qubit_mode == 1:
+            gate_unitary = self.gate_unitary[1:3, 1:3]
+        else:
+            gate_unitary = self.gate_unitary[:dim, :dim]
+
         def reference():
             sequence = []
-            product = np.eye(3, dtype=complex)
-            for unitary in unitary_elements(3, length, rng):
+            product = np.eye(dim, dtype=complex)
+            for unitary in unitary_elements(dim, length, rng):
                 sequence.append(UnitaryGate(unitary))
                 product = unitary @ product
             sequence.append(UnitaryGate(np.linalg.inv(product)))
@@ -332,22 +352,22 @@ class QutritInterleavedRB(BaseQutritRB):
 
         def interleaved():
             sequence = []
-            product = np.eye(3, dtype=complex)
-            for unitary in unitary_elements(3, length, rng):
+            product = np.eye(dim, dtype=complex)
+            for unitary in unitary_elements(dim, length, rng):
                 sequence.append(UnitaryGate(unitary))
                 sequence.append(self.interleaved_gate())
-                product = self.gate_unitary @ unitary @ product
+                product = gate_unitary @ unitary @ product
             sequence.append(UnitaryGate(np.linalg.inv(product)))
             return sequence
 
         def double_interleaved():
             sequence = []
-            product = np.eye(3, dtype=complex)
-            for unitary in unitary_elements(3, length, rng):
+            product = np.eye(dim, dtype=complex)
+            for unitary in unitary_elements(dim, length, rng):
                 sequence.append(UnitaryGate(unitary))
                 sequence.append(self.interleaved_gate())
                 sequence.append(self.interleaved_gate())
-                product = self.gate_unitary @ self.gate_unitary @ unitary @ product
+                product = gate_unitary @ gate_unitary @ unitary @ product
             sequence.append(UnitaryGate(np.linalg.inv(product)))
             return sequence
 
