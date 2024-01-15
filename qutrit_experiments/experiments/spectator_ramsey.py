@@ -2,8 +2,8 @@
 from collections.abc import Sequence
 from typing import Any, Optional
 import numpy as np
-from qiskit import QuantumCircuit
-from qiskit.circuit import Delay, Gate, Measure
+from qiskit import QuantumCircuit, ClassicalRegister
+from qiskit.circuit import Delay, Gate
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.framework import Options
@@ -49,6 +49,8 @@ class SpectatorRamseyXY(RamseyXY):
 
         self.experiment_index = experiment_index
 
+        self.analysis.set_options(outcome='1')
+
     def _pre_circuit(self) -> QuantumCircuit:
         circuit = QuantumCircuit(2)
         if self.control_state == 1:
@@ -76,24 +78,20 @@ class SpectatorRamseyXY(RamseyXY):
                 reversed_circuits.append(reversed_circuit)
 
             circuits = reversed_circuits
-            control_qubit = 0
             target_qubit = 1
         else:
-            control_qubit = 1
             target_qubit = 0
 
         for circuit in circuits:
-            # Remove the measure instruction for control
-            inst = next(inst for inst in circuit.data
-                        if isinstance(inst.operation, Measure) and
-                           inst.qubits[0] == circuit.qregs[0][control_qubit])
-            circuit.data.remove(inst)
-
+            circuit.remove_final_measurements()
+            creg = ClassicalRegister(1)
+            circuit.add_register(creg)
+            circuit.measure(target_qubit, creg[0])
             circuit.metadata['readout_qubits'] = [self.physical_qubits[target_qubit]]
             if self.experiment_index is not None:
                 circuit.metadata['experiment_index'] = self.experiment_index
 
-        if (delay_sched := self.experiment_options.delay_schedule):
+        if (delay_sched := self.experiment_options.delay_schedule) is not None:
             delay_param = delay_sched.get_parameters('delay')[0]
 
             for circuit in circuits:
@@ -101,13 +99,13 @@ class SpectatorRamseyXY(RamseyXY):
                                   if isinstance(inst.operation, Delay))
                 delay_val = delay_inst.operation.params[0]
                 sched = delay_sched.assign_parameters({delay_param: delay_val}, inplace=False)
-                delay_inst.operation = Gate(delay_sched.name, 1, [delay_val])
-                circuit.add_calibration(delay_sched.name, [self.physical_qubits[target_qubit]],
-                                        sched, [delay_val])
+                delay_inst.operation = Gate('exp(-i*ωz*t)', 1, [delay_val])
+                circuit.add_calibration('exp(-i*ωz*t)', [self.physical_qubits[target_qubit]], sched,
+                                        [delay_val])
 
         return circuits
 
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]: # pylint: disable=unused-argument
         shots = self.run_options.get('shots', DEFAULT_SHOTS)
         num_qubits = 1
 

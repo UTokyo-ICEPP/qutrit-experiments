@@ -1,11 +1,16 @@
 """Common operation functions for generating dummy data."""
 
-from typing import Optional
+from typing import Optional, Union
 import numpy as np
+from qiskit.qobj.utils import MeasLevel
 from qiskit.result import Counts
+from qiskit_experiments.framework import BaseExperiment
+
+from ..constants import DEFAULT_SHOTS
 
 iq_centroids = np.array([[-1.e+7, -2.5e+7], [2.e+7, -3.e+7], [1.5e+7, -1.2e+7]])
 iq_sigma = 4.e+6
+
 
 def ef_memory(
     base_probs: np.ndarray,
@@ -51,6 +56,7 @@ def ef_memory(
 
     return memory
 
+
 def single_qubit_counts(
     probs: np.ndarray,
     shots: int,
@@ -66,3 +72,21 @@ def single_qubit_counts(
                   for v in c0s.flatten()]
 
     return counts
+
+
+def from_one_probs(
+    experiment: BaseExperiment,
+    one_probs: np.ndarray
+) -> Union[list[np.ndarray], list[Counts]]:
+    shots = experiment.run_options.get('shots', DEFAULT_SHOTS)
+    num_qubits = 1
+    if experiment.run_options.meas_level == MeasLevel.KERNELED:
+        if experiment.experiment_options.discrimination_basis == '01':
+            states = (0, 1)
+        elif experiment.experiment_options.discrimination_basis == '02':
+            states = (0, 2)
+        else:
+            states = (1, 2)
+        meas_return = experiment.run_options.get('meas_return', 'avg')
+        return ef_memory(one_probs, shots, num_qubits, meas_return, states=states)
+    return single_qubit_counts(one_probs, shots, num_qubits)

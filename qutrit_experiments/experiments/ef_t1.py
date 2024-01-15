@@ -188,11 +188,12 @@ class EFT1Analysis(curve.CurveAnalysis):
         self.options.plot = plot_option
 
         if plot_option:
+            cls_name = self.__class__.__name__
             fit_params = next(res for res in results
-                              if res.name == f'{PARAMS_ENTRY_PREFIX}{self.__class__.__name__}').value
+                              if res.name == f'{PARAMS_ENTRY_PREFIX}{cls_name}').value
             for idx, model in enumerate(self._models):
                 sub_data = next(res for res in results
-                                if res.name == f'{DATA_ENTRY_PREFIX}{self.__class__.__name__}'
+                                if res.name == f'{DATA_ENTRY_PREFIX}{cls_name}'
                                    and res.extra['name'] == model._name).value
                 self.plotter.set_series_data(
                     model._name,

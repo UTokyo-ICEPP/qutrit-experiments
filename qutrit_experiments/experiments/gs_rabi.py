@@ -12,10 +12,9 @@ from qiskit.result import Counts
 from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.framework import BaseExperiment, ExperimentData, Options
 import qiskit_experiments.curve_analysis as curve
-from qiskit_experiments.data_processing import DataProcessor, Probability
+from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 
 from ..constants import DEFAULT_SHOTS
-from ..data_processing.to_expectation import ToExpectation
 from ..transpilation.layout_only import replace_calibration_and_metadata
 
 twopi = 2. * np.pi
@@ -182,7 +181,7 @@ class GSRabi(BaseExperiment):
 
         return metadata
 
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]: # pylint: disable=unused-argument
         from qiskit_aer import AerSimulator # pylint: disable=import-outside-toplevel
 
         shots = self.run_options.get('shots', DEFAULT_SHOTS)
@@ -242,7 +241,7 @@ class GSRabiAnalysis(curve.OscillationAnalysis):
     def __init__(self, name: Optional[str] = None):
         super().__init__(name=name)
 
-        data_processor = DataProcessor('counts', [Probability('0'), ToExpectation()])
+        data_processor = DataProcessor('counts', [Probability('0'), BasisExpectationValue()])
         # Next line is actually unnecessary since options.outcome is used only when constructing
         # a default DataProcessor
         self.options.outcome = '0'
@@ -357,7 +356,7 @@ class GSRabiTrigSumAnalysis(curve.CurveAnalysis):
             name=name,
         )
 
-        data_processor = DataProcessor('counts', [Probability('0'), ToExpectation()])
+        data_processor = DataProcessor('counts', [Probability('0'), BasisExpectationValue()])
         self.options.outcome = '0'
         self.options.data_processor = data_processor
 

@@ -46,7 +46,7 @@ class CorrelatedReadoutError(CorrelatedReadoutErrorOrig):
 
         return transpiled_circuits
 
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]: # pylint: disable=unused-argument
         shots = self.run_options.get('shots', DEFAULT_SHOTS)
         template = '{:0%db}' % self.num_qubits
         return [Counts({template.format(state): shots}) for state in range(2 ** self.num_qubits)]
@@ -132,7 +132,7 @@ class MCMLocalReadoutErrorAnalysis(BaseAnalysis):
 
         if self.options.plot:
             ax = get_non_gui_ax()
-            ax.matshow(assignment_matrix, cmap=plt.cm.binary, clim=[0, 1])
+            ax.matshow(assignment_matrix, cmap=plt.cm.binary, clim=[0, 1]) # pylint: disable=no-member
             ax.set_xlabel("Prepared State")
             ax.xaxis.set_label_position("top")
             ax.set_ylabel("Measured State")

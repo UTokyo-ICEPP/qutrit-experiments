@@ -6,7 +6,6 @@ from qiskit import pulse, QuantumCircuit
 from qiskit.circuit import CircuitInstruction
 from qiskit.circuit.library import RZGate, SXGate
 from qiskit.providers import Backend
-from qiskit.qobj.utils import MeasLevel
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.exceptions import CalibrationError
@@ -14,11 +13,10 @@ from qiskit_experiments.framework import ExperimentData, Options
 from qiskit_experiments.library import FineDrag
 
 from ..calibrations import get_qutrit_pulse_gate
-from ..constants import DEFAULT_SHOTS
 from ..experiment_mixins.ef_space import EFSpaceExperiment
 from ..gates import QutritGate, RZ12Gate, SX12Gate
 from ..transpilation import map_to_physical_qubits
-from ..util.dummy_data import ef_memory, single_qubit_counts
+from ..util.dummy_data import from_one_probs
 
 
 class EFFineDrag(EFSpaceExperiment, FineDrag):
@@ -74,24 +72,9 @@ class EFFineDrag(EFSpaceExperiment, FineDrag):
 
         return transpiled_circuits
 
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
-        shots = self.run_options.get('shots', DEFAULT_SHOTS)
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]: # pylint: disable=unused-argument
         one_probs = np.full(len(self.experiment_options.repetitions), 0.5)
-        num_qubits = 1
-
-        if self.run_options.meas_level == MeasLevel.KERNELED:
-            if self.experiment_options.discrimination_basis == '01':
-                states = (0, 1)
-            elif self.experiment_options.discrimination_basis == '02':
-                states = (0, 2)
-            else:
-                states = (1, 2)
-
-            meas_return=self.run_options.get('meas_return', 'avg')
-
-            return ef_memory(one_probs, shots, num_qubits, meas_return,
-                             states=states)
-        return single_qubit_counts(one_probs, shots, num_qubits)
+        return from_one_probs(self, one_probs)
 
 
 class EFFineDragCal(BaseCalibrationExperiment, EFFineDrag):

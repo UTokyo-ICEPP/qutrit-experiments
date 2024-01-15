@@ -9,16 +9,15 @@ from uncertainties import correlated_values, unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.providers import Backend
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
-from qiskit_experiments.calibration_management.update_library import Frequency
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
-from qiskit_experiments.framework.matplotlib import default_figure_canvas
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from .delay_phase_offset import EFRamseyPhaseSweep, RamseyPhaseSweepAnalysis
+from ..framework.calibration_updaters import EFFrequencyUpdater
 from ..framework.compound_analysis import CompoundAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
 from ..gates import SetF12Gate
-from ..util.matplotlib import copy_axes
+from ..util.matplotlib import make_list_plot
 
 twopi = 2. * np.pi
 
@@ -159,25 +158,12 @@ class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
 
             figures.append(plotter.figure())
 
-            list_figure = Figure(figsize=[6.4, 2.4 * len(self._analyses)])
-            _ = default_figure_canvas(list_figure)
-            axs = list_figure.subplots(len(self._analyses), 1, sharex=True)
-
-            ## Set the titles of the list plot components
-            for child_index, to_ax, frequency in zip(component_index, list_figure.axes, frequencies):
-                child_data = experiment_data.child_data(child_index)
-                copy_axes(child_data.figure(0).figure.axes[0], to_ax)
-                to_ax.set_title(f'f12 = {frequency * 1.e-6:.1f} MHz')
-
-            list_figure.tight_layout()
-
-            figures.append(list_figure)
+            figures.append(
+                make_list_plot(experiment_data,
+                               title_fn=lambda idx: f'f12 = {frequencies[idx] * 1.e-6:.1f} MHz')
+            )
 
         return analysis_results, figures
-
-
-class EFFrequencyUpdater(Frequency):
-    __fit_parameter__ = 'f12'
 
 
 class EFRamseyFrequencyScanCal(BaseCalibrationExperiment, EFRamseyFrequencyScan):

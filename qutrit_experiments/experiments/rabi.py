@@ -2,15 +2,13 @@
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
-from qiskit.qobj.utils import MeasLevel
 from qiskit_experiments.framework import Options
 from qiskit_experiments.library import Rabi as RabiOrig
 
-from ..constants import DEFAULT_SHOTS
 from ..experiment_mixins.ef_space import EFSpaceExperiment
 from ..gates import QutritGate
 from ..transpilation import replace_calibration_and_metadata
-from ..util.dummy_data import ef_memory, single_qubit_counts
+from ..util.dummy_data import from_one_probs
 
 
 class Rabi(RabiOrig):
@@ -48,22 +46,7 @@ class EFRabi(EFSpaceExperiment, Rabi):
 
         return circuits
 
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]: # pylint: disable=unused-argument
         amplitudes = self.experiment_options.amplitudes
-        shots = self.run_options.get('shots', DEFAULT_SHOTS)
         one_probs = np.cos(2. * np.pi * 4. * amplitudes) * 0.49 + 0.51
-        num_qubits = 1
-
-        if self.experiment_options.discrimination_basis == '01':
-            states = (0, 1)
-        elif self.experiment_options.discrimination_basis == '02':
-            states = (0, 2)
-        else:
-            states = (1, 2)
-
-        if self.run_options.meas_level == MeasLevel.KERNELED:
-            return ef_memory(one_probs, shots, num_qubits,
-                             meas_return=self.run_options.get('meas_return', 'avg'),
-                             states=states)
-
-        return single_qubit_counts(one_probs, shots, num_qubits)
+        return from_one_probs(self, one_probs)

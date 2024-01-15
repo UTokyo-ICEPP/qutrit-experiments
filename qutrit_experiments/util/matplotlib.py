@@ -1,6 +1,9 @@
 import pickle
 from typing import TYPE_CHECKING
 from matplotlib.artist import Artist
+from matplotlib.figure import Figure
+from qiskit_experiments.framework import ExperimentData
+from qiskit_experiments.framework.matplotlib import default_figure_canvas
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -47,3 +50,23 @@ def copy_axes(from_ax: 'Axes', to_ax: 'Axes', axis_labels: bool = False):
         if axis_labels:
             label = source.get_label()
             target.set_label_text(label.get_text(), fontsize=label.get_fontsize())
+
+
+def make_list_plot(
+    experiment_data: ExperimentData,
+    title_fn: Optional[Callable[[int], str]] = None,
+    figure_idx: int = 0,
+    width: float = 6.4,
+    height_per_child: float = 2.4
+) -> Figure:
+    component_index = experiment_data.metadata['component_child_index']
+    figure = Figure(figsize=[width, height_per_child * len(component_index)])
+    _ = default_figure_canvas(figure)
+    axs = figure.subplots(len(component_index), 1, sharex=True)
+    for child_index, to_ax in enumerate(axs):
+        child_data = experiment_data.child_data(component_index[child_index])
+        copy_axes(child_data.figure(figure_idx).figure.axes[0], to_ax)
+        if title_fn is not None:
+            to_ax.set_title(title_fn(child_index))
+    figure.tight_layout()
+    return figure

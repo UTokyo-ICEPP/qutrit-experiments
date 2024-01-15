@@ -15,7 +15,7 @@ from ..constants import DEFAULT_SHOTS
 from ..experiment_mixins.ef_space import EFSpaceExperiment
 from ..gates import X12Gate, SX12Gate
 from ..transpilation import map_to_physical_qubits
-from ..util.dummy_data import ef_memory, single_qubit_counts
+from ..util.dummy_data import from_one_probs
 
 
 class CustomTranspiledFineAmplitude(FineAmplitude):
@@ -121,28 +121,12 @@ class EFFineXAmplitudeCal(EFFineAmplitudeCal):
         circuit.append(SX12Gate(), qargs=[0])
         return circuit
 
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]: # pylint: disable=unused-argument
         repetitions = np.array(self.experiment_options.repetitions)
-        shots = self.run_options.get('shots', DEFAULT_SHOTS)
         one_probs = 0.5 * np.cos(np.pi / 2. + 0.02 + (np.pi + 0.01) * repetitions) + 0.5
-        num_qubits = 1
-
         if self.experiment_options.add_cal_circuits:
             one_probs = np.concatenate(([1., 0.], one_probs))
-
-        if self.run_options.meas_level == MeasLevel.KERNELED:
-            if self.experiment_options.discrimination_basis == '01':
-                states = (0, 1)
-            elif self.experiment_options.discrimination_basis == '02':
-                states = (0, 2)
-            else:
-                states = (1, 2)
-
-            meas_return=self.run_options.get('meas_return', 'avg')
-
-            return ef_memory(one_probs, shots, num_qubits, meas_return,
-                             states=states)
-        return single_qubit_counts(one_probs, shots, num_qubits)
+        return from_one_probs(self, one_probs)
 
 
 class EFFineSXAmplitudeCal(EFFineAmplitudeCal):
@@ -192,25 +176,9 @@ class EFFineSXAmplitudeCal(EFFineAmplitudeCal):
             }
         )
 
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]: # pylint: disable=unused-argument
         repetitions = np.array(self.experiment_options.repetitions)
-        shots = self.run_options.get('shots', DEFAULT_SHOTS)
         one_probs = 0.5 * np.cos((np.pi / 2. + 0.01) * repetitions) + 0.5
-        num_qubits = 1
-
         if self.experiment_options.add_cal_circuits:
             one_probs = np.concatenate(([1., 0.], one_probs))
-
-        if self.run_options.meas_level == MeasLevel.KERNELED:
-            if self.experiment_options.discrimination_basis == '01':
-                states = (0, 1)
-            elif self.experiment_options.discrimination_basis == '02':
-                states = (0, 2)
-            else:
-                states = (1, 2)
-
-            meas_return=self.run_options.get('meas_return', 'avg')
-
-            return ef_memory(one_probs, shots, num_qubits, meas_return,
-                             states=states)
-        return single_qubit_counts(one_probs, shots, num_qubits)
+        return from_one_probs(self, one_probs)

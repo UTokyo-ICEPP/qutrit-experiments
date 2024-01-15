@@ -5,12 +5,11 @@ from typing import Any, Optional, Union
 import numpy as np
 from numpy.random import Generator, RandomState
 from qiskit import QuantumCircuit
-from qiskit.circuit import Gate
+from qiskit.circuit import CircuitError, Gate
 from qiskit.circuit.library import SXGate, XGate
 from qiskit.providers import Backend
 from qiskit_experiments.framework import BaseExperiment, Options
 from qiskit_experiments.library.randomized_benchmarking import InterleavedRBAnalysis, RBAnalysis
-from scipy.linalg import det
 from scipy.stats import unitary_group
 
 from ..experiment_mixins import MapToPhysicalQubits
@@ -19,27 +18,24 @@ from ..gates import RZ12Gate, SX12Gate, X12Gate
 SeedType = Union[int, RandomState, Generator]
 
 
-class SU3Gate(Gate):
-    """A general element of the SU(3) group."""
+class UnitaryGate(Gate):
+    """A general element of the U(N) group. Not to be confused with Qiskit UnitaryGate."""
     def __init__(self, data: np.ndarray, label: Optional[str] = None):
-        assert data.shape == (3, 3)
-        super().__init__('su3', 1, [data], label=label)
+        assert len(data.shape) == 2 and data.shape[0] == data.shape[1]
+        super().__init__('un', 1, [data], label=label)
 
     def validate_parameter(self, parameter):
-        """Unitary gate parameter has to be an ndarray."""
-        if isinstance(parameter, np.ndarray):
+        """Unitary gate parameter has to be a square-matrix ndarray."""
+        if (isinstance(parameter, np.ndarray) and len(parameter.shape) == 2
+            and parameter.shape[0] == parameter.shape[1]):
             return parameter
-        else:
-            raise CircuitError(f"invalid param type {type(parameter)} in gate {self.name}")
+        raise CircuitError(f"invalid parameter {parameter} in gate {self.name}")
 
 
-def su3_elements(length: int, rng: Generator):
-    unitaries = unitary_group.rvs(dim=3, size=length, random_state=rng)
+def unitary_elements(dim: int, length: int, rng: Generator):
+    unitaries = unitary_group.rvs(dim=dim, size=length, random_state=rng)
     if length <= 1:
         unitaries = [unitaries]
-    # Renormalize by the cubic root of the determinant
-    determinants = np.array([det(unitary) for unitary in unitaries])
-    unitaries *= np.exp(-1.j * np.angle(determinants) / 3.)[:, None, None]
     return unitaries
 
 
@@ -101,7 +97,7 @@ class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
 
         Subclasses must implement this function. Each outermost entry defines a circuit by the gate
         sequence and a metadata dict. The gate sequence must consist of backend basis gates and
-        SU3Gates, where the latter is decomposed by _append_su3().
+        UnitaryGates, where the latter is decomposed by _append_su3().
         """
 
     def circuits(self) -> list[QuantumCircuit]:
@@ -113,21 +109,22 @@ class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
                 rb_circ = QuantumCircuit(1)
                 rb_circ.metadata = {
                     "xval": length,
-                    "qubits": self.physical_qubits
+                    "qubits": self.physical_qubits,
+                    **metadata
                 }
-                rb_circ.metadata.update(metadata)
                 for gate in sequence:
-                    if isinstance(gate, SU3Gate):
+                    if isinstance(gate, UnitaryGate):
                         self._append_su3(rb_circ, gate)
                     else:
                         rb_circ.append(gate, [0])
+                    rb_circ.barrier()
                 rb_circ.measure_all()
                 circuits.append(rb_circ)
 
         return circuits
 
     @staticmethod
-    def _append_su3(circuit: QuantumCircuit, gate: SU3Gate, qubit: int = 0):
+    def _append_su3(circuit: QuantumCircuit, gate: UnitaryGate, qubit: int = 0):
         r"""Iteratively decompose the SU(3) element into SX, SX12, RZ, and RZ12 gates.
 
         Given a unitary
@@ -175,13 +172,15 @@ class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
 
         Similarly, rotation :math:`G^{(1)}` eliminates the 1,2 element of
         :math:`U^{(1)} = G^{(0)}U^{(0)}`, and :math:`G^{(2)}` the 0,1 element of
-        :math:`U^{(2)} = G^{(1)}G^{(0)}U^{(0)}`. :math:`U^{(3)}` is a diagonal element of SU(3),
+        :math:`U^{(2)} = G^{(1)}G^{(0)}U^{(0)}`. :math:`U^{(3)}` is a diagonal member of U(3),
         which is given by
 
         .. math::
 
-            U^{(3)} = R_z(-2\mathrm{arg}(u_{00}^{(2)})) R_{\zeta}(2\mathrm{arg}(u_{22}^{(2)})).
+            U^{(3)} = R_z(-2(\mathrm{arg}(u_{00}^{(2)})-D))
+                      R_{\zeta}(2(\mathrm{arg}(u_{22}^{(2)})-D)).
 
+        with :math:`D = \mathrm{arg}(u_{00}^{(2)}u_{11}^{(2)}u_{22}^{(2)}) / 3`.
         Thus, the decomposition of :math:`U` is
 
         .. math::
@@ -222,6 +221,8 @@ class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
             rot_params.append((idx_n[0], theta, phi))
 
         diag_phases = np.angle(np.diagonal(unitary))
+        # global phase correction
+        diag_phases -= np.mean(diag_phases)
         circuit.rz(-2 * diag_phases[0], qubit)
         circuit.append(RZ12Gate(2. * diag_phases[2]), [qubit])
         for space, theta, phi in rot_params[::-1]:
@@ -271,16 +272,22 @@ class QutritRB(BaseQutritRB):
         """A helper function to return random Clifford sequence generator."""
         for isample in range(self.experiment_options.num_samples):
             sequence = []
-            final_unitary = np.eye(3, dtype=complex)
-            for unitary in su3_elements(length, rng):
-                sequence.append(SU3Gate(unitary))
-                final_unitary = unitary @ final_unitary
-            sequence.append(SU3Gate(np.linalg.inv(final_unitary)))
+            product = np.eye(3, dtype=complex)
+            for unitary in unitary_elements(3, length, rng):
+                sequence.append(UnitaryGate(unitary))
+                product = unitary @ product
+            sequence.append(UnitaryGate(np.linalg.inv(product)))
             yield sequence, {'sample': isample}
 
 
 class QutritInterleavedRB(BaseQutritRB):
     """Interleaved randomized benchmarking for a single qutrit gate."""
+    @classmethod
+    def _default_experiment_options(cls) -> Options:
+        options = super()._default_experiment_options()
+        options.circuit_order = 'RIRIRI'
+        return options
+
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -314,23 +321,49 @@ class QutritInterleavedRB(BaseQutritRB):
         rng: Generator
     ) -> Iterable[tuple[list[Gate], dict[str, Any]]]:
         """A helper function to return random Clifford sequence generator."""
-        for isample in range(self.experiment_options.num_samples):
+        def reference():
             sequence = []
-            final_unitary = np.eye(3, dtype=complex)
-            for unitary in su3_elements(length, rng):
-                sequence.append(SU3Gate(unitary))
-                final_unitary = unitary @ final_unitary
-            sequence.append(SU3Gate(np.linalg.inv(final_unitary)))
-            yield sequence, {'sample': isample, 'interleaved': False}
+            product = np.eye(3, dtype=complex)
+            for unitary in unitary_elements(3, length, rng):
+                sequence.append(UnitaryGate(unitary))
+                product = unitary @ product
+            sequence.append(UnitaryGate(np.linalg.inv(product)))
+            return sequence
 
+        def interleaved():
             sequence = []
-            final_unitary = np.eye(3, dtype=complex)
-            for unitary in su3_elements(length, rng):
-                sequence.append(SU3Gate(unitary))
+            product = np.eye(3, dtype=complex)
+            for unitary in unitary_elements(3, length, rng):
+                sequence.append(UnitaryGate(unitary))
                 sequence.append(self.interleaved_gate())
-                final_unitary = self.gate_unitary @ unitary @ final_unitary
-            sequence.append(SU3Gate(np.linalg.inv(final_unitary)))
-            yield sequence, {'sample': isample, 'interleaved': True}
+                product = self.gate_unitary @ unitary @ product
+            sequence.append(UnitaryGate(np.linalg.inv(product)))
+            return sequence
+
+        def double_interleaved():
+            sequence = []
+            product = np.eye(3, dtype=complex)
+            for unitary in unitary_elements(3, length, rng):
+                sequence.append(UnitaryGate(unitary))
+                sequence.append(self.interleaved_gate())
+                sequence.append(self.interleaved_gate())
+                product = self.gate_unitary @ self.gate_unitary @ unitary @ product
+            sequence.append(UnitaryGate(np.linalg.inv(product)))
+            return sequence
+
+        if self.experiment_options.circuit_order == 'RIRIRI':
+            for isample in range(self.experiment_options.num_samples):
+                yield reference(), {'sample': isample, 'interleaved': False}
+                yield interleaved(), {'sample': isample, 'interleaved': True}
+        elif self.experiment_options.circuit_order == 'RRRIII':
+            for isample in range(self.experiment_options.num_samples):
+                yield reference(), {'sample': isample, 'interleaved': False}
+            for isample in range(self.experiment_options.num_samples):
+                yield interleaved(), {'sample': isample, 'interleaved': True}
+        elif self.experiment_options.circuit_order == 'RDRDRD':
+            for isample in range(self.experiment_options.num_samples):
+                yield reference(), {'sample': isample, 'interleaved': False}
+                yield double_interleaved(), {'sample': isample, 'interleaved': True}
 
 
 GATE_UNITARIES = {

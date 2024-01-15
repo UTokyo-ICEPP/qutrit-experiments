@@ -217,7 +217,7 @@ class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
 
     def dummy_data(
         self,
-        transpiled_circuits: list[QuantumCircuit]
+        transpiled_circuits: list[QuantumCircuit] # pylint: disable=unused-argument
     ) -> list[Union[np.ndarray, Counts]]:
         return self._dummy_data((0, 1))
 

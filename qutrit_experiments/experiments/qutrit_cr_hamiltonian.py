@@ -104,7 +104,6 @@ and
 """
 from collections.abc import Iterable, Sequence
 from typing import Optional, Union
-from matplotlib.figure import Figure
 import numpy as np
 import numpy.polynomial as poly
 import scipy.optimize as sciopt
@@ -114,13 +113,12 @@ from qiskit import QuantumCircuit
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
 from qiskit.result import Counts
-from qiskit_experiments.framework import Options, BaseAnalysis, ExperimentData, AnalysisResultData
-from qiskit_experiments.framework.matplotlib import default_figure_canvas
+from qiskit_experiments.framework import Options, ExperimentData, AnalysisResultData
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ..framework.compound_analysis import CompoundAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
-from ..util.matplotlib import copy_axes
+from ..util.matplotlib import make_list_plot
 from ..util.polynomial import PolynomialOrder, sparse_poly_fitfunc
 from .cr_rabi import cr_rabi_init
 from .hamiltonian_tomography import HamiltonianTomography, HamiltonianTomographyScan
@@ -247,15 +245,10 @@ class QutritCRHamiltonianAnalysis(CompoundAnalysis):
         )
 
         if all(subanalysis.options.plot for subanalysis in self._analyses):
-            figure = Figure(figsize=[9.6, 4.8])
-            _ = default_figure_canvas(figure)
-            axs = figure.subplots(3, 1, sharex=True)
-            for control_state, (child_index, analysis, to_ax) in enumerate(zip(component_index,
-                                                                               analyses, axs)):
-                child_data = experiment_data.child_data(child_index)
-                copy_axes(child_data.figure(0).figure.axes[0], to_ax)
-                to_ax.set_title(fr'Control: $|{control_state}\rangle$')
-            figures.append(figure)
+            figures.append(
+                make_list_plot(experiment_data,
+                               title_fn=lambda idx: fr'Control: $|{control_state}\rangle$')
+            )
 
         return analysis_results, figures
 

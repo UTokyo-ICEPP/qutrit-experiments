@@ -7,11 +7,10 @@ import numpy as np
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
-from qiskit_experiments.framework.matplotlib import default_figure_canvas
 
 from ..framework.compound_analysis import CompoundAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
-from ..util.matplotlib import copy_axes
+from ..util.matplotlib import make_list_plot
 from .spectator_ramsey import SpectatorRamseyXY
 
 twopi = 2. * np.pi
@@ -86,13 +85,9 @@ class QutritZZRamseyAnalysis(CompoundAnalysis):
         )
 
         if self.options.plot:
-            figure = Figure(figsize=[9.6, 9.6])
-            _ = default_figure_canvas(figure)
-            axs = figure.subplots(3, 1, sharex=True)
-            for control_state in range(3):
-                child_data = experiment_data.child_data(component_index[control_state])
-                copy_axes(child_data.figure(0).figure.axes[0], axs[control_state])
-                axs[control_state].set_title(fr'Control: $|{control_state}\rangle$')
-            figures.append(figure)
+            figures.append(
+                make_list_plot(experiment_data,
+                               title_fn=lambda idx: fr'Control: $|{control_state}\rangle$')
+            )
 
         return analysis_results, figures

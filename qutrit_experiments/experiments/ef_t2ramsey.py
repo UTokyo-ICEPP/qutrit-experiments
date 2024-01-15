@@ -29,7 +29,7 @@ class EFT2Ramsey(EFSpaceExperiment, T2Ramsey):
         osc_freq: float = 0.0
     ):
         super().__init__(physical_qubits, delays, backend=backend, osc_freq=osc_freq)
-        self.analysis = EFRamseyAnalysis()
+        self.analysis = EFT2RamseyAnalysis()
 
     def circuits(self) -> list[QuantumCircuit]:
         circuits = super().circuits()

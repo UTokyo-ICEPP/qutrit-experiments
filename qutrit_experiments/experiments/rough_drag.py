@@ -62,7 +62,7 @@ class EFRoughDrag(MapToPhysicalQubits, EFSpaceExperiment, RoughDrag):
 
     def dummy_data(
         self,
-        transpiled_circuits: list[QuantumCircuit]
+        transpiled_circuits: list[QuantumCircuit] # pylint: disable=unused-argument
     ) -> Union[list[np.ndarray], list[Counts]]:
         """Return dummy memory or counts depending on the presence of the discriminator."""
         reps = np.asarray(self.experiment_options.reps)

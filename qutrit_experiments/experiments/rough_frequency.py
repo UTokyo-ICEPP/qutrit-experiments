@@ -9,11 +9,11 @@ from qiskit import QuantumCircuit
 from qiskit.providers import Backend
 from qiskit.qobj.utils import MeasReturnType
 import qiskit_experiments.curve_analysis as curve
-from qiskit_experiments.framework import ExperimentData, Options
+from qiskit_experiments.framework import Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
-from qiskit_experiments.calibration_management.update_library import Frequency
 from qiskit_experiments.library import EFSpectroscopy
 
+from ..framework.calibration_updaters import EFFrequencyUpdater
 from ..transpilation import replace_calibration_and_metadata
 
 
@@ -50,7 +50,7 @@ class EFRoughFrequency(EFSpectroscopy):
         return replace_calibration_and_metadata(self.circuits(), self.physical_qubits,
                                                 self._backend_data.coupling_map)
 
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]: # pylint: disable=unused-argument
         center = self._frequencies[len(self._frequencies) // 2]
         freq = center - 8.e+6
         mean = curve.fit_function.sqrt_lorentzian(self._frequencies, amp=1.25, kappa=1.e+6,
@@ -156,20 +156,7 @@ class EFRoughFrequencyCal(BaseCalibrationExperiment, EFRoughFrequency):
             backend=backend
         )
 
+        self._updater = EFFrequencyUpdater
+
     def _attach_calibrations(self, circuit: QuantumCircuit):
         pass
-
-    def update_calibrations(self, experiment_data: ExperimentData):
-        """Update the calibrations.
-
-        We are not using update_library.Frequency here (as is done in RoughFrequencyCal) because
-        we need to specify the schedule name in order to make the calibration reflected in the
-        instruction map (Frequency updater updates with schedule=None, which makes sense because
-        the frequency is not supposed to be schedule-specific, but that causes the Calibrations
-        class to ignore the parameter).
-        """
-        result_index = self.experiment_options.result_index
-        group = self.experiment_options.group
-
-        Frequency.update(self._cals, experiment_data, result_index=result_index,
-                         parameter=self._param_name, group=group, fit_parameter='f12')

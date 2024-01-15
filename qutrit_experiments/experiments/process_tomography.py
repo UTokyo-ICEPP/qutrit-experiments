@@ -123,7 +123,7 @@ class CircuitTomography(TomographyExperiment):
 
         return metadata
 
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]: # pylint: disable=unused-argument
         shots = self.run_options.get('shots', DEFAULT_SHOTS)
 
         data = []

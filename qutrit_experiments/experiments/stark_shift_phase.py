@@ -2,7 +2,7 @@
 from collections.abc import Sequence
 from typing import Any, Optional, Union
 import numpy as np
-from qiskit import QuantumCircuit, pulse
+from qiskit import QuantumCircuit
 from qiskit.pulse import Schedule, ScheduleBlock
 from qiskit.circuit import Parameter, Gate
 from qiskit.providers import Backend
@@ -103,7 +103,7 @@ class BasePhaseRotation(BaseExperiment):
                 metadata[run_opt] = getattr(self.run_options, run_opt)
         return metadata
 
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]: # pylint: disable=unused-argument
         phases = self.experiment_options.phase_shifts + 0.1
         shots = self.run_options.get('shots', DEFAULT_SHOTS)
         num_qubits = 1
