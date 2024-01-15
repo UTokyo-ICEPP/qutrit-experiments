@@ -87,7 +87,7 @@ class QutritZZRamseyAnalysis(CompoundAnalysis):
         if self.options.plot:
             figures.append(
                 make_list_plot(experiment_data,
-                               title_fn=lambda idx: fr'Control: $|{control_state}\rangle$')
+                               title_fn=lambda idx: fr'Control: $|{idx}\rangle$')
             )
 
         return analysis_results, figures

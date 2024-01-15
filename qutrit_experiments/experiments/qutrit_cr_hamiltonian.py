@@ -247,7 +247,7 @@ class QutritCRHamiltonianAnalysis(CompoundAnalysis):
         if all(subanalysis.options.plot for subanalysis in self._analyses):
             figures.append(
                 make_list_plot(experiment_data,
-                               title_fn=lambda idx: fr'Control: $|{control_state}\rangle$')
+                               title_fn=lambda idx: fr'Control: $|{idx}\rangle$')
             )
 
         return analysis_results, figures
