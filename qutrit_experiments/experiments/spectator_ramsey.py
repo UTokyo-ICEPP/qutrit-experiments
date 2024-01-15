@@ -17,12 +17,16 @@ twopi = 2. * np.pi
 
 
 class SpectatorRamseyXY(RamseyXY):
-    """RamseyXY experiment to measure the frequency shift in a qubit coupled to a qutrit."""
+    """RamseyXY experiment to measure the frequency shift in a qubit coupled to a qutrit.
+
+    In this experiment, qubit ordering is fixed to control=0, target=1, whereas the measured qubit
+    is 0 in RamseyXY. Qubits are reordered post-construction in circuits(). Method _pre_circuit()
+    has to be written with control=1, target=0.
+    """
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
         options.delay_schedule = None
-        options.reverse_qubit_order = False
         return options
 
     def __init__(
@@ -46,13 +50,12 @@ class SpectatorRamseyXY(RamseyXY):
             self.extra_metadata = {'control_state': control_state}
         else:
             self.extra_metadata = {'control_state': control_state, **extra_metadata}
-
         self.experiment_index = experiment_index
-
         self.analysis.set_options(outcome='1')
 
     def _pre_circuit(self) -> QuantumCircuit:
         circuit = QuantumCircuit(2)
+        # Control qubit is 1 in _pre_circuit
         if self.control_state == 1:
             circuit.x(1)
         elif self.control_state == 2:
@@ -64,32 +67,20 @@ class SpectatorRamseyXY(RamseyXY):
     def _metadata(self):
         metadata = super()._metadata()
         metadata.update(self.extra_metadata)
-
         return metadata
 
     def circuits(self) -> list[QuantumCircuit]:
-        circuits = super().circuits()
-
-        if self.experiment_options.reverse_qubit_order:
-            reversed_circuits = []
-            for circuit in circuits:
-                reversed_circuit = circuit.copy_empty_like()
-                reversed_circuit.compose(circuit, qubits=[1, 0], inplace=True)
-                reversed_circuits.append(reversed_circuit)
-
-            circuits = reversed_circuits
-            target_qubit = 1
-        else:
-            target_qubit = 0
-
-        for circuit in circuits:
+        circuits = []
+        for original in super().circuits():
+            circuit = original.copy_empty_like()
+            circuit.compose(original, qubits=[1, 0], inplace=True)
             circuit.remove_final_measurements()
             creg = ClassicalRegister(1)
             circuit.add_register(creg)
-            circuit.measure(target_qubit, creg[0])
-            circuit.metadata['readout_qubits'] = [self.physical_qubits[target_qubit]]
+            circuit.measure(1, creg[0])
             if self.experiment_index is not None:
                 circuit.metadata['experiment_index'] = self.experiment_index
+            circuits.append(circuit)
 
         if (delay_sched := self.experiment_options.delay_schedule) is not None:
             delay_param = delay_sched.get_parameters('delay')[0]
@@ -99,9 +90,9 @@ class SpectatorRamseyXY(RamseyXY):
                                   if isinstance(inst.operation, Delay))
                 delay_val = delay_inst.operation.params[0]
                 sched = delay_sched.assign_parameters({delay_param: delay_val}, inplace=False)
-                delay_inst.operation = Gate('exp(-i*ωz*t)', 1, [delay_val])
-                circuit.add_calibration('exp(-i*ωz*t)', [self.physical_qubits[target_qubit]], sched,
-                                        [delay_val])
+                delay_inst.operation = Gate('exp(-iωzt)', 2, [delay_val])
+                delay_inst.qubits = tuple(circuit.qregs[0])
+                circuit.add_calibration('exp(-iωzt)', self.physical_qubits, sched, [delay_val])
 
         return circuits
 

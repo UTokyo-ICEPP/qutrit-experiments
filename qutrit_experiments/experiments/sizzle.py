@@ -128,8 +128,6 @@ class SiZZle(QutritZZRamsey):
         super().__init__(physical_qubits, delays=delays, osc_freq=osc_freq,
                          delay_schedule=delay_schedule, extra_metadata=extra_metadata,
                          backend=backend)
-        for exp in self.component_experiment():
-            exp.set_experiment_options(reverse_qubit_order=True)
 
 
 class SiZZleFrequencyScan(BatchExperiment):
