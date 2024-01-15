@@ -1,4 +1,4 @@
-# pylint: disable=import-outside-toplevel, function-redefined, unused-argument
+# pylint: disable=function-redefined, unused-argument
 """Single qutrit calibration and characterization experiments for a full backend."""
 import logging
 from .qutrit import (

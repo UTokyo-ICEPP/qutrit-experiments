@@ -1,2 +1,2 @@
 from .single_qutrit import make_single_qutrit_gate_calibrations, get_qutrit_pulse_gate
-#from .qutrit_qubit_cx import make_qutrit_qubit_cx_calibrations
+from .qutrit_qubit_cx import make_qutrit_qubit_cx_calibrations

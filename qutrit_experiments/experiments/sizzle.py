@@ -47,35 +47,35 @@ def build_sizzle_schedule(
     if target_channel is None:
         target_channel = backend_data.drive_channel(target)
 
-    delay = Parameter('delay')
-    with pulse.build(name='delay', default_alignment='left') as delay_sched:
+    width = Parameter('delay') # SpectatorRamseyXY requires the parameter to be named delay
+    with pulse.build(name='sizzle', default_alignment='left') as sizzle_sched:
         if pre_delay:
             pulse.delay(pre_delay, control_channel)
             pulse.delay(pre_delay, target_channel)
 
         pulse.play(
             ModulatedGaussianSquare(
-                duration=(delay + 256),
+                duration=(width + 256),
                 amp=amplitudes[0],
                 sigma=64,
                 freq=detuning,
-                width=delay,
+                width=width,
                 angle=control_phase_offset
             ),
             control_channel
         )
         pulse.play(
             ModulatedGaussianSquare(
-                duration=(delay + 256),
+                duration=(width + 256),
                 amp=amplitudes[1],
                 sigma=64,
                 freq=detuning,
-                width=delay
+                width=width
             ),
             target_channel
         )
 
-    return delay_sched
+    return sizzle_sched
 
 
 class SiZZleRamsey(SpectatorRamseyXY):
@@ -93,14 +93,14 @@ class SiZZleRamsey(SpectatorRamseyXY):
         extra_metadata: Optional[dict[str, Any]] = None,
         backend: Optional[Backend] = None
     ):
-        delay_schedule = build_sizzle_schedule(frequency, physical_qubits[0], physical_qubits[1],
+        sizzle_schedule = build_sizzle_schedule(frequency, physical_qubits[0], physical_qubits[1],
                                                backend, amplitudes=amplitudes,
                                                control_phase_offset=control_phase_offset,
                                                control_channel=channels[0],
                                                target_channel=channels[1])
 
         super().__init__(physical_qubits, control_state, delays=delays, osc_freq=osc_freq,
-                         delay_schedule=delay_schedule, extra_metadata=extra_metadata,
+                         delay_schedule=sizzle_schedule, extra_metadata=extra_metadata,
                          backend=backend)
         self.set_experiment_options(reverse_qubit_order=True)
 
@@ -119,14 +119,14 @@ class SiZZle(QutritZZRamsey):
         extra_metadata: Optional[dict[str, Any]] = None,
         backend: Optional[Backend] = None
     ):
-        delay_schedule = build_sizzle_schedule(frequency, physical_qubits[0], physical_qubits[1],
+        sizzle_schedule = build_sizzle_schedule(frequency, physical_qubits[0], physical_qubits[1],
                                                backend, amplitudes=amplitudes,
                                                control_phase_offset=control_phase_offset,
                                                control_channel=channels[0],
                                                target_channel=channels[1])
 
         super().__init__(physical_qubits, delays=delays, osc_freq=osc_freq,
-                         delay_schedule=delay_schedule, extra_metadata=extra_metadata,
+                         delay_schedule=sizzle_schedule, extra_metadata=extra_metadata,
                          backend=backend)
 
 

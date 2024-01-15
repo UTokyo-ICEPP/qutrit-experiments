@@ -6,6 +6,7 @@ from qiskit import pulse
 from qiskit.providers import Backend
 from qiskit.circuit import Parameter
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
+from qiskit_experiments.exceptions import CalibrationError
 
 from .util import get_default_ecr_schedule
 from ..pulse_library import ModulatedGaussianSquare
@@ -61,30 +62,35 @@ def add_qutrit_qubit_cr(
                                             angle=counter_angle, risefall_sigma_ratio=rsr,
                                             name='Counter')
 
-    control_channel = pulse.ControlChannel(Parameter('ch0.1'))
-    target_channel = pulse.DriveChannel(Parameter('ch1'))
-
     with pulse.build(name='cr', default_alignment='left') as sched:
-        pulse.play(cr_pulse, control_channel, name='CR')
-        pulse.play(counter_pulse, target_channel, name='Counter')
+        pulse.play(cr_pulse, pulse.ControlChannel(Parameter('ch0.1')), name='CR')
+        pulse.play(counter_pulse, pulse.DriveChannel(Parameter('ch1')), name='Counter')
     calibrations.add_schedule(sched, num_qubits=2)
 
-    for qubits, control_channel in backend.control_channels.items():
+    for qubits, control_channels in backend.control_channels.items():
+        control_channel = control_channels[0]
+        target_channel = backend.drive_channel(qubits[1])
         ecr_sched = get_default_ecr_schedule(backend, qubits)
         control_instructions = [inst for _, inst in ecr_sched.instructions
                                 if isinstance(inst, pulse.Play) and
                                    inst.channel == control_channel]
+        if not control_instructions:
+            # Reverse CR
+            continue
         target_instructions = [inst for _, inst in ecr_sched.instructions
                                if isinstance(inst, pulse.Play) and
-                                  inst.channel == backend.drive_channel(qubits[1])]
+                                  inst.channel == target_channel]
         try:
             default_cr = next(inst.pulse for inst in control_instructions
                               if inst.name.startswith('CR90m'))
             default_rotary = next(inst.pulse for inst in target_instructions
                                   if inst.name.startswith('CR90m'))
         except StopIteration: # Direct CX
-            default_cr = next(inst.pulse for inst in control_instructions
-                              if inst.name.startswith('CX'))
+            try:
+                default_cr = next(inst.pulse for inst in control_instructions
+                                  if inst.name.startswith('CX'))
+            except StopIteration as exc:
+                raise CalibrationError(f'No default CR instruction for qubits {qubits}') from exc
             default_rotary = None
 
         param_defaults = [
