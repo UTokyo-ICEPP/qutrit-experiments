@@ -191,8 +191,7 @@ class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
 
         template.metadata = {
             'experiment_type': self._type,
-            'qubits': self.physical_qubits,
-            'readout_qubits': [self.physical_qubits[self.target_logical_qubit]]
+            'qubits': self.physical_qubits
         }
         if self.experiment_index is not None:
             template.metadata['experiment_index'] = self.experiment_index

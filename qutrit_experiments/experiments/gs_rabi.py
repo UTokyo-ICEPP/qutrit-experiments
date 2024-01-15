@@ -89,7 +89,6 @@ class GSRabi(BaseExperiment):
     def _pre_circuit(self) -> QuantumCircuit:
         """To be overridden by subclasses."""
         measured_qubit = self.experiment_options.measured_logical_qubit
-        readout_qubit = self.physical_qubits[measured_qubit]
         initial_state = self.experiment_options.initial_state
 
         circuit = QuantumCircuit(len(self._physical_qubits), 1)
@@ -103,8 +102,7 @@ class GSRabi(BaseExperiment):
 
         circuit.metadata = {
             "intial_state": initial_state,
-            "meas_basis": self.experiment_options.meas_basis,
-            "readout_qubits": [readout_qubit] # needed for ReadoutMitigation
+            "meas_basis": self.experiment_options.meas_basis
         }
         if self.experiment_options.experiment_index is not None:
             circuit.metadata['experiment_index'] = self.experiment_options.experiment_index

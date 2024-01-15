@@ -1,5 +1,6 @@
+from collections.abc import Callable
 import pickle
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from matplotlib.artist import Artist
 from matplotlib.figure import Figure
 from qiskit_experiments.framework import ExperimentData

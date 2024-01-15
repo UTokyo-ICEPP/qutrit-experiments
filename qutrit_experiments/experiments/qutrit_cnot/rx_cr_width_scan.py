@@ -127,10 +127,7 @@ class QutritCXRxScan(BaseExperiment):
         template.append(gate, [0, 1])
         template.measure(1, 0)
 
-        template.metadata = {
-            'qubits': self.physical_qubits,
-            'readout_qubits': [self.physical_qubits[1]]
-        }
+        template.metadata = {'qubits': self.physical_qubits}
         if self.experiment_options.experiment_index is not None:
             template.metadata['experiment_index'] = self.experiment_options.experiment_index
 
@@ -383,7 +380,6 @@ class CXPingPong(CustomTranspiledFineAmplitude):
         circuits = super().circuits()
         for circuit in circuits:
             # Necessary for readout mitigation
-            circuit.metadata['readout_qubits'] = [self.physical_qubits[1]]
             if self.schedule is not None:
                 circuit.add_calibration('cx', self.physical_qubits, self.schedule)
 
