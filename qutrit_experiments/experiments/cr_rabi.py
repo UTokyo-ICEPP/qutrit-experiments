@@ -18,12 +18,9 @@ class CRRabi(GSRabi):
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
-
         options.control_state = None
         options.measured_logical_qubit = 1
         options.widths = np.linspace(0., 2048., 17)
-        options.param_name = 'cr_width'
-
         return options
 
     def __init__(

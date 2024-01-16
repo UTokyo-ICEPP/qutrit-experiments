@@ -132,7 +132,9 @@ def modulated_gaussiansquare(
     else:
         raise ValueError('Fractions array have invalid length')
 
-    if phases is not None and len(phases) != ncomp - 1:
+    if phases is None:
+        phases = (0.,) * (ncomp - 1)
+    elif len(phases) != ncomp - 1:
         raise ValueError('phases must have length ncomp - 1')
 
     parameters = {'sigma': sigma, 'width': width, 'support': support}
@@ -142,8 +144,8 @@ def modulated_gaussiansquare(
         for icomp in range(ncomp):
             parameters[f'freq{icomp}'] = freq[icomp]
             parameters[f'fraction{icomp}'] = fractions[icomp]
-            if phases is not None and icomp != 0:
-                parameters[f'phase{icomp}'] = phases[icomp - 1]
+        for icomp in range(1, ncomp):
+            parameters[f'phase{icomp}'] = phases[icomp - 1]
 
     # Prepare symbolic expressions
     _t, _duration, _amp, _sigma, _width, _support, _angle = sym.symbols(
