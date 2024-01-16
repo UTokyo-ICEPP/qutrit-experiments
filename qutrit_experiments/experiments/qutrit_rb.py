@@ -4,15 +4,17 @@ from abc import abstractmethod
 from typing import Any, Optional, Union
 import numpy as np
 from numpy.random import Generator, RandomState
+from scipy.stats import unitary_group
 from qiskit import QuantumCircuit
 from qiskit.circuit import CircuitError, Gate
 from qiskit.circuit.library import RZGate, SXGate, XGate
 from qiskit.providers import Backend
 from qiskit_experiments.framework import BaseExperiment, Options
-from qiskit_experiments.library.randomized_benchmarking import InterleavedRBAnalysis, RBAnalysis
-from scipy.stats import unitary_group
+from qiskit_experiments.library.randomized_benchmarking import (InterleavedRB,
+                                                                InterleavedRBAnalysis, StandardRB,
+                                                                RBAnalysis)
 
-from ..experiment_mixins import MapToPhysicalQubits
+from ..experiment_mixins import DecomposedEFCasted, EFSpaceExperiment, MapToPhysicalQubits
 from ..gates import RZ12Gate, SX12Gate, X12Gate
 
 SeedType = Union[int, RandomState, Generator]
@@ -408,3 +410,14 @@ GATE_UNITARIES = {
          [0., (1. - 1.j) / 2., (1. + 1.j) / 2.]]
     )
 }
+
+
+class EFStandardRB(DecomposedEFCasted, EFSpaceExperiment, StandardRB):
+    """StandardRB in the EF space."""
+    def circuits(self) -> list[QuantumCircuit]:
+        circuits = super(EFCasted).circuits()
+        pass
+
+
+class EFInterleavedRB(DecomposedEFCasted, EFSpaceExperiment, InterleavedRB):
+    """InterleavedRB in the EF space."""
