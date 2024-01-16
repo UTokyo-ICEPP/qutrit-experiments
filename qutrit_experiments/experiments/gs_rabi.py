@@ -15,12 +15,12 @@ import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 
 from ..constants import DEFAULT_SHOTS
-from ..experiment_mixins import MapToPhysicalQubitsCommonLayout
+from ..experiment_mixins import MapToPhysicalQubitsCommonCircuit
 
 twopi = 2. * np.pi
 
 
-class GSRabi(MapToPhysicalQubitsCommonLayout, BaseExperiment):
+class GSRabi(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
     """Rabi experiment where the width parameter of a GaussianSquare pulse is varied."""
     @classmethod
     def _default_experiment_options(cls) -> Options:

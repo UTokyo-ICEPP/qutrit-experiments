@@ -13,11 +13,11 @@ from qiskit_experiments.framework import Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.library import EFSpectroscopy
 
-from ..experiment_mixins import MapToPhysicalQubitsCommonLayout
+from ..experiment_mixins import MapToPhysicalQubitsCommonCircuit
 from ..framework.calibration_updaters import EFFrequencyUpdater
 
 
-class EFRoughFrequency(MapToPhysicalQubitsCommonLayout, EFSpectroscopy):
+class EFRoughFrequency(MapToPhysicalQubitsCommonCircuit, EFSpectroscopy):
     """EFSpectroscopy with some tweaks."""
     @classmethod
     def _default_experiment_options(cls) -> Options:

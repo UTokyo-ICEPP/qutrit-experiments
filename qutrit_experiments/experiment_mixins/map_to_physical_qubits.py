@@ -12,12 +12,12 @@ class MapToPhysicalQubits:
                                       self._backend.coupling_map)
 
 
-class MapToPhysicalQubitsCommonLayout:
-    """Mixin for trivial transpilation."""
+class MapToPhysicalQubitsCommonCircuit:
+    """Mixin for trivial transpilation with common-circuit optimization."""
     def _transpiled_circuits(self) -> list[QuantumCircuit]:
         return map_to_physical_qubits(self.circuits(), self.physical_qubits,
                                       self._backend.coupling_map,
-                                      common_layout_optimization=True)
+                                      common_circuit_optimization=True)
 
 
 class MapToPhysicalQubitsCal:
@@ -31,12 +31,12 @@ class MapToPhysicalQubitsCal:
         return transpiled
 
 
-class MapToPhysicalQubitsCalCommonLayout:
+class MapToPhysicalQubitsCalCommonCircuit:
     """Trivial transpilation mixin for calibration experiments."""
     def _transpiled_circuits(self) -> list[QuantumCircuit]:
         transpiled = map_to_physical_qubits(self.circuits(), self.physical_qubits,
                                             self._backend.coupling_map,
-                                            common_layout_optimization=True)
+                                            common_circuit_optimization=True)
         for circ in transpiled:
             self._attach_calibrations(circ)
 

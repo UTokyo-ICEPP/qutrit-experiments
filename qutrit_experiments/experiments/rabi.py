@@ -16,7 +16,7 @@ class Rabi(RabiOrig):
     def _transpiled_circuits(self) -> list[QuantumCircuit]:
         circuits = map_to_physical_qubits(self.circuits(), self.physical_qubits,
                                           self._backend_data.coupling_map,
-                                          common_layout_optimization=True)
+                                          common_circuit_optimization=True)
         # Need to update the gate parameters too
         # CircuitInstruction.operation.params is a list of ParameterExpressions
         amp = Parameter('amp')

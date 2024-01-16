@@ -16,7 +16,7 @@ import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.curve_analysis.base_curve_analysis import PARAMS_ENTRY_PREFIX
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ...experiment_mixins import MapToPhysicalQubitsCommonLayout
+from ...experiment_mixins import MapToPhysicalQubitsCommonCircuit
 from ...common.gates import SetF12
 from ...common.util import default_shots, get_cr_margin
 from ...common.framework_overrides import BatchExperiment, CompoundAnalysis
@@ -28,7 +28,7 @@ from ..dummy_data import single_qubit_counts
 twopi = 2. * np.pi
 
 
-class QutritCXRxScan(MapToPhysicalQubitsCommonLayout, BaseExperiment):
+class QutritCXRxScan(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
     r"""Rabi oscillation experiment varying the amplitude of an Rx pulse in the CX seqeuence.
 
     CX unitary has a form

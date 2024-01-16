@@ -31,12 +31,12 @@ def map_to_physical_qubits(
     circuit: Union[QuantumCircuit, list[QuantumCircuit]],
     physical_qubits: Sequence[int],
     coupling_map: CouplingMap,
-    common_layout_optimization=False
+    common_circuit_optimization=False
 ) -> QuantumCircuit:
     """Run a pass manager with layout stage only. Assumes all input circuits have the same qreg
     structure.
 
-    Set common_layout_optimization=True for special-case shortcut where the only differences among
+    Set common_circuit_optimization=True for special-case shortcut where the only differences among
     the circuits are in calibrations and metadata.
     """
     pass_manager = StagedPassManager(
@@ -44,7 +44,7 @@ def map_to_physical_qubits(
         layout=generate_layout_passmanager(physical_qubits, coupling_map)
     )
 
-    if common_layout_optimization and isinstance(circuit, list):
+    if common_circuit_optimization and isinstance(circuit, list):
         first_circuit = pass_manager.run(circuit[0])
         transpiled_circuits = [first_circuit]
         for original in circuit[1:]:
