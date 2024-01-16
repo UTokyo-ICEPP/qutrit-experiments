@@ -30,30 +30,28 @@ def generate_layout_passmanager(
 def map_to_physical_qubits(
     circuit: Union[QuantumCircuit, list[QuantumCircuit]],
     physical_qubits: Sequence[int],
-    coupling_map: CouplingMap
+    coupling_map: CouplingMap,
+    common_layout_optimization=False
 ) -> QuantumCircuit:
     """Run a pass manager with layout stage only. Assumes all input circuits have the same qreg
-    structure."""
-    return StagedPassManager(
+    structure.
+
+    Set common_layout_optimization=True for special-case shortcut where the only differences among
+    the circuits are in calibrations and metadata.
+    """
+    pass_manager = StagedPassManager(
         ["layout"],
         layout=generate_layout_passmanager(physical_qubits, coupling_map)
-    ).run(circuit)
+    )
 
+    if common_layout_optimization and isinstance(circuit, list):
+        first_circuit = pass_manager.run(circuit[0])
+        transpiled_circuits = [first_circuit]
+        for original in circuit[1:]:
+            tcirc = first_circuit.copy()
+            tcirc.calibrations = original.calibrations
+            tcirc.metadata = original.metadata
+            transpiled_circuits.append(tcirc)
+        return transpiled_circuits
 
-def replace_calibration_and_metadata(
-    circuits: list[QuantumCircuit],
-    physical_qubits: Sequence[int],
-    coupling_map: CouplingMap
-):
-    """Special-case shortcut where the only differences among the circuits are in calibrations and
-    metadata."""
-    first_circuit = map_to_physical_qubits(circuits[0], physical_qubits, coupling_map)
-
-    transpiled_circuits = [first_circuit]
-    for circuit in circuits[1:]:
-        tcirc = first_circuit.copy()
-        tcirc.calibrations = circuit.calibrations
-        tcirc.metadata = circuit.metadata
-        transpiled_circuits.append(tcirc)
-
-    return transpiled_circuits
+    return pass_manager.run(circuit)

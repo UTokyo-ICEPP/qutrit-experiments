@@ -7,15 +7,16 @@ from qiskit_experiments.library import Rabi as RabiOrig
 
 from ..experiment_mixins.ef_space import EFSpaceExperiment
 from ..gates import QutritGate
-from ..transpilation import replace_calibration_and_metadata
+from ..transpilation import map_to_physical_qubits
 from ..util.dummy_data import from_one_probs
 
 
 class Rabi(RabiOrig):
     """Rabi experiment with optimized transpilation."""
     def _transpiled_circuits(self) -> list[QuantumCircuit]:
-        circuits = replace_calibration_and_metadata(self.circuits(), self.physical_qubits,
-                                                    self._backend_data.coupling_map)
+        circuits = map_to_physical_qubits(self.circuits(), self.physical_qubits,
+                                          self._backend_data.coupling_map,
+                                          common_layout_optimization=True)
         # Need to update the gate parameters too
         # CircuitInstruction.operation.params is a list of ParameterExpressions
         amp = Parameter('amp')

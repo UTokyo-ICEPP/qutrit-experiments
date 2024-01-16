@@ -13,12 +13,12 @@ import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 
 from ..constants import DEFAULT_SHOTS
+from ..experiment_mixins import MapToPhysicalQubitsCommonLayout
 from ..gates import X12Gate, SX12Gate, RZ12Gate
-from ..transpilation import replace_calibration_and_metadata
 from ..util.dummy_data import single_qubit_counts
 
 
-class BasePhaseRotation(BaseExperiment):
+class BasePhaseRotation(MapToPhysicalQubitsCommonLayout, BaseExperiment):
     r"""Phase rotation-Rz-SX experiment.
 
     Subclasses should implement _phase_rotation_sequence that returns a circuit whose final state
@@ -89,10 +89,6 @@ class BasePhaseRotation(BaseExperiment):
 
     def _phase_rotation_sequence(self) -> QuantumCircuit:
         return QuantumCircuit(1)
-
-    def _transpiled_circuits(self) -> list[QuantumCircuit]:
-        return replace_calibration_and_metadata(self.circuits(), self.physical_qubits,
-                                                self._backend_data.coupling_map)
 
     def _metadata(self):
         metadata = super()._metadata()

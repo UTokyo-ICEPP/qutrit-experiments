@@ -16,7 +16,7 @@ import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.curve_analysis.base_curve_analysis import PARAMS_ENTRY_PREFIX
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ...common.transpilation import replace_calibration_and_metadata
+from ...experiment_mixins import MapToPhysicalQubitsCommonLayout
 from ...common.gates import SetF12
 from ...common.util import default_shots, get_cr_margin
 from ...common.framework_overrides import BatchExperiment, CompoundAnalysis
@@ -28,7 +28,7 @@ from ..dummy_data import single_qubit_counts
 twopi = 2. * np.pi
 
 
-class QutritCXRxScan(BaseExperiment):
+class QutritCXRxScan(MapToPhysicalQubitsCommonLayout, BaseExperiment):
     r"""Rabi oscillation experiment varying the amplitude of an Rx pulse in the CX seqeuence.
 
     CX unitary has a form
@@ -141,10 +141,6 @@ class QutritCXRxScan(BaseExperiment):
             circuits.append(circuit)
 
         return circuits
-
-    def _transpiled_circuits(self) -> List[QuantumCircuit]:
-        return replace_calibration_and_metadata(self.circuits(), self.physical_qubits,
-                                                self.transpile_options.target)
 
     def _metadata(self) -> Dict[str, Any]:
         metadata = super()._metadata()

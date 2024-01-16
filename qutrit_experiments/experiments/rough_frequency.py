@@ -13,11 +13,11 @@ from qiskit_experiments.framework import Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.library import EFSpectroscopy
 
+from ..experiment_mixins import MapToPhysicalQubitsCommonLayout
 from ..framework.calibration_updaters import EFFrequencyUpdater
-from ..transpilation import replace_calibration_and_metadata
 
 
-class EFRoughFrequency(EFSpectroscopy):
+class EFRoughFrequency(MapToPhysicalQubitsCommonLayout, EFSpectroscopy):
     """EFSpectroscopy with some tweaks."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
@@ -45,10 +45,6 @@ class EFRoughFrequency(EFSpectroscopy):
     ):
         super().__init__(physical_qubits, frequencies, backend=backend, absolute=True)
         self.analysis = GaussianResonanceAnalysis()
-
-    def _transpiled_circuits(self) -> list[QuantumCircuit]:
-        return replace_calibration_and_metadata(self.circuits(), self.physical_qubits,
-                                                self._backend_data.coupling_map)
 
     def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]: # pylint: disable=unused-argument
         center = self._frequencies[len(self._frequencies) // 2]

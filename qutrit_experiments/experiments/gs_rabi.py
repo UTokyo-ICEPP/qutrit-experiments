@@ -15,12 +15,12 @@ import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 
 from ..constants import DEFAULT_SHOTS
-from ..transpilation.layout_only import replace_calibration_and_metadata
+from ..experiment_mixins import MapToPhysicalQubitsCommonLayout
 
 twopi = 2. * np.pi
 
 
-class GSRabi(BaseExperiment):
+class GSRabi(MapToPhysicalQubitsCommonLayout, BaseExperiment):
     """Rabi experiment where the width parameter of a GaussianSquare pulse is varied."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
@@ -162,10 +162,6 @@ class GSRabi(BaseExperiment):
             circuits.append(circuit)
 
         return circuits
-
-    def _transpiled_circuits(self) -> list[QuantumCircuit]:
-        return replace_calibration_and_metadata(self.circuits(), self.physical_qubits,
-                                                self.transpile_options.target)
 
     def _metadata(self):
         metadata = super()._metadata()
