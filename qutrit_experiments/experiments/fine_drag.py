@@ -13,13 +13,13 @@ from qiskit_experiments.framework import ExperimentData, Options
 from qiskit_experiments.library import FineDrag
 
 from ..calibrations import get_qutrit_pulse_gate
-from ..experiment_mixins.ef_space import EFSpaceExperiment
+from ..experiment_mixins import EFCasted, EFSpaceExperiment
 from ..gates import QutritGate, RZ12Gate, SX12Gate
 from ..transpilation import map_to_physical_qubits
 from ..util.dummy_data import from_one_probs
 
 
-class EFFineDrag(EFSpaceExperiment, FineDrag):
+class EFFineDrag(EFCasted, EFSpaceExperiment, FineDrag):
     """FineDrag experiment for the 1<->2 space Rx pulses.
 
     The original FineDrag uses sx and rz gates in its circuits. We replace them, in a rather hacky
@@ -31,18 +31,6 @@ class EFFineDrag(EFSpaceExperiment, FineDrag):
     is Rz12(-pi).Rx.Rz12(pi). We are saved by the fact that the experiment operates entirely in the
     |1>-|2> space, rendering the geometric phase global.
     """
-    def circuits(self) -> list[QuantumCircuit]:
-        circuits = super().circuits()
-
-        for circuit in circuits:
-            for inst in circuit.data:
-                if isinstance(inst.operation, RZGate):
-                    inst.operation = RZ12Gate(inst.operation.params[0])
-                elif isinstance(inst.operation, SXGate):
-                    inst.operation = SX12Gate()
-
-        return circuits
-
     def _transpiled_circuits(self) -> list[QuantumCircuit]:
         repetitions = self.experiment_options.repetitions
         gate = self.experiment_options.gate
