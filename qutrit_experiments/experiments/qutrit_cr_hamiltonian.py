@@ -126,7 +126,7 @@ from .hamiltonian_tomography import HamiltonianTomography, HamiltonianTomography
 twopi = 2. * np.pi
 
 
-class QutritCRHamiltonian(BatchExperiment):
+class QutritCRHamiltonianTomography(BatchExperiment):
     """Hamiltonian tomography of qutrit-qubit CR."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
@@ -154,7 +154,7 @@ class QutritCRHamiltonian(BatchExperiment):
             experiments.append(exp)
             analyses.append(exp.analysis)
 
-        analysis = QutritCRHamiltonianAnalysis(analyses)
+        analysis = QutritCRHamiltonianTomographyAnalysis(analyses)
 
         super().__init__(experiments, backend=backend, analysis=analysis)
 
@@ -204,7 +204,7 @@ class QutritCRHamiltonian(BatchExperiment):
         return counts_list
 
 
-class QutritCRHamiltonianAnalysis(CompoundAnalysis):
+class QutritCRHamiltonianTomographyAnalysis(CompoundAnalysis):
     """Hamiltonian tomography analysis for CR tone with a control qutrit."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -253,17 +253,13 @@ class QutritCRHamiltonianAnalysis(CompoundAnalysis):
         return analysis_results, figures
 
 
-class QutritCRHamiltonianScan(BatchExperiment):
-    """Batched QutritCRHamiltonian scanning one or more parameters."""
+class QutritCRHamiltonianTomographyScan(BatchExperiment):
+    """Batched QutritCRHamiltonianTomography scanning one or more parameters."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
         options.dummy_components = None
         return options
-
-    @classmethod
-    def _default_transpile_options(cls) -> Options:
-        return HamiltonianTomographyScan._default_transpile_options()
 
     def __init__(
         self,
@@ -272,7 +268,6 @@ class QutritCRHamiltonianScan(BatchExperiment):
         parameter: Union[str, tuple[str, ...]],
         values: Union[Sequence[float], tuple[Sequence[float], ...]],
         widths: Optional[Iterable[float]] = None,
-        secondary_trajectory: bool = False,
         time_unit: Optional[float] = None,
         backend: Optional[Backend] = None
     ):
@@ -282,14 +277,12 @@ class QutritCRHamiltonianScan(BatchExperiment):
         for control_state in range(3):
             exp = HamiltonianTomographyScan(physical_qubits, schedule, parameter, values,
                                             rabi_init=cr_rabi_init(control_state), widths=widths,
-                                            secondary_trajectory=secondary_trajectory,
                                             time_unit=time_unit, backend=backend)
             experiments.append(exp)
             analyses.append(exp.analysis)
 
-        analysis = QutritCRHamiltonianScanAnalysis(analyses)
-
-        super().__init__(experiments, backend=backend, analysis=analysis)
+        super().__init__(experiments, backend=backend, analysis=None)
+                         #analysis=QutritCRHamiltonianTomographyScanAnalysis(analyses))
 
     def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
         if self.experiment_options.dummy_components is not None:
@@ -315,8 +308,8 @@ class QutritCRHamiltonianScan(BatchExperiment):
         return super().dummy_data(transpiled_circuits)
 
 
-class QutritCRHamiltonianScanAnalysis(CompoundAnalysis):
-    """Analysis for QutritCRHamiltonianScan."""
+class QutritCRHamiltonianTomographyScanAnalysis(CompoundAnalysis):
+    """Analysis for QutritCRHamiltonianTomographyScan."""
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()

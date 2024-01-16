@@ -1,7 +1,8 @@
 """Hamiltonian tomography experiment."""
 from collections.abc import Callable, Iterable, Sequence
+from itertools import product
 import logging
-from typing import Optional, Union
+from typing import Any, Optional, Union
 import lmfit
 import numpy as np
 import scipy.optimize as sciopt
@@ -133,8 +134,6 @@ class HamiltonianTomography(BatchExperiment):
         rabi_init: Optional[Callable] = None,
         measured_logical_qubit: Optional[int] = None,
         widths: Optional[Iterable[float]] = None,
-        initial_state: Optional[str] = None,
-        secondary_trajectory: bool = False,
         time_unit: Optional[float] = None,
         backend: Optional[Backend] = None
     ):
@@ -144,23 +143,11 @@ class HamiltonianTomography(BatchExperiment):
         if rabi_init is None:
             rabi_init = GSRabi
 
-        axes = ['x', 'y', 'z']
-        if initial_state is None:
-            initial_state = GSRabi._default_experiment_options().initial_state
-
-        bases = [(initial_state, meas_basis) for meas_basis in axes]
-        if secondary_trajectory:
-            iaxis = axes.index(initial_state)
-            orth_axes = [axes[(iaxis + i) % 3] for i in range(1, 3)]
-            bases += [(orth_axes[0], meas_basis) for meas_basis in orth_axes]
-
-        for idx, (init, meas_basis) in enumerate(bases):
+        for idx, (init, meas_basis) in enumerate(product(['z', 'x'], ['x', 'y', 'z'])):
             exp = rabi_init(physical_qubits, schedule, widths=widths, initial_state=init,
                             meas_basis=meas_basis, time_unit=time_unit, experiment_index=idx,
                             backend=backend)
-            # convert init and meas_basis to a numerical value (to be used as fit function
-            # arguments)
-            exp.extra_metadata['basis'] = axes.index(init) * 3 + axes.index(meas_basis)
+            exp.extra_metadata['basis'] = idx
             if measured_logical_qubit is not None:
                 exp.set_experiment_options(measured_logical_qubit=measured_logical_qubit)
 
@@ -170,19 +157,15 @@ class HamiltonianTomography(BatchExperiment):
             experiments.append(exp)
             analyses.append(exp.analysis)
 
-        super().__init__(experiments, backend=backend,
-                         analysis=HamiltonianTomographyAnalysis(analyses))
-
-        self.extra_metadata = {
-            'initial_state': initial_state,
-            'secondary_trajectory': secondary_trajectory
-        }
+        super().__init__(experiments, backend=backend, analysis=None)
+                         #analysis=HamiltonianTomographyAnalysis(analyses))
+        self.extra_metadata = {}
 
     @property
     def num_circuits(self) -> int:
         return sum(subexp.num_circuits for subexp in self.component_experiment())
 
-    def _metadata(self):
+    def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
         # Store measurement level and meas return if they have been
         # set for the experiment
@@ -215,6 +198,7 @@ class HamiltonianTomography(BatchExperiment):
 
         return counts_list
 
+# TODO HERE
 
 class HamiltonianTomographyAnalysis(LinkedCurveAnalysis):
     """Track the state along a circle on the surface of the Bloch sphere."""
@@ -627,10 +611,11 @@ class HamiltonianTomographyAnalysisNew(CompoundAnalysis, curve.CurveAnalysis):
 
 
 class HamiltonianTomographyScan(BatchExperiment):
-    """Batched HamiltonianTomography scanning one or more variables."""
+    """Batched HamiltonianTomography scanning a variables."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
+        options.parameter = None
         options.values = None
         options.max_circuits = 100
         options.dummy_components = None
@@ -640,42 +625,34 @@ class HamiltonianTomographyScan(BatchExperiment):
         self,
         physical_qubits: Sequence[int],
         schedule: ScheduleBlock,
-        parameter: Union[str, tuple[str, ...]],
-        values: Union[Sequence[float], tuple[Sequence[float], ...]],
+        parameter: str,
+        values: Sequence[float],
         rabi_init: Optional[Callable] = None,
         widths: Optional[Iterable[float]] = None,
-        initial_state: Optional[str] = None,
-        secondary_trajectory: bool = False,
         time_unit: Optional[float] = None,
         backend: Optional[Backend] = None
     ):
-        if isinstance(parameter, str):
-            parameter = (parameter,)
-            values = (values,)
-
         experiments = []
         analyses = []
 
-        params = tuple(schedule.get_parameters(name)[0] for name in parameter)
+        param = schedule.get_parameters(parameter)[0]
 
-        for value_tuple in zip(*values):
-            assign_parameters = dict(zip(params, value_tuple))
-            sched = schedule.assign_parameters(assign_parameters, inplace=False)
+        for value in values:
+            sched = schedule.assign_parameters({param: value}, inplace=False)
             exp = HamiltonianTomography(physical_qubits, sched, rabi_init=rabi_init,
-                                        widths=widths, initial_state=initial_state,
-                                        secondary_trajectory=secondary_trajectory,
-                                        time_unit=time_unit, backend=backend)
-            for name, value in zip(parameter, value_tuple):
-                exp.extra_metadata[name] = value
-
+                                        widths=widths, time_unit=time_unit, backend=backend)
+            exp.extra_metadata[parameter] = value
             experiments.append(exp)
             analyses.append(exp.analysis)
 
-        analysis = HamiltonianTomographyScanAnalysis(analyses, parameter[0])
+        super().__init__(experiments, backend=backend, analysis=None)
+                         #analysis=HamiltonianTomographyScanAnalysis(analyses))
+        self.set_experiment_options(parameter=parameter, values=values)
 
-        super().__init__(experiments, backend=backend, analysis=analysis)
-
-        self.set_experiment_options(values=values)
+    def _metadata(self) -> dict[str, Any]:
+        metadata = super()._metadata()
+        metadata['scan_parameter'] = self.experiment_options.parameter
+        return metadata
 
     @property
     def num_circuits(self) -> int:
@@ -707,19 +684,8 @@ class HamiltonianTomographyScanAnalysis(CompoundAnalysis):
     def _default_options(cls) -> Options:
         options = super()._default_options()
         options.plot = True
-        options.poly_orders = None
-
+        options.poly_orders: Optional[tuple[PolynomialOrder, PolynomialOrder, PolynomialOrder]] = None
         return options
-
-    def __init__(
-        self,
-        analyses: list[HamiltonianTomographyAnalysis],
-        xvar: str,
-        poly_orders: Optional[tuple[PolynomialOrder, PolynomialOrder, PolynomialOrder]] = None
-    ):
-        super().__init__(analyses)
-        self.xvar = xvar
-        self.set_options(poly_orders=poly_orders)
 
     def _run_additional_analysis(
         self,
@@ -730,19 +696,20 @@ class HamiltonianTomographyScanAnalysis(CompoundAnalysis):
         """Fit the components as functions of the scan parameter."""
         component_index = experiment_data.metadata["component_child_index"]
 
+        xvar = experiment_data.metadata['scan_parameter']
         xval = np.empty(len(component_index))
         hamiltonian_components = np.empty((3, len(component_index)), dtype='O')
 
         for iexp, child_index in enumerate(component_index):
             child_data = experiment_data.child_data(child_index)
-            xval[iexp] = child_data.metadata[self.xvar]
+            xval[iexp] = child_data.metadata[xvar]
             hamiltonian_components[:, iexp] = \
                 child_data.analysis_results('hamiltonian_components').value
 
         if self.options.plot:
             plotter = CurvePlotter(MplDrawer())
             plotter.set_figure_options(
-                xlabel=self.xvar,
+                xlabel=xvar,
                 ylabel='Hamiltonian component'
             )
 

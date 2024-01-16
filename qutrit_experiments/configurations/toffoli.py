@@ -149,8 +149,8 @@ def c2t_sizzle_frequency_scan(runner, data):
 
 @register_exp
 @add_readout_mitigation
-def c2t_cr_amplitude_scan(runner):
-    from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianScan
+def c2t_hcr_amplitude_scan(runner):
+    from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianTomographyScan
 
     control2, target = runner.program_data['qubits'][1:]
     width = Parameter('width')
@@ -161,7 +161,7 @@ def c2t_cr_amplitude_scan(runner):
     amplitudes = np.linspace(0.1, 0.9, 9)
 
     return ExperimentConfig(
-        QutritCRHamiltonianScan,
+        QutritCRHamiltonianTomographyScan,
         [control2, target],
         args={
             'schedule': schedule,
