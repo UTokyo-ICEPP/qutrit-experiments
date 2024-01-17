@@ -61,46 +61,68 @@ class HamiltonianTomography(BatchExperiment):
             -\omega^y & \omega^x & 0
             \end{pmatrix}.
 
-    Exponentiating this, we have for :math:`r(0) = (0, 0, 1)^T`
+    Exponentiating this, we have
 
     .. math::
 
-        r(t) = \frac{1}{\Omega^2} \begin{pmatrix}
+        e^{G t} = \frac{1}{\Omega^2} \begin{pmatrix}
+        (\omega^x)^2 + [(\omega^y)^2 + (\omega^z)^2] \cos(\Omega t) &
+        \omega^x \omega^y [1 - \cos(\Omega t)] - \Omega \omega^z \sin(\Omega t) &
         \omega^x \omega^z [1 - \cos(\Omega t)] + \Omega \omega^y \sin(\Omega t) \\
+        \omega^y \omega^x [1 - \cos(\Omega t)] + \Omega \omega^z \sin(\Omega t) &
+        (\omega^y)^2 + [(\omega^z)^2 + (\omega^x)^2] \cos(\Omega t) &
         \omega^y \omega^z [1 - \cos(\Omega t)] - \Omega \omega^x \sin(\Omega t) \\
+        \omega^z \omega^x [1 - \cos(\Omega t)] - \Omega \omega^y \sin(\Omega t) &
+        \omega^z \omega^y [1 - \cos(\Omega t)] + \Omega \omega^x \sin(\Omega t) &
         (\omega^z)^2 + [(\omega^x)^2 + (\omega^y)^2] \cos(\Omega t)
         \end{pmatrix},
 
-    where :math:`\Omega := \sqrt{\sum_g (\omega^g)^2}.` Each component of :math:`r(t)` thus evolves
-    sinusoidally with the same frequency while satisfying :math:`|r(t)|^2 = 1`. Reparametrizing
+    where :math:`\Omega := \sqrt{\sum_g (\omega^g)^2}.` Each element of :math:`e^{G t}` thus evolves
+    sinusoidally with the same frequency. Reparametrizing
     :math:`\omega^g` as
 
     .. math::
 
         \omega^x/\Omega & = \sin \psi \cos \phi, \\
         \omega^y/\Omega & = \sin \psi \sin \phi, \\
-        \omega^z\Omega & = \cos \psi,
+        \omega^z/\Omega & = \cos \psi,
 
     we arrive at
 
     .. math::
 
-        r(t) = \begin{pmatrix}
+        e^{G t} = \begin{pmatrix}
+        (1 - \sin^2 \psi \cos^2 \phi) \cos(\Omega t) + \sin^2 \psi \cos^2 \phi &
+        -\sin^2 \psi \sin \phi \cos \phi \cos(\Omega t) - \cos \psi \sin(\Omega t)
+            + \sin^2 \psi \sin \phi \cos \phi &
         \sin \psi [-\cos \psi \cos \phi \cos(\Omega t) + \sin \phi \sin(\Omega t)]
             + \sin \psi \cos \psi \cos \phi \\
+        -\sin^2 \psi \sin \phi \cos \phi \cos(\Omega t) + \cos \psi \sin(\Omega t)
+            + \sin^2 \psi \sin \phi \cos \phi &
+        (1 - \sin^2 \psi \sin^2 \phi) \cos(\Omega t) + \sin^2 \psi \sin^2 \phi &
         \sin \psi [-\cos \psi \sin \phi \cos(\Omega t) - \cos \phi \sin(\Omega t)]
             + \sin \psi \cos \psi \sin \phi \\
+        \sin \psi [-\cos \psi \cos \phi \cos(\Omega t) - \sin \phi \sin(\Omega t)]
+            + \sin \psi \cos \psi \cos \phi &
+        \sin \psi [-\cos \psi \sin \phi \cos(\Omega t) + \cos \phi \sin(\Omega t)]
+            + \sin \psi \cos \psi \sin \phi &
         \sin^2 \psi \cos(\Omega t) + \cos^2 \psi
         \end{pmatrix}.
 
-    Casting the right hand side into the standard OscillationAnalysis form
+    Casting all elements of the matrix into the standard OscillationAnalysis form
     :math:`a \cos (2 \pi f t + \Phi) + b`,
 
     .. math::
 
         r(t) = \begin{pmatrix}
+        (1 - \sin^2 \psi \cos^2 \phi) \cos(2 \pi f t) + \sin^2 \psi \cos^2 \phi &
+        C \cos(2 \pi f t - \gamma) + \sin^2 \psi \sin \phi \cos \phi &
         \sin \psi A \cos(2 \pi f t + \alpha) + \sin \psi \cos \psi \cos \phi \\
+        C \cos(2 \pi f t + \gamma) + \sin^2 \psi \sin \phi \cos \phi &
+        (1 - \sin^2 \psi \sin^2 \phi) \cos(2 \pi f t) + \sin^2 \psi \sin^2 \phi &
         \sin \psi B \cos(2 \pi f t + \beta) + \sin \psi \cos \psi \sin \phi \\
+        A \cos (2 \pi f t - \alpha) + \sin \psi \cos \psi \cos \phi &
+        B \cos(2 \pi f t - \beta) + \sin \psi \cos \psi \sin \phi &
         \sin^2 \psi \cos(2 \pi f t) + \cos^2 \psi
         \end{pmatrix},
 
@@ -110,7 +132,8 @@ class HamiltonianTomography(BatchExperiment):
 
         f & = \Omega / (2 \pi) \\
         A & = \sqrt{\cos^2 \psi \cos^2 \phi + \sin^2 \phi}, \\
-        B & = \sqrt{\cos^2 \psi \sin^2 \phi + \cos^2 \phi},
+        B & = \sqrt{\cos^2 \psi \sin^2 \phi + \cos^2 \phi}, \\
+        C & = \sqrt{\sin^4 \psi \sin^2 \phi \cos^2 \phi + \cos^2 \psi}
 
     and
 
@@ -119,7 +142,17 @@ class HamiltonianTomography(BatchExperiment):
         \cos \alpha & = -\cos \psi \cos \phi / A, \\
         \sin \alpha & = -\sin \phi / A, \\
         \cos \beta & = -\cos \psi \cos \phi / B, \\
-        \sin \beta & = \cos \phi / B.
+        \sin \beta & = \cos \phi / B \\
+        \cos \gamma & = -\sin^2 \psi \sin \phi \cos \phi / C \\
+        \sin \gamma & = -\cos \psi / C.
+
+    Because a flat-top drive still must have pulse rise and fall times, the actual expectation
+    value vector will be of form
+
+    .. math::
+
+        r'(t) := U_f e^{G t} U_i r'(0)
+
     """
     @classmethod
     def _default_experiment_options(cls) -> Options:
@@ -157,8 +190,8 @@ class HamiltonianTomography(BatchExperiment):
             experiments.append(exp)
             analyses.append(exp.analysis)
 
-        super().__init__(experiments, backend=backend, analysis=None)
-                         #analysis=HamiltonianTomographyAnalysis(analyses))
+        super().__init__(experiments, backend=backend,
+                         analysis=HamiltonianTomographyAnalysis(analyses))
         self.extra_metadata = {}
 
     @property
@@ -198,260 +231,12 @@ class HamiltonianTomography(BatchExperiment):
 
         return counts_list
 
-# TODO HERE
 
-class HamiltonianTomographyAnalysis(LinkedCurveAnalysis):
-    """Track the state along a circle on the surface of the Bloch sphere."""
-    @staticmethod
-    def fit_guess_x(
-        user_opt: curve.FitOptions,
-        indiv_amp: np.ndarray,
-        indiv_phase: np.ndarray,
-        indiv_freq: np.ndarray,
-        x_index: int = 0,
-        set_delta: bool = True
-    ):
-        """Provide initial parameter values for initial state on the X axis."""
-        y_index = (x_index + 1) % 3
-        spsi2cphi2 = 1. - pos_unit_bound(indiv_amp[x_index])
-        if spsi2cphi2 > 0.99 and len(indiv_amp) > 3: # rotation about x axis
-            # indiv_*[3:] are measured in y & z axes
-            return HamiltonianTomographyAnalysis.fit_guess_y(user_opt, indiv_amp[3:],
-                                                             indiv_phase[3:], indiv_freq[3:],
-                                                             y_index=0, set_delta=set_delta)
+class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
+    """Analysis for HamiltonianTomography.
 
-        delta = indiv_phase[x_index]
-        gamma = indiv_phase[y_index] - delta
-        C = indiv_amp[y_index] # pylint: disable=invalid-name
-        cpsi = -unit_bound(np.sin(gamma) * C)
-        psi = np.arccos(cpsi)
-        abscphi = pos_unit_bound(np.sqrt(spsi2cphi2 / (1. - (cpsi ** 2))))
-
-        if set_delta:
-            user_opt.p0.set_if_empty(
-                delta=delta
-            )
-        user_opt.p0.set_if_empty(
-            psi=psi,
-            freq=indiv_freq[x_index]
-        )
-
-        options = []
-
-        phi_candidates = [np.arccos(abscphi), np.arccos(-abscphi),
-                          -np.arccos(-abscphi), -np.arccos(abscphi)]
-        for phi in phi_candidates:
-            opt = user_opt.copy()
-            opt.p0.set_if_empty(phi=phi)
-            options.append(opt)
-
-        return options
-
-    @staticmethod
-    def fit_guess_y(
-        user_opt: curve.FitOptions,
-        indiv_amp: np.ndarray,
-        indiv_phase: np.ndarray,
-        indiv_freq: np.ndarray,
-        y_index: int = 1,
-        set_delta: bool = True
-    ):
-        """Provide initial parameter values for initial state on the Y axis."""
-        z_index = (y_index + 1) % 3
-        spsi2sphi2 = 1. - pos_unit_bound(indiv_amp[y_index])
-        if spsi2sphi2 > 0.99 and len(indiv_amp) > 3: # rotation about y axis
-            return HamiltonianTomographyAnalysis.fit_guess_z(user_opt, indiv_amp[3:],
-                                                             indiv_phase[3:], indiv_freq[3:],
-                                                             z_index=0, set_delta=set_delta)
-
-        delta = indiv_phase[y_index]
-        beta = delta - indiv_phase[z_index]
-        B = indiv_amp[z_index] # pylint: disable=invalid-name
-        spsicphi = unit_bound(np.sin(beta) * B)
-        spsi = pos_unit_bound(np.sqrt(spsicphi ** 2 + spsi2sphi2))
-
-        if set_delta:
-            user_opt.p0.set_if_empty(
-                delta=delta
-            )
-        user_opt.p0.set_if_empty(
-            freq=indiv_freq[y_index]
-        )
-
-        options = []
-
-        if spsi == 1.:
-            user_opt.p0.set_if_empty(
-                psi=np.pi / 2.
-            )
-            phi_candidates = [np.arccos(spsicphi), -np.arccos(spsicphi)]
-            for phi in phi_candidates:
-                opt = user_opt.copy()
-                opt.p0.set_if_empty(phi=phi)
-                options.append(opt)
-        else:
-            psi_candidates = [np.arcsin(spsi), np.pi - np.arcsin(spsi)]
-            for psi in psi_candidates:
-                phi = np.arctan2(-np.cos(beta) / np.cos(psi), np.sin(beta))
-                opt = user_opt.copy()
-                opt.p0.set_if_empty(psi=psi, phi=phi)
-                options.append(opt)
-
-        return options
-
-    @staticmethod
-    def fit_guess_z(
-        user_opt: curve.FitOptions,
-        indiv_amp: np.ndarray,
-        indiv_phase: np.ndarray,
-        indiv_freq: np.ndarray,
-        z_index: int = 2,
-        set_delta: bool = True
-    ):
-        """Provide initial parameter values for initial state on the Z axis."""
-        x_index = (z_index + 1) % 3
-        spsi2 = pos_unit_bound(indiv_amp[z_index])
-        if spsi2 < 0.01 and len(indiv_amp) > 3: # rotation about y axis
-            return HamiltonianTomographyAnalysis.fit_guess_x(user_opt, indiv_amp[3:],
-                                                             indiv_phase[3:], indiv_freq[3:],
-                                                             x_index=0, set_delta=set_delta)
-        spsi = np.sqrt(spsi2)
-        delta = indiv_phase[z_index]
-        alpha = indiv_phase[x_index] - delta
-        A = indiv_amp[x_index] # pylint: disable=invalid-name
-        sphi = unit_bound(-np.sin(alpha) * A / spsi)
-
-        if set_delta:
-            user_opt.p0.set_if_empty(
-                delta=delta
-            )
-        user_opt.p0.set_if_empty(
-            freq=indiv_freq[z_index]
-        )
-
-        options = []
-
-        if spsi == 1.:
-            user_opt.p0.set_if_empty(
-                psi=np.pi / 2.
-            )
-            phi_candidates = [np.arcsin(sphi), np.pi - np.arcsin(sphi)]
-            for phi in phi_candidates:
-                opt = user_opt.copy()
-                opt.p0.set_if_empty(phi=phi)
-                options.append(opt)
-        else:
-            psi_candidates = [np.arcsin(spsi), np.pi - np.arcsin(spsi)]
-            for psi in psi_candidates:
-                phi = np.arctan2(-np.sin(alpha), -np.cos(alpha) / np.cos(psi))
-                opt = user_opt.copy()
-                opt.p0.set_if_empty(psi=psi, phi=phi)
-                options.append(opt)
-
-        return options
-
-    def __init__(self, analyses: list[GSRabiAnalysis]):
-        super().__init__(
-            analyses,
-            linked_params={
-                'amp': lmfit.Model(amp_func),
-                'freq': None,
-                'phase': lmfit.Model(phase_func),
-                'base': lmfit.Model(base_func)
-            },
-            experiment_params=['basis'],
-            # o1 and o2 are not used if secondary_trajectory=False
-            labels=['x', 'y', 'z', 'o1', 'o2']
-        )
-
-        self.set_options(
-            bounds={
-                'psi': (-1.e-3, np.pi + 1.e-3),
-                'phi': (-twopi, twopi),
-                'delta': (-np.pi, 3. * np.pi),
-                'freq': (-1.e+5, np.inf) # giving some slack on the negative side
-            }
-        )
-        self.plotter.set_figure_options(
-            ylim=(-1.1, 1.1)
-        )
-
-        self._initial_state = ''
-
-    def _generate_fit_guesses(
-        self,
-        user_opt: curve.FitOptions,
-        curve_data: curve.CurveData,
-    ) -> Union[curve.FitOptions, list[curve.FitOptions]]:
-        """Create algorithmic guess with analysis options and curve data.
-        Args:
-            user_opt: Fit options filled with user provided guess and bounds.
-            curve_data: Formatted` data collection to fit.
-        Returns:
-            list of fit options that are passed to the fitter function.
-
-        TODO write the analysis for when azimuthal projections are measured
-        """
-        ## Initial values for the linked params
-        indiv_amp = unp.nominal_values(self._individual_fit_results['amp'])
-        indiv_phase = unp.nominal_values(self._individual_fit_results['phase'])
-        indiv_freq = unp.nominal_values(self._individual_fit_results['freq'])
-
-        if self._initial_state == 'x':
-            return self.fit_guess_x(user_opt, indiv_amp, indiv_phase, indiv_freq)
-        if self._initial_state == 'y':
-            return self.fit_guess_y(user_opt, indiv_amp, indiv_phase, indiv_freq)
-        return self.fit_guess_z(user_opt, indiv_amp, indiv_phase, indiv_freq)
-
-    def _run_curve_fit(
-        self,
-        curve_data: curve.CurveData,
-        models: list[lmfit.Model],
-    ) -> curve.CurveFitResult:
-        result = super()._run_curve_fit(curve_data, models)
-
-        if result.success:
-            while result.params['phi'] < -np.pi:
-                result.params['phi'] += twopi
-            while result.params['phi'] > np.pi:
-                result.params['phi'] -= twopi
-            while result.params['delta'] < 0.:
-                result.params['delta'] += twopi
-            while result.params['delta'] > twopi:
-                result.params['delta'] -= twopi
-
-        return result
-
-    def _run_additional_analysis(
-        self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list["matplotlib.figure.Figure"]
-    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
-        """Compute the Hamiltonian components."""
-        self._initial_state = experiment_data.metadata['initial_state']
-        analysis_results, figures = super()._run_additional_analysis(experiment_data,
-                                                                     analysis_results, figures)
-        fit_result = next(res.value for res in analysis_results
-                          if res.name == PARAMS_ENTRY_PREFIX + self.name)
-        popt = fit_result.ufloat_params
-
-        omega = popt['freq'] * twopi
-
-        # Divide by factor two to interpret as coefficients of single-qubit X, Y, Z
-        components = np.array([
-            omega * unp.sin(popt['psi']) * unp.cos(popt['phi']), # pylint: disable=no-member
-            omega * unp.sin(popt['psi']) * unp.sin(popt['phi']), # pylint: disable=no-member
-            omega * unp.cos(popt['psi']) # pylint: disable=no-member
-        ]) / 2.
-
-        analysis_results.append(AnalysisResultData(name='hamiltonian_components', value=components))
-
-        return analysis_results, figures
-
-
-class HamiltonianTomographyAnalysisNew(CompoundAnalysis, curve.CurveAnalysis):
-    """Analysis for HamiltonianTomography."""
+    
+    """
     @staticmethod
     def evolution_factory(init, meas):
         def evolution(x, freq, psi, phi, theta, chi, kappa):
