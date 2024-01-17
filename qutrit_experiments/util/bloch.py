@@ -15,6 +15,45 @@ def pos_unit_bound(x: array_like) -> array_like:
     return np.minimum(np.maximum(x, 0.), 1.)
 
 
+def rotation_matrix(theta: array_like, psi: array_like, phi: array_like) -> array_like:
+    cpsi = np.cos(psi)
+    spsi = np.sin(psi)
+    cphi = np.cos(phi)
+    sphi = np.sin(phi)
+
+    A = spsi * np.sqrt(((cpsi * cphi) ** 2) + (sphi ** 2))
+    B = spsi * np.sqrt(((cpsi * sphi) ** 2) + (cphi ** 2))
+    C = np.sqrt((spsi ** 4) * (sphi ** 2) * (cphi ** 2) + (cpsi ** 2))
+    alpha = np.arctan2(-sphi, -cpsi * cphi)
+    beta = np.arctan2(cphi, -cpsi * sphi)
+    gamma = np.arctan2(-cpsi, -(spsi ** 2) * sphi * cphi)
+    spsi2 = np.square(spsi)
+    spsicpsi = spsi * cpsi
+
+    amp = np.array([
+        [1. - ((spsi * cphi) ** 2), C, A],
+        [C, 1. - ((spsi * sphi) ** 2), B],
+        [A, B, spsi ** 2 * np.ones_like(phi)]
+    ])
+    phase = np.array([
+        [0., -gamma, alpha],
+        [gamma, 0., beta],
+        [-alpha, -beta, 0.]
+    ])
+    base = np.array([
+        [spsi2 * (cphi ** 2), spsi2 * sphi * cphi, spsicpsi * cphi],
+        [spsi2 * sphi * cphi, spsi2 * (sphi ** 2), spsicpsi * sphi],
+        [spsicpsi * cphi, spsicpsi * sphi, cpsi ** 2 * np.ones_like(phi)]
+    ])
+
+    theta_dims = tuple(range(np.asarray(theta).ndim))
+    amp = np.expand_dims(amp, theta_dims)
+    phase = np.expand_dims(phase, theta_dims)
+    base = np.expand_dims(base, theta_dims)
+    theta = np.expand_dims(theta, (-2, -1))
+    return amp * np.cos(theta + phase) + base
+
+
 def amp_matrix(psi: array_like, phi: array_like) -> array_like:
     """Compute the amplitude of the projection of the Bloch trajectory."""
     cpsi = np.cos(psi)

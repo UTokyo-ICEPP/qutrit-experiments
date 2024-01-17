@@ -14,14 +14,13 @@ from qiskit.pulse import ScheduleBlock
 from qiskit.result import Counts
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.curve_analysis.base_curve_analysis import PARAMS_ENTRY_PREFIX
+from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 from qiskit_experiments.framework import Options, ExperimentData, AnalysisResultData
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ..analyses.linked_curve_analysis import LinkedCurveAnalysis
 from ..framework.compound_analysis import CompoundAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
-from ..util.bloch import (amp_matrix, amp_func, phase_matrix, phase_func, base_matrix, base_func,
-                          unit_bound, pos_unit_bound)
+from ..util.bloch import rotation_matrix, unit_bound, pos_unit_bound
 from ..util.polynomial import sparse_poly_fitfunc, PolynomialOrder
 from .gs_rabi import GSRabi, GSRabiAnalysis
 
@@ -153,6 +152,47 @@ class HamiltonianTomography(BatchExperiment):
 
         r'(t) := U_f e^{G t} U_i r'(0)
 
+    where
+
+    .. math::
+
+        U_i & = \lim_{\substack{\Delta t \to 0 \\ N\Delta t = \tau}}
+              \prod_{j=1}^{N} e^{-iH(j\Delta t)\Delta t} \\
+            & = T \left[ e^{-i\int_{0}^{\tau} H(t) dt} \right] \\
+        U_f & = \lim_{\substack{\Delta t \to 0 \\ N\Delta t = \tau}}
+              \prod_{j=1}^{N} e^{-iH(T - (N-j)\Delta t)\Delta t} \\
+            & = T \left[ e^{-i\int_{0}^{\tau} H(T - \tau + t)} \right] \\
+
+    with :math:`\tau` the rise and fall time and :math:`T` the overall pulse duration. The product
+    symbol implies left multiplication of operators. Assuming :math:`H(T - t) = H(t)`, we have
+
+    .. math::
+
+        U_f & = \lim_{\substack{\Delta t \to 0 \\ N\Delta t = \tau}}
+              \prod_{j=1}^{N} e^{-iH((N-j)\Delta t)\Delta t} \\
+            & = \lim_{\substack{\Delta t \to 0 \\ N\Delta t = \tau}}
+              {\prod^*}_{j=0}^{N-1} e^{-iH(j\Delta t)\Delta t} \\
+            & = \left[\lim_{\substack{\Delta t \to 0 \\ N\Delta t = \tau}}
+              \prod_{j=1}^{N} e^{-iH^T(j\Delta t)\Delta t}\right]^T \\
+
+    where :math:`\prod^*` represents right multiplication. With the pauli decomposition of
+    :math:`H` as in the first equation,
+
+    .. math::
+
+        H^T = \frac{\omega^x}{2} x - \frac{\omega^y}{2} y + \frac{\omega^z}{2} z.
+
+    Assuming :math:`\omega^y \ll \omega^x, \omega^z` during the rise and fall evolutions,
+
+    .. math::
+
+        U_f = U_i^T
+
+    Then, if the Bloch representation of :math:`U_i` is given by a three-dimentional rotation matrix
+    with angle :math:`\theta` and axis :math:`(\sin\chi\cos\kappa, \sin\chi\sin\kappa, \cos\chi)`,
+    the Bloch representation of :math:`U_f` has the same angle and axis where
+    :math:`\kappa \to -\kappa`.
+
     """
     @classmethod
     def _default_experiment_options(cls) -> Options:
@@ -180,7 +220,8 @@ class HamiltonianTomography(BatchExperiment):
             exp = rabi_init(physical_qubits, schedule, widths=widths, initial_state=init,
                             meas_basis=meas_basis, time_unit=time_unit, experiment_index=idx,
                             backend=backend)
-            exp.extra_metadata['basis'] = idx
+            exp.extra_metadata['init'] = init
+            exp.extra_metadata['meas_basis'] = meas_basis
             if measured_logical_qubit is not None:
                 exp.set_experiment_options(measured_logical_qubit=measured_logical_qubit)
 
@@ -233,47 +274,33 @@ class HamiltonianTomography(BatchExperiment):
 
 
 class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
-    """Analysis for HamiltonianTomography.
-
-    
-    """
+    """Analysis for HamiltonianTomography."""
     @staticmethod
-    def evolution_factory(init, meas):
+    def evolution_factory(init, meas_basis):
+        i_init = ['x', 'y', 'z'].index(init)
+        i_meas = ['x', 'y', 'z'].index(meas_basis)
         def evolution(x, freq, psi, phi, theta, chi, kappa):
-            xdims = tuple(range(len(np.asarray(x).shape)))
-            x = np.expand_dims(x, (-2, -1))
-
-            amp = np.expand_dims(amp_matrix(chi, kappa), xdims)
-            phase = np.expand_dims(phase_matrix(chi, kappa, 0.), xdims)
-            base = np.expand_dims(base_matrix(chi, kappa), xdims)
-            matrix = amp * np.cos(theta + phase) + base
-
-            amp = np.expand_dims(amp_matrix(psi, phi), xdims)
-            phase = np.expand_dims(phase_matrix(psi, phi, 0.), xdims)
-            base = np.expand_dims(base_matrix(psi, phi), xdims)
-            matrix = (amp * np.cos(twopi * freq * x + phase) + base) @ matrix
-
-            amp = np.expand_dims(amp_matrix(chi, kappa), xdims)
-            phase = np.expand_dims(phase_matrix(chi, kappa, 0.), xdims)
-            base = np.expand_dims(base_matrix(chi, kappa), xdims)
-            matrix = (amp * np.cos(-theta + phase) + base) @ matrix
-
-            # Need moveaxis + [meas, init] instead of [..., meas, init] because the latter
-            # returns an ndarray object even when x is a scalar
-            return np.moveaxis(matrix, (-2, -1), (0, 1))[meas, init]
-
+            xdims = tuple(range(np.asarray(x).ndim))
+            theta = np.expand_dims(theta, xdims)
+            return np.einsum('...i,...ij,...j->...',
+                             rotation_matrix(theta, chi, -kappa)[..., i_meas, :],
+                             rotation_matrix(twopi * freq * x, psi, phi),
+                             rotation_matrix(theta, chi, kappa)[..., i_init])
         return evolution
-
-    @classmethod
-    def _default_options(cls) -> Options:
-        options = super()._default_options()
-        options.primary_init = 2
-        return options
 
     def __init__(self, analyses: list[GSRabiAnalysis]):
         super().__init__(analyses, flatten_results=False)
 
+        models = [lmfit.Model(self.evolution_factory(init, meas_basis), name=f'{meas_basis}|{init}')
+                  for init in ['z', 'x'] for meas_basis in ['x', 'y', 'z']]
+        curve.CurveAnalysis.__init__(self, models)
+
         self.set_options(
+            data_processor=DataProcessor('counts', [Probability('1'), BasisExpectationValue()]),
+            data_subfit_map={
+                f'{meas_basis}|{init}': {'initial_state': init, 'meas_basis': meas_basis}
+                for init in ['z', 'x'] for meas_basis in ['x', 'y', 'z']
+            },
             bounds={
                 'psi': (-1.e-3, np.pi + 1.e-3),
                 'phi': (-twopi, twopi),
@@ -288,38 +315,7 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
         )
 
         # Fit results of individual components
-        self._component_results = None
-
-    def _run_analysis(self, experiment_data: ExperimentData):
-        component_index = experiment_data.metadata["component_child_index"]
-
-        axes = ['x', 'y', 'z']
-
-        # Identify the unitary of w=0
-        # Solve for rise and fall: U = (cosθ/2 - isinθ/2(n.σ)) (cosθ/2 - isinθ/2(m.σ))
-        # where n is a mirror image of m about the plane that contains the poles and the Hamiltonian
-        # axes (ω(t)): (ωx(t), ωy(t)) is assumed to stay in the same plane during the rise-fall
-        # evolution
-
-        self._models = []
-        subfit_map = {}
-        for idx in range(len(self._analyses)):
-            child_data = experiment_data.child_data(component_index[idx])
-            basis = child_data.metadata['basis']
-            init = basis // 3
-            meas = basis % 3
-            model = lmfit.Model(self.evolution_factory(init, meas),
-                                name=f'{axes[meas]}|{axes[init]}')
-            self._models.append(model)
-            subfit_map[model._name] = {'experiment_index': idx}
-
-        self.set_options(
-            data_subfit_map=subfit_map,
-            outcome='0',
-            data_processor=self._analyses[0].options.data_processor
-        )
-
-        return super()._run_analysis(experiment_data)
+        self._component_results = {}
 
     def _run_additional_analysis(
         self,
@@ -327,7 +323,25 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
         analysis_results: list[AnalysisResultData],
         figures: list["matplotlib.figure.Figure"]
     ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
-        return curve.CurveAnalysis._run_analysis(self, experiment_data)
+        analysis_results, figures = curve.CurveAnalysis._run_analysis(self, experiment_data)
+
+        fit_result = next(res.value for res in analysis_results
+                          if res.name == PARAMS_ENTRY_PREFIX + self.name)
+        popt = fit_result.ufloat_params
+        omega = popt['freq'] * twopi
+        # Divide the omegas by factor two to interpret as coefficients of single-qubit X, Y, Z
+        analysis_results.append(
+            AnalysisResultData(
+                name='hamiltonian_components',
+                value=np.array([
+                    omega * unp.sin(popt['psi']) * unp.cos(popt['phi']), # pylint: disable=no-member
+                    omega * unp.sin(popt['psi']) * unp.sin(popt['phi']), # pylint: disable=no-member
+                    omega * unp.cos(popt['psi']) # pylint: disable=no-member
+                ]) / 2.
+            )
+        )
+
+        return analysis_results, figures
 
     def _initialize(
         self,
@@ -346,53 +360,95 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
                 if key not in parent_metadata:
                     parent_metadata[key] = value
 
-        results = {}
-        bases = []
         component_index = experiment_data.metadata['component_child_index']
         for analysis, child_index in zip(self._analyses, component_index):
-            result_name = PARAMS_ENTRY_PREFIX + analysis.name
             child_data = experiment_data.child_data(child_index)
-            bases.append(child_data.metadata['basis'])
-            child_result = child_data.analysis_results(result_name)
-            ufloat_params = child_result.value.ufloat_params
-            for pname, pvalue in ufloat_params.items():
-                if pname not in results:
-                    results[pname] = np.empty(len(self._analyses), dtype=object)
-
-                results[pname][child_index] = pvalue
-
-        self.options.primary_init = bases[0] // 3
-        self._component_results = results
+            child_result = child_data.analysis_results(PARAMS_ENTRY_PREFIX + analysis.name)
+            init = child_data.metadata['init']
+            meas_basis = child_data.metadata['meas_basis']
+            self._component_results[f'{meas_basis}|{init}'] = child_result.value.ufloat_params
 
     def _generate_fit_guesses(
         self,
         user_opt: curve.FitOptions,
         curve_data: curve.CurveData,
     ) -> Union[curve.FitOptions, list[curve.FitOptions]]:
-        # freq
-        freqs = unp.nominal_values(self._component_results['freq'])
-        user_opt.p0.set_if_empty(freq=np.mean(freqs))
+        subdata = {}
+        reliable_results = {}
+        for label in curve_data.labels:
+            subdata[label] = curve_data.get_subset_of(label)
+            if np.nanmax(subdata[label].y) - np.nanmin(subdata[label].y) > 0.5:
+                reliable_results[label] = self._component_results[label]
+        if not reliable_results:
+            # If no reliable points are found, just use all
+            logger.warning('No init x meas_basis setup had y value range greater than 0.5')
+            reliable_results = self._component_results
+        # freq is common but reliable only when amp is sufficiently large
+        freq_p0 = np.mean([res['freq'].n for res in reliable_results.values()])
+        logger.debug('Initial guess for freq=%f from %s', freq_p0,
+                     {key: value['freq'] for key, value in reliable_results.items()})
+        user_opt.p0.set_if_empty(freq=freq_p0)
 
-        # Initial and final matrices
-        # - set theta = half phase offset @ t=0
-        #   (assuming component [0] is t=0)
-        # - chi = kappa = 0
-        phases = unp.nominal_values(self._component_results['phase'])
-        p0 = phases[0] / 2.
-        user_opt.p0.set_if_empty(
-            theta=p0,
-            chi=0.,
-            kappa=0.,
-        )
+        # Assuming x[0] = 0, fit for U^TU to find the initial values for theta, chi, kappa
+        models = {m._name: m for m in self._models}
+        def objective(params):
+            theta, chi, kappa = params
+            return np.sum(np.square(
+                [subdata[label].y[0]
+                 - models[label].eval(x=0, freq=0., psi=0., phi=0.,
+                                      theta=theta, chi=chi, kappa=kappa)
+                 for label in curve_data.labels]
+            ))
+        res = sciopt.minimize(objective, (0.01, np.pi / 2., 0.),
+                              bounds=[(0., twopi), (0., np.pi), (-np.pi, np.pi)])
+        user_opt.p0.set_if_empty(theta=res.x[0], chi=res.x[1], kappa=res.x[2])
 
-        # psi and phi
-        amps = unp.nominal_values(self._component_results['amp'])
-        args = (user_opt, amps, phases, freqs)
-        if self.options.primary_init == 0:
-            return HamiltonianTomographyAnalysis.fit_guess_x(*args, set_delta=False)
-        if self.options.primary_init == 1:
-            return HamiltonianTomographyAnalysis.fit_guess_y(*args, set_delta=False)
-        return HamiltonianTomographyAnalysis.fit_guess_z(*args, set_delta=False)
+        # Guess from init=Z (assuming no contribution from rise & fall)
+        def estimate_amp(label):
+            xdata = subdata[label].x
+            ydata = subdata[label].y
+            popt, _ = sciopt.curve_fit(
+                lambda x, amp, base: amp * np.cos(twopi * freq_p0 * x) + base,
+                xdata, ydata, (0., ydata[0])
+            )
+            return unit_bound(np.abs(popt[0]))
+
+        try:
+            spsi2 = pos_unit_bound(reliable_results['z|z']['amp'].n)
+        except KeyError:
+            spsi2 = estimate_amp('z|z')
+        logger.debug('(sin psi)^2 = %f', spsi2)
+        # B^2 - A^2 = spsi2 * (-cpsi2 * c2phi + c2phi) = spsi4 * c2phi
+        try:
+            A = pos_unit_bound(reliable_results['x|z']['amp'].n) # pylint: disable=invalid-name
+        except KeyError:
+            A = estimate_amp('x|z') # pylint: disable=invalid-name
+        try:
+            B = pos_unit_bound(reliable_results['y|z']['amp'].n) # pylint: disable=invalid-name
+        except KeyError:
+            B = estimate_amp('y|z')
+        c2phi = unit_bound((B ** 2 - A ** 2) / spsi2 ** 2)
+        logger.debug('A = %f, B = %f, cos 2phi = %f', A, B, c2phi)
+        options = []
+        # For phi = delta + n * pi/2 (0 < delta < pi/2, n=0,1,2,3)
+        # cos(2phi) = cos(2*delta + n*pi) = (-1)^n cos(2*delta)
+        # arccos(cos(2phi)) = 2*delta (n=0,2)
+        #                   = pi - 2*delta (n=1,3)
+        for phi_quadrant in range(4):
+            if phi_quadrant % 2 == 0:
+                phi = np.arccos(c2phi) / 2.
+            else:
+                phi = (np.pi - np.arccos(c2phi)) / 2.
+            phi += np.pi / 2. * phi_quadrant
+            logger.debug('phi = %f (n=%d)', phi, phi_quadrant)
+            opt = user_opt.copy()
+            opt.p0.set_if_empty(
+                psi=np.arcsin(np.sqrt(spsi2)),
+                phi=phi
+            )
+            options.append(opt)
+
+        return options
 
 
 class HamiltonianTomographyScan(BatchExperiment):
@@ -430,8 +486,8 @@ class HamiltonianTomographyScan(BatchExperiment):
             experiments.append(exp)
             analyses.append(exp.analysis)
 
-        super().__init__(experiments, backend=backend, analysis=None)
-                         #analysis=HamiltonianTomographyScanAnalysis(analyses))
+        super().__init__(experiments, backend=backend,
+                         analysis=HamiltonianTomographyScanAnalysis(analyses))
         self.set_experiment_options(parameter=parameter, values=values)
 
     def _metadata(self) -> dict[str, Any]:
@@ -503,7 +559,8 @@ class HamiltonianTomographyScanAnalysis(CompoundAnalysis):
                     op,
                     x_formatted=xval,
                     y_formatted=unp.nominal_values(components),
-                    y_formatted_err=unp.std_devs(components)
+                    #y_formatted_err=unp.std_devs(components)
+                    y_formatted_err=np.full_like(components, 100., dtype=float)
                 )
 
         if self.options.poly_orders is not None:

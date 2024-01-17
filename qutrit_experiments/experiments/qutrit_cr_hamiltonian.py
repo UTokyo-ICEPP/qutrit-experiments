@@ -154,9 +154,8 @@ class QutritCRHamiltonianTomography(BatchExperiment):
             experiments.append(exp)
             analyses.append(exp.analysis)
 
-        analysis = QutritCRHamiltonianTomographyAnalysis(analyses)
-
-        super().__init__(experiments, backend=backend, analysis=analysis)
+        super().__init__(experiments, backend=backend,
+                         analysis=QutritCRHamiltonianTomographyAnalysis(analyses))
 
     def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
         # Coefficients of [[Ix/2, Iy/2, Iz/2], [zx/2, zy/2, zz/2], [ζx/2, ζy/2, ζz/2]]
@@ -281,8 +280,8 @@ class QutritCRHamiltonianTomographyScan(BatchExperiment):
             experiments.append(exp)
             analyses.append(exp.analysis)
 
-        super().__init__(experiments, backend=backend, analysis=None)
-                         #analysis=QutritCRHamiltonianTomographyScanAnalysis(analyses))
+        super().__init__(experiments, backend=backend,
+                         analysis=QutritCRHamiltonianTomographyScanAnalysis(analyses))
 
     def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
         if self.experiment_options.dummy_components is not None:

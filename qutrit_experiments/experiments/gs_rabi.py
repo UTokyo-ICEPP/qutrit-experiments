@@ -101,7 +101,7 @@ class GSRabi(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
             circuit.rz(-np.pi, measured_qubit)
 
         circuit.metadata = {
-            "intial_state": initial_state,
+            "initial_state": initial_state,
             "meas_basis": self.experiment_options.meas_basis
         }
         if self.experiment_options.experiment_index is not None:
@@ -226,21 +226,11 @@ class GSRabiAnalysis(curve.OscillationAnalysis):
     guess fails. CR Rabi is rather slow, so FFT usually fails, and we therefore need to
     have the input probability values shifted down by 0.5.
     """
-    @classmethod
-    def _default_options(cls):
-        options = super()._default_options()
-        options.outcome = None
-        return options
-
     def __init__(self, name: Optional[str] = None):
         super().__init__(name=name)
-
-        data_processor = DataProcessor('counts', [Probability('0'), BasisExpectationValue()])
-        # Next line is actually unnecessary since options.outcome is used only when constructing
-        # a default DataProcessor
-        self.options.outcome = '0'
-        self.options.data_processor = data_processor
-
+        self.set_options(
+            data_processor=DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
+        )
         self.plotter.set_figure_options(
             xlabel='Pulse width',
             #xval_unit='s', # unit set by subanalyses
@@ -250,7 +240,6 @@ class GSRabiAnalysis(curve.OscillationAnalysis):
 
     def _initialize(self, experiment_data: ExperimentData):
         super()._initialize(experiment_data)
-
         if 'fit_p0' in experiment_data.metadata:
             self.options.p0.update(experiment_data.metadata['fit_p0'])
 
@@ -273,7 +262,6 @@ class GSRabiAnalysis(curve.OscillationAnalysis):
         user_opt.bounds.set_if_empty(
             amp=(-1.e-3, 2.)
         )
-
         user_opt.p0.set_if_empty(
             amp=1.,
             base=0.
@@ -336,7 +324,6 @@ class GSRabiTrigSumAnalysis(curve.CurveAnalysis):
     @classmethod
     def _default_options(cls):
         options = super()._default_options()
-        options.outcome = None
         return options
 
     def __init__(self, name: Optional[str] = None):
@@ -349,11 +336,9 @@ class GSRabiTrigSumAnalysis(curve.CurveAnalysis):
             ],
             name=name,
         )
-
-        data_processor = DataProcessor('counts', [Probability('0'), BasisExpectationValue()])
-        self.options.outcome = '0'
-        self.options.data_processor = data_processor
-
+        self.set_options(
+            data_processor=DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
+        )
         self.plotter.set_figure_options(
             xlabel='Pulse width',
             #xval_unit='s', # unit set by subanalyses
