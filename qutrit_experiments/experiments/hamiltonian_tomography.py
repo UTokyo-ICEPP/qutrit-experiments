@@ -182,7 +182,7 @@ class HamiltonianTomography(BatchExperiment):
 
         H^T = \frac{\omega^x}{2} x - \frac{\omega^y}{2} y + \frac{\omega^z}{2} z.
 
-    Assuming :math:`\omega^y \ll \omega^x, \omega^z` during the rise and fall evolutions,
+    If :math:`\omega^y \ll \omega^x, \omega^z` during the rise and fall evolutions,
 
     .. math::
 
@@ -192,7 +192,6 @@ class HamiltonianTomography(BatchExperiment):
     with angle :math:`\theta` and axis :math:`(\sin\chi\cos\kappa, \sin\chi\sin\kappa, \cos\chi)`,
     the Bloch representation of :math:`U_f` has the same angle and axis where
     :math:`\kappa \to -\kappa`.
-
     """
     @classmethod
     def _default_experiment_options(cls) -> Options:
@@ -276,7 +275,7 @@ class HamiltonianTomography(BatchExperiment):
 class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
     """Analysis for HamiltonianTomography."""
     @staticmethod
-    def evolution_factory(init, meas_basis):
+    def zx_evolution_factory(init, meas_basis):
         i_init = ['x', 'y', 'z'].index(init)
         i_meas = ['x', 'y', 'z'].index(meas_basis)
         def evolution(x, freq, psi, phi, theta, chi, kappa):
@@ -288,12 +287,15 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
                              rotation_matrix(theta, chi, kappa)[..., i_init])
         return evolution
 
+    @classmethod
+    def _default_options(cls) -> Options:
+        options = super()._default_options()
+        options.zx_evolution = True
+        return options
+
     def __init__(self, analyses: list[GSRabiAnalysis]):
         super().__init__(analyses, flatten_results=False)
-
-        models = [lmfit.Model(self.evolution_factory(init, meas_basis), name=f'{meas_basis}|{init}')
-                  for init in ['z', 'x'] for meas_basis in ['x', 'y', 'z']]
-        curve.CurveAnalysis.__init__(self, models)
+        curve.CurveAnalysis.__init__(self, [])
 
         self.set_options(
             data_processor=DataProcessor('counts', [Probability('1'), BasisExpectationValue()]),
@@ -305,9 +307,6 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
                 'psi': (-1.e-3, np.pi + 1.e-3),
                 'phi': (-twopi, twopi),
                 'freq': (-1.e+5, np.inf), # giving some slack on the negative side
-                'theta': (-1.e-3, twopi + 1.e-3),
-                'chi': (-1.e-3, np.pi + 1.e-3),
-                'kappa': (-twopi, twopi)
             }
         )
         self.plotter.set_figure_options(
@@ -340,13 +339,27 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
                 ]) / 2.
             )
         )
-
         return analysis_results, figures
 
     def _initialize(
         self,
         experiment_data: ExperimentData,
     ):
+        # U_i and U_f parameters are frozen and determined from a fit to t=0 data points
+        if self.options.zx_evolution:
+            self._models = [lmfit.Model(self.zx_evolution_factory(init, meas_basis),
+                                        name=f'{meas_basis}|{init}')
+                            for init in ['z', 'x'] for meas_basis in ['x', 'y', 'z']]
+            self.set_options(
+                fixed_parameters={
+                    'theta': 0.,
+                    'chi': 0.,
+                    'kappa': 0.
+                }
+            )
+        else:
+            raise NotImplementedError('non-zx')
+
         # CurveAnalysis._initialize
         super()._initialize(experiment_data)
 
@@ -377,31 +390,38 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
         reliable_results = {}
         for label in curve_data.labels:
             subdata[label] = curve_data.get_subset_of(label)
+            if not np.isclose(subdata[label].x[0], 0.):
+                raise AnalysisError('First x value must be 0')
             if np.nanmax(subdata[label].y) - np.nanmin(subdata[label].y) > 0.5:
                 reliable_results[label] = self._component_results[label]
         if not reliable_results:
             # If no reliable points are found, just use all
             logger.warning('No init x meas_basis setup had y value range greater than 0.5')
             reliable_results = self._component_results
+
+        # Fit to U_f U_i
+        y_0 = np.array([subdata[model._name].y[0] for model in self._models])
+        if self.options.zx_evolution:
+            def set_params(params):
+                return {'theta': params[0], 'chi': params[1], 'kappa': params[2]}
+            p0 = (0.01, np.pi / 2., 0.)
+            bounds = [(0., twopi), (0., np.pi), (-np.pi, np.pi)]
+        else:
+            raise NotImplementedError('non-zx')
+
+        def objective(params):
+            y_pred = np.array([model.eval(x=0., freq=0., psi=0., phi=0., **set_params(params))
+                               for model in self._models])
+            return np.sum(np.square(y_0 - y_pred))
+
+        res = sciopt.minimize(objective, p0, bounds=bounds)
+        user_opt.p0.update(set_params(res.x))
+
         # freq is common but reliable only when amp is sufficiently large
         freq_p0 = np.mean([res['freq'].n for res in reliable_results.values()])
         logger.debug('Initial guess for freq=%f from %s', freq_p0,
                      {key: value['freq'] for key, value in reliable_results.items()})
         user_opt.p0.set_if_empty(freq=freq_p0)
-
-        # Assuming x[0] = 0, fit for U^TU to find the initial values for theta, chi, kappa
-        models = {m._name: m for m in self._models}
-        def objective(params):
-            theta, chi, kappa = params
-            return np.sum(np.square(
-                [subdata[label].y[0]
-                 - models[label].eval(x=0, freq=0., psi=0., phi=0.,
-                                      theta=theta, chi=chi, kappa=kappa)
-                 for label in curve_data.labels]
-            ))
-        res = sciopt.minimize(objective, (0.01, np.pi / 2., 0.),
-                              bounds=[(0., twopi), (0., np.pi), (-np.pi, np.pi)])
-        user_opt.p0.set_if_empty(theta=res.x[0], chi=res.x[1], kappa=res.x[2])
 
         # Guess from init=Z (assuming no contribution from rise & fall)
         def estimate_amp(label):

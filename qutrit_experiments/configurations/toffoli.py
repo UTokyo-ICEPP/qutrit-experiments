@@ -9,7 +9,7 @@ from qiskit.qobj.utils import MeasLevel, MeasReturnType
 from qiskit_experiments.data_processing import DataProcessor, Probability
 
 from ..data_processing import ReadoutMitigation
-from ..experiment_config import ExperimentConfig, register_exp, register_post
+from ..experiment_config import BatchExperimentConfig, ExperimentConfig, register_exp, register_post
 from .qutrit import (
     qutrit_rough_frequency,
     qutrit_rough_amplitude,
@@ -104,25 +104,25 @@ def qubits_assignment_error(runner, experiment_data):
 @add_readout_mitigation
 def c2t_sizzle_frequency_scan(runner):
     from ..experiments.sizzle import SiZZleFrequencyScan
+    from ..experiments.zzramsey import QutritZZRamsey
 
     control2, target = runner.program_data['qubits'][1:]
     c2_props = runner.backend.qubit_properties(control2)
     t_props = runner.backend.qubit_properties(target)
 
-    resonances = [
-        c2_props.frequency,
-        c2_props.frequency + c2_props.anharmonicity,
-        t_props.frequency,
-        t_props.frequency + t_props.anharmonicity
-    ]
+    resonances = {
+        'f_ge_c2': c2_props.frequency,
+        'f_ef_c2': c2_props.frequency + c2_props.anharmonicity,
+        'f_ge_t': t_props.frequency,
+        'f_ef_t': t_props.frequency + t_props.anharmonicity
+    }
     frequencies = []
-    for freq in np.linspace(min(resonances) - 1.e+8, max(resonances) + 1.e+8, 20):
-        if all(abs(freq - res) > 1.e+7 for res in resonances):
+    for freq in np.linspace(min(resonances.values()) - 1.e+8, max(resonances.values()) + 1.e+8, 20):
+        if all(abs(freq - res) > 1.e+7 for res in resonances.values()):
             frequencies.append(freq)
 
     cr_angle = runner.calibrations.get_parameter_value('cr_angle', [control2, target],
                                                        schedule='cr')
-
     return ExperimentConfig(
         SiZZleFrequencyScan,
         [control2, target],
@@ -131,13 +131,14 @@ def c2t_sizzle_frequency_scan(runner):
             'delays': np.linspace(0., 4.e-7, 16),
             'osc_freq': 5.e+6,
             'control_phase_offset': cr_angle
-        }
+        },
+        experiment_options={'frequencies_of_interest': resonances}
     )
 
 @register_post
 def c2t_sizzle_frequency_scan(runner, data):
     frequencies = np.empty(len(data.child_data()), dtype=float)
-    shifts = np.empty((len(data.child_data()), 3), dtype=float)
+    shifts = np.empty(frequencies.shape + (3,), dtype=float)
     component_index = data.metadata["component_child_index"]
     for ichild, child_index in enumerate(component_index):
         child_data = data.child_data(child_index)
@@ -146,6 +147,28 @@ def c2t_sizzle_frequency_scan(runner, data):
 
     runner.program_data['sizzle_frequencies'] = frequencies
     runner.program_data['sizzle_shifts'] = shifts
+
+@register_exp
+@add_readout_mitigation
+def c2t_hcr(runner):
+    """CR HT with undefined amplitude."""
+    from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianTomography
+
+    control2, target = runner.program_data['qubits'][1:]
+    width = Parameter('width')
+    cr_amp = Parameter('cr_amp')
+    assign_params = {'width': width, 'cr_amp': cr_amp}
+    schedule = runner.calibrations.get_schedule('cr', qubits=[control2, target],
+                                                assign_params=assign_params)
+    return ExperimentConfig(
+        QutritCRHamiltonianTomographyScan,
+        [control2, target],
+        args={
+            'schedule': schedule
+        },
+        analysis_options={'poly_orders': poly_orders}
+    )
+
 
 @register_exp
 @add_readout_mitigation
@@ -159,6 +182,8 @@ def c2t_hcr_amplitude_scan(runner):
     schedule = runner.calibrations.get_schedule('cr', qubits=[control2, target],
                                                 assign_params=assign_params)
     amplitudes = np.linspace(0.1, 0.9, 9)
+    poly_orders = ({(ic, ib): [1, 3] for ic in range(3) for ib in [0, 1]}
+                   | {(ic, 2): [0, 2] for ic in range(3)})
 
     return ExperimentConfig(
         QutritCRHamiltonianTomographyScan,
@@ -167,5 +192,6 @@ def c2t_hcr_amplitude_scan(runner):
             'schedule': schedule,
             'parameter': 'cr_amp',
             'values': amplitudes
-        }
+        },
+        analysis_options={'poly_orders': poly_orders}
     )

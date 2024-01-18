@@ -94,15 +94,61 @@ class SiZZleRamsey(SpectatorRamseyXY):
         backend: Optional[Backend] = None
     ):
         sizzle_schedule = build_sizzle_schedule(frequency, physical_qubits[0], physical_qubits[1],
-                                               backend, amplitudes=amplitudes,
-                                               control_phase_offset=control_phase_offset,
-                                               control_channel=channels[0],
-                                               target_channel=channels[1])
+                                                backend, amplitudes=amplitudes,
+                                                control_phase_offset=control_phase_offset,
+                                                control_channel=channels[0],
+                                                target_channel=channels[1])
 
         super().__init__(physical_qubits, control_state, delays=delays, osc_freq=osc_freq,
                          delay_schedule=sizzle_schedule, extra_metadata=extra_metadata,
                          backend=backend)
         self.set_experiment_options(reverse_qubit_order=True)
+
+
+class SiZZleRamseyShift(BatchExperiment):
+    """SiZZle + reference SpectatorRamseyXY to compute the frequency shift."""
+    def __init__(
+        self,
+        physical_qubits: Sequence[int],
+        control_state: int,
+        frequency: float,
+        amplitudes: Optional[tuple[float, float]] = None,
+        control_phase_offset: float = 0.,
+        channels: tuple[pulse.ControlChannel, pulse.DriveChannel] = (None, None),
+        delays: Optional[list] = None,
+        osc_freq: Optional[float] = None,
+        extra_metadata: Optional[dict[str, Any]] = None,
+        backend: Optional[Backend] = None
+    ):
+        experiments = [
+            SiZZleRamsey(physical_qubits, control_state, frequency,
+                         amplitudes=amplitudes, control_phase_offset=control_phase_offset,
+                         channels=channels, delays=delays, osc_freq=osc_freq,
+                         extra_metadata=extra_metadata, backend=backend),
+            SpectatorRamseyXY(physical_qubits, control_state, delays=delays, osc_freq=osc_freq,
+                              backend=backend)
+        ]
+        super().__init__(experiments, backend=backend,
+                         analysis=SiZZleRamseyShiftAnalysis([exp.analysis for exp in experiments]))
+
+
+class SiZZleRamseyShiftAnalysis(CompoundAnalysis):
+    """Analysis for SiZZleRamseyShift."""
+    def _run_additional_analysis(
+        self,
+        experiment_data: ExperimentData,
+        analysis_results: list[AnalysisResultData],
+        figures: list[Figure]
+    ) -> tuple[list[AnalysisResultData], list['mpl.figure.Figure']]:
+        component_index = experiment_data.metadata["component_child_index"]
+        sizzle_data = experiment_data.child_data(component_index[0])
+        shifted_omega = sizzle_data.analysis_results('freq').value * twopi
+        ref_data = experiment_data.child_data(component_index[1])
+        base_omega = ref_data.analysis_results('freq').value * twopi
+        analysis_results.append(
+            AnalysisResultData(name='omega_z_shift', value=shifted_omega - base_omega)
+        )
+        return analysis_results, figures
 
 
 class SiZZle(QutritZZRamsey):
@@ -130,12 +176,63 @@ class SiZZle(QutritZZRamsey):
                          backend=backend)
 
 
+class SiZZleShift(BatchExperiment):
+    """SiZZle + reference SpectatorRamseyXY to compute the frequency shifts."""
+    def __init__(
+        self,
+        physical_qubits: Sequence[int],
+        frequency: float,
+        amplitudes: Optional[tuple[float, float]] = None,
+        control_phase_offset: float = 0.,
+        channels: tuple[pulse.ControlChannel, pulse.DriveChannel] = (None, None),
+        delays: Optional[list] = None,
+        osc_freq: Optional[float] = None,
+        extra_metadata: Optional[dict[str, Any]] = None,
+        backend: Optional[Backend] = None
+    ):
+        experiments = [
+            SiZZle(physical_qubits, frequency,
+                   amplitudes=amplitudes, control_phase_offset=control_phase_offset,
+                   channels=channels, delays=delays, osc_freq=osc_freq,
+                   extra_metadata=extra_metadata, backend=backend),
+            QutritZZRamsey(physical_qubits, delays=delays, osc_freq=osc_freq,
+                           extra_metadata=extra_metadata, backend=backend)
+        ]
+        super().__init__(experiments, backend=backend,
+                         analysis=SiZZleShiftAnalysis([exp.analysis for exp in experiments]))
+
+
+class SiZZleShiftAnalysis(CompoundAnalysis):
+    """Analysis for SiZZleShift."""
+    def _run_additional_analysis(
+        self,
+        experiment_data: ExperimentData,
+        analysis_results: list[AnalysisResultData],
+        figures: list[Figure]
+    ) -> tuple[list[AnalysisResultData], list['mpl.figure.Figure']]:
+        component_index = experiment_data.metadata["component_child_index"]
+        sizzle_data = experiment_data.child_data(component_index[0])
+        shifted_omegas = sizzle_data.analysis_results('omega_zs').value
+        ref_data = experiment_data.child_data(component_index[1])
+        base_omegas = ref_data.analysis_results('omega_zs').value
+        analysis_results.append(
+            AnalysisResultData(name='omega_zs', value=shifted_omegas - base_omegas)
+        )
+        return analysis_results, figures
+
+
 class SiZZleFrequencyScan(BatchExperiment):
     """Frequency scan of SiZZle."""
+    def _default_experiment_options(cls) -> Options:
+        options = super()._default_experiment_options()
+        options.frequencies_of_interest = {}
+        return options
+
     def __init__(
         self,
         physical_qubits: Sequence[int],
         frequencies: Sequence[float],
+        measure_shift: bool = True,
         amplitudes: Optional[tuple[float, float]] = None,
         control_phase_offset: float = 0.,
         channels: tuple[pulse.ControlChannel, pulse.DriveChannel] = (None, None),
@@ -143,19 +240,28 @@ class SiZZleFrequencyScan(BatchExperiment):
         osc_freq: Optional[float] = None,
         backend: Optional[Backend] = None
     ):
+        if measure_shift:
+            cls = SiZZleShift
+        else:
+            cls = SiZZle
+
         experiments = []
         analyses = []
-
         for freq in frequencies:
-            exp = SiZZle(physical_qubits, frequency=freq, amplitudes=amplitudes,
-                         control_phase_offset=control_phase_offset, channels=channels,
-                         delays=delays, osc_freq=osc_freq, extra_metadata={'frequency': freq},
-                         backend=backend)
+            exp = cls(physical_qubits, frequency=freq, amplitudes=amplitudes,
+                      control_phase_offset=control_phase_offset, channels=channels,
+                      delays=delays, osc_freq=osc_freq, extra_metadata={'frequency': freq},
+                      backend=backend)
             experiments.append(exp)
             analyses.append(exp.analysis)
 
         super().__init__(experiments, backend=backend,
                          analysis=SiZZleFrequencyScanAnalysis(analyses))
+
+    def _metadata(self) -> dict[str, Any]:
+        metadata = super()._metadata()
+        metadata['frequencies_of_interest'] = dict(self.experiment_options.frequencies_of_interest)
+        return metadata
 
 
 class SiZZleFrequencyScanAnalysis(CompoundAnalysis):
@@ -215,6 +321,7 @@ class SiZZlePhaseScan(BatchExperiment):
         self,
         physical_qubits: Sequence[int],
         frequency: float,
+        measure_shift: bool = True,
         control_phase_offsets: Optional[Sequence[float]] = None,
         amplitudes: Optional[tuple[float, float]] = None,
         channels: tuple[pulse.ControlChannel, pulse.DriveChannel] = (None, None),
@@ -225,14 +332,18 @@ class SiZZlePhaseScan(BatchExperiment):
         if (offset_values := control_phase_offsets) is None:
             offset_values = self._default_experiment_options().phase_offsets
 
+        if measure_shift:
+            cls = SiZZleShift
+        else:
+            cls = SiZZle
+
         experiments = []
         analyses = []
-
         for offset in offset_values:
-            exp = SiZZle(physical_qubits, frequency=frequency, amplitudes=amplitudes,
-                         control_phase_offset=offset, channels=channels, delays=delays,
-                         osc_freq=osc_freq, extra_metadata={'control_phase_offset': offset},
-                         backend=backend)
+            exp = cls(physical_qubits, frequency=frequency, amplitudes=amplitudes,
+                      control_phase_offset=offset, channels=channels, delays=delays,
+                      osc_freq=osc_freq, extra_metadata={'control_phase_offset': offset},
+                      backend=backend)
             experiments.append(exp)
             analyses.append(exp.analysis)
 
@@ -382,6 +493,7 @@ class SiZZleAmplitudeScan(BatchExperiment):
         self,
         physical_qubits: Sequence[int],
         frequency: float,
+        measure_shift: bool = True,
         control_phase_offset: float = 0.,
         amplitudes: Optional[Union[tuple[Sequence[float], float], tuple[float, Sequence[float]]]] = None, # pylint: disable=line-too-long
         channels: tuple[pulse.ControlChannel, pulse.DriveChannel] = (None, None),
@@ -399,6 +511,11 @@ class SiZZleAmplitudeScan(BatchExperiment):
         else:
             scan_qubit = 0
 
+        if measure_shift:
+            cls = SiZZleShift
+        else:
+            cls = SiZZle
+
         experiments = []
         analyses = []
 
@@ -411,10 +528,10 @@ class SiZZleAmplitudeScan(BatchExperiment):
                 'scan_qubit': scan_qubit,
                 'amplitudes': list(amp_argument)
             }
-            exp = SiZZle(physical_qubits, frequency=frequency, amplitudes=amp_argument,
-                         control_phase_offset=control_phase_offset, channels=channels,
-                         delays=delays, osc_freq=osc_freq, extra_metadata=extra_metadata,
-                         backend=backend)
+            exp = cls(physical_qubits, frequency=frequency, amplitudes=amp_argument,
+                      control_phase_offset=control_phase_offset, channels=channels,
+                      delays=delays, osc_freq=osc_freq, extra_metadata=extra_metadata,
+                      backend=backend)
             experiments.append(exp)
             analyses.append(exp.analysis)
 

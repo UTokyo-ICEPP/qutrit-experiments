@@ -17,8 +17,22 @@ twopi = 2. * np.pi
 
 
 class QutritZZRamsey(BatchExperiment):
-    """Measurement of the qutrit-qubit ZZ Hamiltonian through SpectatorRamseyXY experiments with
-    three control states."""
+    r"""Measurement of the qutrit-qubit ZZ Hamiltonian through SpectatorRamseyXY experiments with
+    three control states.
+
+    In the drive frame, the static Hamiltonian is expressed as
+
+    .. math::
+
+        H & = \frac{\omega_{Iz}}{2} Iz + \frac{\omega_{zz}}{2} zz
+              + \frac{\omega_{\zeta z}}{2} \zeta z \\
+          & = \frac{\omega_{0z}}{2} P_0 z + \frac{\omega_{1z}}{2} P_1 z
+              + \frac{\omega_{2 z}}{2} P_2 z
+
+    The analysis result ``freq`` of SpectatorRamseyXY experiments correspond to
+    :math:`\omega_{jz} / (2\pi) \thickspace (j=0,1,2)`. This experiment measures the three
+    frequencies and computes :math:`\omega_{Iz}, \omega_{zz}, \omega_{\zeta z}`.
+    """
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -68,17 +82,13 @@ class QutritZZRamseyAnalysis(CompoundAnalysis):
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata["component_child_index"]
 
-        omega_zs_by_state = []
-
+        omega_zs_by_state = np.empty(3, dtype=object)
         for control_state in range(3):
             child_data = experiment_data.child_data(component_index[control_state])
-            omega_zs_by_state.append(child_data.analysis_results('freq').value * twopi)
-
-        omega_zs_by_state = np.array(omega_zs_by_state)
+            omega_zs_by_state[control_state] = child_data.analysis_results('freq').value * twopi
 
         op_to_state = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]])
-        # Multiply by factor two to obtain omega_[Izζ]z
-        omega_zs = (np.linalg.inv(op_to_state) @ omega_zs_by_state) * 2.
+        omega_zs = np.linalg.inv(op_to_state) @ omega_zs_by_state
 
         analysis_results.append(
             AnalysisResultData(name='omega_zs', value=omega_zs)

@@ -339,24 +339,22 @@ class QutritCRHamiltonianTomographyScanAnalysis(CompoundAnalysis):
         component_index = experiment_data.metadata["component_child_index"]
 
         for control_state in range(3):
-            child_data = experiment_data.child_data(component_index[control_state])
-            scan_indices = child_data.metadata['component_child_index']
-            scan_data = [child_data.child_data(idx) for idx in scan_indices]
+            scan_data = experiment_data.child_data(component_index[control_state])
+            scan_indices = scan_data.metadata['component_child_index']
+            ht_data_list = [scan_data.child_data(idx) for idx in scan_indices]
 
             if control_state == 0:
                 subanalysis = self._analyses[control_state]
-
-                xvar = subanalysis.xvar
+                xvar = scan_data.metadata['scan_parameter']
                 poly_orders = subanalysis.options.poly_orders
+                xval = np.array([ht_data.metadata[xvar] for ht_data in ht_data_list])
 
-                xval = np.array([data.metadata[xvar] for data in scan_data])
-
-            control_basis_components.append([data.analysis_results('hamiltonian_components').value
-                                             for data in scan_data])
+            control_basis_components.append([ht_data.analysis_results('hamiltonian_components').value
+                                             for ht_data in ht_data_list])
 
             if poly_orders is not None:
                 for op in target_ops:
-                    coeffs = child_data.analysis_results(f'omega_{op}_coeffs').value
+                    coeffs = scan_data.analysis_results(f'omega_{op}_coeffs').value
                     control_basis_coeffs.append(coeffs)
 
         # (control, target, xvar)
@@ -364,7 +362,6 @@ class QutritCRHamiltonianTomographyScanAnalysis(CompoundAnalysis):
 
         control_eigvals = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) # [c, I/z/ζ]
         control_to_op = np.linalg.inv(control_eigvals)
-
         hamiltonian_components = np.tensordot(control_to_op, control_basis_components, (1, 0)) * 2
 
         analysis_results.append(
