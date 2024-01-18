@@ -98,9 +98,6 @@ class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
     we apply an off-resonant tone of a given duration instead of the delay, we can measure the
     resulting Stark shift :math:`\omega_z`.
     """
-    __sx_gate__ = SXGate
-    __rz_gate__ = RZGate
-
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
@@ -171,7 +168,7 @@ class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
 
         qargs = [self.target_logical_qubit]
 
-        template.append(self.__sx_gate__(), qargs)
+        template.sx(self.target_logical_qubit)
 
         if delay_schedule is None:
             template.delay(delay, qargs)
@@ -185,8 +182,8 @@ class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
                                                                       inplace=False),
                                      params=[delay])
 
-        template.append(self.__rz_gate__(phase_shift), qargs)
-        template.append(self.__sx_gate__(), qargs)
+        template.rz(phase_shift, self.target_logical_qubit)
+        template.sx(self.target_logical_qubit)
         template.measure(self.target_logical_qubit, 0)
 
         template.metadata = {
@@ -249,8 +246,6 @@ class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
 
 class EFRamseyPhaseSweep(EFSpaceExperiment, RamseyPhaseSweep):
     """RamseyPhaseSweep for EF space."""
-    __sx_gate__ = SX12Gate
-    __rz_gate__ = RZ12Gate
     def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
         return self._dummy_data((0, 2))
 

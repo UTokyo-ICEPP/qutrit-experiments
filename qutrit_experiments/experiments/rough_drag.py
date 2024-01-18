@@ -46,20 +46,6 @@ class EFRoughDrag(MapToPhysicalQubits, EFSpaceExperiment, RoughDrag):
         super().__init__(physical_qubits, schedule, betas=betas, backend=backend)
         self.analysis = DragCalAnalysisWithAbort()
 
-    def circuits(self) -> list[QuantumCircuit]:
-        """Replace the rz instructions with rz12."""
-        circuits = super().circuits()
-
-        for circuit in circuits:
-            for inst in circuit.data:
-                op = inst.operation
-                if isinstance(op, RZGate):
-                    inst.operation = RZ12Gate(op.params[0])
-                elif op.name.startswith('Drag'):
-                    inst.operation = QutritGate(op.name, 1, list(op.params))
-
-        return circuits
-
     def dummy_data(
         self,
         transpiled_circuits: list[QuantumCircuit] # pylint: disable=unused-argument

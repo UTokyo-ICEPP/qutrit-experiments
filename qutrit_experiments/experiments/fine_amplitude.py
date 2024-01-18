@@ -56,29 +56,6 @@ class CustomTranspiledFineAmplitude(FineAmplitude):
 
 class EFFineAmplitude(EFSpaceExperiment, CustomTranspiledFineAmplitude):
     """EF-space FineAmplitude."""
-    def _spam_cal_circuits(self, meas_circuit: QuantumCircuit) -> list[QuantumCircuit]:
-        cal_circuits = []
-
-        qubits = meas_circuit.get_instructions("measure")[0][1]
-
-        for add_x in [0, 1]:
-            circ = QuantumCircuit(self.num_qubits, meas_circuit.num_clbits)
-
-            if add_x:
-                for qubit in qubits:
-                    circ.append(X12Gate(), qargs=[qubit])
-
-            circ.compose(meas_circuit, inplace=True)
-
-            circ.metadata = {
-                "xval": add_x,
-                "series": "spam-cal",
-                "qubits": self.physical_qubits
-            }
-
-            cal_circuits.append(circ)
-
-        return cal_circuits
 
 
 class EFFineAmplitudeCal(FineAmplitudeCal, EFFineAmplitude):

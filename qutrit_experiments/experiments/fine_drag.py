@@ -13,13 +13,13 @@ from qiskit_experiments.framework import ExperimentData, Options
 from qiskit_experiments.library import FineDrag
 
 from ..calibrations import get_qutrit_pulse_gate
-from ..experiment_mixins import EFCasted, EFSpaceExperiment
+from ..experiment_mixins import EFSpaceExperiment
 from ..gates import QutritGate, RZ12Gate, SX12Gate
 from ..transpilation import map_to_physical_qubits
 from ..util.dummy_data import from_one_probs
 
 
-class EFFineDrag(EFCasted, EFSpaceExperiment, FineDrag):
+class EFFineDrag(EFSpaceExperiment, FineDrag):
     """FineDrag experiment for the 1<->2 space Rx pulses.
 
     The original FineDrag uses sx and rz gates in its circuits. We replace them, in a rather hacky

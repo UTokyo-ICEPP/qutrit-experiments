@@ -14,7 +14,7 @@ from qiskit_experiments.library.randomized_benchmarking import (InterleavedRB,
                                                                 InterleavedRBAnalysis, StandardRB,
                                                                 RBAnalysis)
 
-from ..experiment_mixins import DecomposedEFCasted, EFSpaceExperiment, MapToPhysicalQubits
+from ..experiment_mixins import EFSpaceExperiment, MapToPhysicalQubits
 from ..gates import RZ12Gate, SX12Gate, X12Gate
 
 SeedType = Union[int, RandomState, Generator]
@@ -412,12 +412,11 @@ GATE_UNITARIES = {
 }
 
 
-class EFStandardRB(DecomposedEFCasted, EFSpaceExperiment, StandardRB):
+class EFStandardRB(EFSpaceExperiment, StandardRB):
     """StandardRB in the EF space."""
-    def circuits(self) -> list[QuantumCircuit]:
-        circuits = super(EFCasted).circuits()
-        pass
+    _decompose_before_cast = True
 
 
-class EFInterleavedRB(DecomposedEFCasted, EFSpaceExperiment, InterleavedRB):
+class EFInterleavedRB(EFSpaceExperiment, InterleavedRB):
     """InterleavedRB in the EF space."""
+    _decompose_before_cast = True

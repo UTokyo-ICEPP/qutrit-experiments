@@ -37,16 +37,6 @@ class EFRabi(EFSpaceExperiment, Rabi):
         options.amplitudes = np.linspace(-0.4, 0.4, 17)
         return options
 
-    def circuits(self) -> list[QuantumCircuit]:
-        circuits = super().circuits()
-
-        for circuit in circuits:
-            for inst in circuit.data:
-                if (op := inst.operation).name == self.__gate_name__:
-                    inst.operation = QutritGate(op.name, 1, list(op.params))
-
-        return circuits
-
     def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]: # pylint: disable=unused-argument
         amplitudes = self.experiment_options.amplitudes
         one_probs = np.cos(2. * np.pi * 4. * amplitudes) * 0.49 + 0.51

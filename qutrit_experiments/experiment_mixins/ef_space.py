@@ -1,14 +1,16 @@
 from qiskit import QuantumCircuit
-from qiskit.circuit import CircuitInstruction, Measure
-from qiskit.circuit.library import XGate
+from qiskit.circuit import CircuitInstruction, Measure, Gate
+from qiskit.circuit.library import RZGate, SXGate, XGate, UGate, U3Gate
 from qiskit_experiments.framework import Options
 
-from ..gates import X12Gate
+from ..gates import QutritGate, RZ12Gate, SX12Gate, X12Gate, U12Gate
 
 
 class EFSpaceExperiment:
-    """A mixin to BaseExperiment to add X gates to the beginning and end of the circuits."""
+    """A mixin to BaseExperiment to upcast all qubit gates to EF gates and add X gates to the
+    beginning and end of the circuits."""
     _initial_xgate = True
+    _decompose_before_cast = False
 
     @classmethod
     def _default_experiment_options(cls) -> Options:
@@ -20,26 +22,39 @@ class EFSpaceExperiment:
         """Prepend and append X gates to all measured qubits."""
         circuits = []
         for circuit in super().circuits():
-            new_circuit = circuit.copy_empty_like()
+            if self._decompose_before_cast:
+                circuit = circuit.decompose()
+
+            for inst in circuit.data:
+                op = inst.operation
+                if isinstance(op, RZGate):
+                    inst.operation = RZ12Gate(op.params[0])
+                elif isinstance(op, SXGate):
+                    inst.operation = SX12Gate()
+                elif isinstance(op, XGate):
+                    inst.operation = X12Gate()
+                elif isinstance(op, (UGate, U3Gate)):
+                    inst.operation = U12Gate(*op.params)
+                elif type(op) is Gate and op.num_qubits == 1:
+                    inst.operation = QutritGate(op.name, 1, list(op.params))
+
+            qubits = (circuit.qregs[0][0],)
 
             if self._initial_xgate:
-                new_circuit.x(0)
-
-            new_circuit.compose(circuit, inplace=True)
+                circuit.data.insert(0, CircuitInstruction(XGate(), qubits))
 
             if self.experiment_options.discrimination_basis != '12':
                 idx = 0
-                while idx < len(new_circuit.data):
-                    if isinstance(new_circuit.data[idx].operation, Measure):
-                        qubits = new_circuit.data[idx].qubits
+                while idx < len(circuit.data):
+                    if isinstance(circuit.data[idx].operation, Measure):
                         # 02 or 01
-                        new_circuit.data.insert(idx, CircuitInstruction(XGate(), qubits))
+                        circuit.data.insert(idx, CircuitInstruction(XGate(), qubits))
                         idx += 1
                         if self.experiment_options.discrimination_basis == '01':
-                            new_circuit.data.insert(idx, CircuitInstruction(X12Gate(), qubits))
+                            circuit.data.insert(idx, CircuitInstruction(X12Gate(), qubits))
                             idx += 1
                     idx += 1
 
-            circuits.append(new_circuit)
+            circuits.append(circuit)
 
         return circuits

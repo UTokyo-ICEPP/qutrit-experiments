@@ -31,14 +31,6 @@ class EFT2Ramsey(EFSpaceExperiment, T2Ramsey):
         super().__init__(physical_qubits, delays, backend=backend, osc_freq=osc_freq)
         self.analysis = EFT2RamseyAnalysis()
 
-    def circuits(self) -> list[QuantumCircuit]:
-        circuits = super().circuits()
-        for circuit in circuits:
-            for inst in circuit.data:
-                if isinstance(inst.operation, SXGate):
-                    inst.operation = SX12Gate()
-        return circuits
-
 
 class EFT2RamseyAnalysis(curve.CurveAnalysis):
     """Curve analysis with cosine envelope."""
