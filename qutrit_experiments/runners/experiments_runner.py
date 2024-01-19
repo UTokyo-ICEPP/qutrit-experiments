@@ -174,7 +174,7 @@ class ExperimentsRunner:
         self,
         config: Union[str, ExperimentConfigBase],
         experiment: Optional[BaseExperiment] = None,
-        wait_for_job: bool = True,
+        block_for_results: bool = True,
         analyze: bool = True,
         calibrate: bool = True,
         print_level: int = 2,
@@ -224,11 +224,8 @@ class ExperimentsRunner:
                     exp_data.add_analysis_callback(set_child_data_structure)
                 exp_data.add_analysis_callback(self.save_data)
 
-            if wait_for_job:
-                logger.debug('Waiting for jobs to complete.')
-                exp_data.block_for_results()
-
-        self._check_status(exp_data)
+        with exp_data._analysis_callbacks.lock:
+            exp_data.add_analysis_callback(self._check_status)
 
         if not analyze or experiment.analysis is None:
             if isinstance(experiment, CompositeExperiment):
@@ -237,44 +234,35 @@ class ExperimentsRunner:
                     exp_data.add_analysis_callback(fill_child_data)
 
             logger.info('No analysis will be performed for %s.', exp_type)
+            if block_for_results:
+                exp_data.block_for_results()
             return exp_data
 
-        self.run_analysis(exp_data, experiment.analysis)
+        logger.info('Running the analysis for %s', exp_type)
+        experiment.analysis.run(exp_data)
 
         if calibrate:
-            self.update_calibrations(exp_data, experiment=experiment,
-                                     exp_type=experiment.experiment_type,
-                                     criterion=config.calibration_criterion)
+            def update_calibrations(exp_data):
+                self.update_calibrations(exp_data, experiment=experiment,
+                                         criterion=config.calibration_criterion)
+            with exp_data._analysis_callbacks.lock:
+                exp_data.add_analysis_callback(update_calibrations)
 
-        if exp_type in postexperiments:
+        if (postexp := postexperiments.get(exp_type)) is not None:
             logger.info('Performing the postexperiment for %s.', exp_type)
-            postexperiments[exp_type](self, exp_data)
+            def postexperiment(exp_data):
+                postexp(self, exp_data)
+            with exp_data._analysis_callbacks.lock:
+                exp_data.add_analysis_callback(postexperiment)
 
-        if print_level == 1:
-            print_summary(exp_data)
-        elif print_level == 2:
-            print_details(exp_data)
+        if block_for_results:
+            exp_data.block_for_results()
+            if print_level == 1:
+                print_summary(exp_data)
+            elif print_level == 2:
+                print_details(exp_data)
 
         return exp_data
-
-    def run_analysis(
-        self,
-        experiment_data: ExperimentData,
-        analysis: Optional[BaseAnalysis] = None
-    ):
-        logger.info('Running the analysis for %s', experiment_data.experiment_type)
-
-        if analysis is None:
-            analysis = experiment_data.experiment.analysis
-
-        start = time.time()
-        analysis.run(experiment_data).block_for_results()
-        end = time.time()
-        logger.debug('Analysis of %s took %.1f seconds.',
-                     experiment_data.experiment_type, end - start)
-
-        if experiment_data.analysis_status() != AnalysisStatus.DONE:
-            raise AnalysisError(f'Analysis status = {experiment_data.analysis_status().value}')
 
     def get_transpiled_circuits(self, experiment: BaseExperiment):
         """Return a list of transpiled circuits accounting for qutrit-specific instructions."""

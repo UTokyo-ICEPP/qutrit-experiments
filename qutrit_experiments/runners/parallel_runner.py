@@ -150,7 +150,7 @@ class ParallelRunner(ExperimentsRunner):
         self,
         config: Union[str, ExperimentConfig],
         experiment: Optional[BatchExperiment] = None,
-        wait_for_job: bool = True,
+        block_for_results: bool = True,
         analyze: bool = True,
         calibrate: bool = True,
         print_level: int = 2,
@@ -167,7 +167,8 @@ class ParallelRunner(ExperimentsRunner):
         if experiment is None:
             experiment = self.make_experiment(batch_config)
 
-        exp_data = super().run_experiment(batch_config, experiment, wait_for_job=wait_for_job,
+        exp_data = super().run_experiment(batch_config, experiment,
+                                          block_for_results=block_for_results,
                                           analyze=analyze, calibrate=calibrate, print_level=0,
                                           force_resubmit=force_resubmit)
 
@@ -175,19 +176,21 @@ class ParallelRunner(ExperimentsRunner):
             return exp_data
 
         # Make and show the plots
-        figures = self.consolidate_figures(exp_data)
-        exp_data.add_figures(figures)
+        with exp_data._analysis_callbacks.lock:
+            exp_data.add_analysis_callback(self.consolidate_figures)
 
-        if print_level:
-            for figure in figures:
-                display(figure)
-        if print_level >= 2:
-            for qubit, child_data in self.decompose_data(exp_data).items():
-                logger.info('Qubit %d', qubit)
-                if print_level == 2:
-                    print_summary(child_data)
-                else:
-                    print_details(child_data)
+        if block_for_results:
+            exp_data.block_for_results()
+            if print_level:
+                for figure_name in exp_data.figure_names:
+                    display(exp_data.figure(figure_name))
+            if print_level >= 2:
+                for qubit, child_data in self.decompose_data(exp_data).items():
+                    logger.info('Qubit %d', qubit)
+                    if print_level == 2:
+                        print_summary(child_data)
+                    else:
+                        print_details(child_data)
 
         return exp_data
 
@@ -202,7 +205,7 @@ class ParallelRunner(ExperimentsRunner):
         active_qubits = self.active_qubits - failed_qubits
         self.set_qubit_grouping(active_qubits=active_qubits)
 
-    def consolidate_figures(self, experiment_data: ExperimentData) -> list[Figure]:
+    def consolidate_figures(self, experiment_data: ExperimentData):
         """Extract the figure objects from the experiment data and combine them in one figure.
 
         The consolidated figure is intended to be a quick-glance summary and therefore only takes
@@ -248,7 +251,7 @@ class ParallelRunner(ExperimentsRunner):
         for figure in figures:
             figure.set_tight_layout(True)
 
-        return figures
+        experiment_data.add_figures(figures)
 
     def decompose_experiment(
         self,
