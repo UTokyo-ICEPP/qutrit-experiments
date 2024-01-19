@@ -137,10 +137,10 @@ def c2t_sizzle_frequency_scan(runner):
 
 @register_post
 def c2t_sizzle_frequency_scan(runner, data):
-    frequencies = np.empty(len(data.child_data()), dtype=float)
+    frequencies = np.empty(len(data.child_data()) - 1, dtype=float)
     shifts = np.empty(frequencies.shape + (3,), dtype=float)
     component_index = data.metadata["component_child_index"]
-    for ichild, child_index in enumerate(component_index):
+    for ichild, child_index in enumerate(component_index[:-1]):
         child_data = data.child_data(child_index)
         frequencies[ichild] = child_data.metadata['frequency']
         shifts[ichild] = unp.nominal_values(child_data.analysis_results('omega_zs').value)
@@ -161,12 +161,11 @@ def c2t_hcr(runner):
     schedule = runner.calibrations.get_schedule('cr', qubits=[control2, target],
                                                 assign_params=assign_params)
     return ExperimentConfig(
-        QutritCRHamiltonianTomographyScan,
+        QutritCRHamiltonianTomography,
         [control2, target],
         args={
             'schedule': schedule
-        },
-        analysis_options={'poly_orders': poly_orders}
+        }
     )
 
 
