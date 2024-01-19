@@ -139,7 +139,6 @@ class QutritCRHamiltonianTomography(BatchExperiment):
         physical_qubits: Sequence[int],
         schedule: ScheduleBlock,
         widths: Optional[Iterable[float]] = None,
-        secondary_trajectory: bool = False,
         time_unit: Optional[float] = None,
         backend: Optional[Backend] = None
     ):
@@ -148,8 +147,7 @@ class QutritCRHamiltonianTomography(BatchExperiment):
 
         for control_state in range(3):
             exp = HamiltonianTomography(physical_qubits, schedule,
-                                        rabi_init=cr_rabi_init(control_state),
-                                        widths=widths, secondary_trajectory=secondary_trajectory,
+                                        rabi_init=cr_rabi_init(control_state), widths=widths,
                                         time_unit=time_unit, backend=backend)
             experiments.append(exp)
             analyses.append(exp.analysis)
