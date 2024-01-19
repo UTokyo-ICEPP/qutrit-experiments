@@ -146,7 +146,7 @@ class SiZZleRamseyShiftAnalysis(CompoundAnalysis):
         ref_data = experiment_data.child_data(component_index[1])
         base_omega = ref_data.analysis_results('freq').value * twopi
         analysis_results.append(
-            AnalysisResultData(name='omega_z_shift', value=shifted_omega - base_omega)
+            AnalysisResultData(name='omega_zs', value=shifted_omega - base_omega)
         )
         return analysis_results, figures
 
@@ -240,27 +240,29 @@ class SiZZleFrequencyScan(BatchExperiment):
         osc_freq: Optional[float] = None,
         backend: Optional[Backend] = None
     ):
-        if measure_shift:
-            cls = SiZZleShift
-        else:
-            cls = SiZZle
-
         experiments = []
         analyses = []
         for freq in frequencies:
-            exp = cls(physical_qubits, frequency=freq, amplitudes=amplitudes,
-                      control_phase_offset=control_phase_offset, channels=channels,
-                      delays=delays, osc_freq=osc_freq, extra_metadata={'frequency': freq},
-                      backend=backend)
+            exp = SiZZle(physical_qubits, frequency=freq, amplitudes=amplitudes,
+                         control_phase_offset=control_phase_offset, channels=channels,
+                         delays=delays, osc_freq=osc_freq, extra_metadata={'frequency': freq},
+                         backend=backend)
+            experiments.append(exp)
+            analyses.append(exp.analysis)
+
+        if measure_shift:
+            exp = QutritZZRamsey(physical_qubits, delays=delays, osc_freq=osc_freq, backend=backend)
             experiments.append(exp)
             analyses.append(exp.analysis)
 
         super().__init__(experiments, backend=backend,
                          analysis=SiZZleFrequencyScanAnalysis(analyses))
+        self.measure_shift = measure_shift
 
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
         metadata['frequencies_of_interest'] = dict(self.experiment_options.frequencies_of_interest)
+        metadata['measure_shift'] = self.measure_shift
         return metadata
 
 
@@ -279,34 +281,44 @@ class SiZZleFrequencyScanAnalysis(CompoundAnalysis):
         figures: list[Figure]
     ) -> tuple[list[AnalysisResultData], list['mpl.figure.Figure']]:
         """Plot Iz, zz, and ζz components as functions of siZZle frequency."""
-        if not self.options.plot:
-            return analysis_results, figures
-
         component_index = experiment_data.metadata["component_child_index"]
+        if experiment_data.metadata['measure_shift']:
+            ref_data = experiment_data.child_data(component_index[-1])
+            base_omegas = ref_data.analysis_results('omega_zs').value
+            component_index = list(component_index[:-1])
+        else:
+            base_omegas = np.zeros(3)
 
-        plotter = CurvePlotter(MplDrawer())
-        plotter.set_figure_options(
-            xlabel='siZZle frequency (Hz)',
-            ylabel='Hamiltonian components (rad/s)'
-        )
-
-        frequencies = np.empty(len(component_index))
-        components = np.empty((3, len(component_index)), dtype=object)
+        num_freqs = len(component_index)
+        frequencies = np.empty(num_freqs)
+        components = np.empty((3, num_freqs), dtype=object)
 
         for ichild, idx in enumerate(component_index):
             child_data = experiment_data.child_data(idx)
             frequencies[ichild] = child_data.metadata['frequency']
-            components[:, ichild] = child_data.analysis_results('omega_zs').value
+            components[:, ichild] = child_data.analysis_results('omega_zs').value - base_omegas
 
-        for ic, label in enumerate(['Iz', 'zz', 'ζz']):
-            plotter.set_series_data(
-                label,
-                x_formatted=np.array(frequencies),
-                y_formatted=unp.nominal_values(components[ic]),
-                y_formatted_err=unp.std_devs(components[ic])
+        analysis_results.extend([
+            AnalysisResultData(name='scan_frequencies', value=frequencies),
+            AnalysisResultData(name='omega_zs', value=components)
+        ])
+
+        if self.options.plot:
+            plotter = CurvePlotter(MplDrawer())
+            plotter.set_figure_options(
+                xlabel='siZZle frequency (Hz)',
+                ylabel='Hamiltonian components (rad/s)'
             )
+            for ic, label in enumerate(['Iz', 'zz', 'ζz']):
+                plotter.set_series_data(
+                    label,
+                    x_formatted=np.array(frequencies),
+                    y_formatted=unp.nominal_values(components[ic]),
+                    y_formatted_err=unp.std_devs(components[ic])
+                )
+            figures.append(plotter.figure())
 
-        return analysis_results, figures + [plotter.figure()]
+        return analysis_results, figures
 
 
 class SiZZlePhaseScan(BatchExperiment):
@@ -332,18 +344,18 @@ class SiZZlePhaseScan(BatchExperiment):
         if (offset_values := control_phase_offsets) is None:
             offset_values = self._default_experiment_options().phase_offsets
 
-        if measure_shift:
-            cls = SiZZleShift
-        else:
-            cls = SiZZle
-
         experiments = []
         analyses = []
         for offset in offset_values:
-            exp = cls(physical_qubits, frequency=frequency, amplitudes=amplitudes,
-                      control_phase_offset=offset, channels=channels, delays=delays,
-                      osc_freq=osc_freq, extra_metadata={'control_phase_offset': offset},
-                      backend=backend)
+            exp = SiZZle(physical_qubits, frequency=frequency, amplitudes=amplitudes,
+                         control_phase_offset=offset, channels=channels, delays=delays,
+                         osc_freq=osc_freq, extra_metadata={'control_phase_offset': offset},
+                         backend=backend)
+            experiments.append(exp)
+            analyses.append(exp.analysis)
+
+        if measure_shift:
+            exp = QutritZZRamsey(physical_qubits, delays=delays, osc_freq=osc_freq, backend=backend)
             experiments.append(exp)
             analyses.append(exp.analysis)
 
@@ -351,6 +363,13 @@ class SiZZlePhaseScan(BatchExperiment):
 
         if control_phase_offsets is not None:
             self.set_experiment_options(phase_offsets=control_phase_offsets)
+
+        self.measure_shift = measure_shift
+
+    def _metadata(self) -> dict[str, Any]:
+        metadata = super()._metadata()
+        metadata['measure_shift'] = self.measure_shift
+        return metadata
 
 
 class SiZZlePhaseScanAnalysis(CompoundAnalysis):
@@ -371,20 +390,29 @@ class SiZZlePhaseScanAnalysis(CompoundAnalysis):
     ) -> tuple[list[AnalysisResultData], list['mpl.figure.Figure']]:
         """Plot Iz, zz, and ζz components as functions of siZZle phase offset."""
         component_index = experiment_data.metadata["component_child_index"]
+        if experiment_data.metadata['measure_shift']:
+            ref_data = experiment_data.child_data(component_index[-1])
+            base_omegas = ref_data.analysis_results('omega_zs').value
+            component_index = list(component_index[:-1])
+        else:
+            base_omegas = np.zeros(3)
 
-        phase_offsets = np.empty(len(component_index))
-        components = np.empty((3, len(component_index)), dtype=object)
+        num_phases = len(component_index)
+        phase_offsets = np.empty(num_phases)
+        components = np.empty((3, num_phases), dtype=object)
 
         ops = ['Iz', 'zz', 'ζz']
 
         for ichild, idx in enumerate(component_index):
             child_data = experiment_data.child_data(idx)
             phase_offsets[ichild] = child_data.metadata['control_phase_offset']
-            components[:, ichild] = child_data.analysis_results('omega_zs').value
+            components[:, ichild] = child_data.analysis_results('omega_zs').value - base_omegas
 
-        models = list(lmfit.models.ExpressionModel(
-            expr=f'amp_{label} * cos(x + cr_phase_offset) + base_{label}'
-        ) for label in ops)
+        models = [
+            lmfit.models.ExpressionModel(
+                expr=f'amp_{label} * cos(x + cr_phase_offset) + base_{label}'
+            ) for label in ops
+        ]
         yvals = np.array(list(unp.nominal_values(comp) for comp in components))
         with np.errstate(divide='ignore'):
             weights = np.array(list(1. / unp.std_devs(comp) for comp in components))
@@ -511,11 +539,6 @@ class SiZZleAmplitudeScan(BatchExperiment):
         else:
             scan_qubit = 0
 
-        if measure_shift:
-            cls = SiZZleShift
-        else:
-            cls = SiZZle
-
         experiments = []
         analyses = []
 
@@ -528,10 +551,15 @@ class SiZZleAmplitudeScan(BatchExperiment):
                 'scan_qubit': scan_qubit,
                 'amplitudes': list(amp_argument)
             }
-            exp = cls(physical_qubits, frequency=frequency, amplitudes=amp_argument,
-                      control_phase_offset=control_phase_offset, channels=channels,
-                      delays=delays, osc_freq=osc_freq, extra_metadata=extra_metadata,
-                      backend=backend)
+            exp = SiZZle(physical_qubits, frequency=frequency, amplitudes=amp_argument,
+                         control_phase_offset=control_phase_offset, channels=channels,
+                         delays=delays, osc_freq=osc_freq, extra_metadata=extra_metadata,
+                         backend=backend)
+            experiments.append(exp)
+            analyses.append(exp.analysis)
+
+        if measure_shift:
+            exp = QutritZZRamsey(physical_qubits, delays=delays, osc_freq=osc_freq, backend=backend)
             experiments.append(exp)
             analyses.append(exp.analysis)
 
@@ -540,6 +568,13 @@ class SiZZleAmplitudeScan(BatchExperiment):
 
         if amplitudes is not None:
             self.set_experiment_options(amplitudes=amplitudes)
+
+        self.measure_shift = measure_shift
+
+    def _metadata(self) -> dict[str, Any]:
+        metadata = super()._metadata()
+        metadata['measure_shift'] = self.measure_shift
+        return metadata
 
 
 class SiZZleAmplitudeScanAnalysis(CompoundAnalysis):
@@ -559,9 +594,16 @@ class SiZZleAmplitudeScanAnalysis(CompoundAnalysis):
     ) -> tuple[list[AnalysisResultData], list['mpl.figure.Figure']]:
         """Plot Iz, zz, and ζz components as functions of siZZle amplitude."""
         component_index = experiment_data.metadata["component_child_index"]
+        if experiment_data.metadata['measure_shift']:
+            ref_data = experiment_data.child_data(component_index[-1])
+            base_omegas = ref_data.analysis_results('omega_zs').value
+            component_index = list(component_index[:-1])
+        else:
+            base_omegas = np.zeros(3)
 
-        amplitudes = np.empty(len(component_index))
-        components = np.empty((3, len(component_index)), dtype=object)
+        num_amps = len(component_index)
+        amplitudes = np.empty(num_amps)
+        components = np.empty((3, num_amps), dtype=object)
 
         ops = ['Iz', 'zz', 'ζz']
 
@@ -569,7 +611,7 @@ class SiZZleAmplitudeScanAnalysis(CompoundAnalysis):
             child_data = experiment_data.child_data(idx)
             scan_qubit = child_data.metadata['scan_qubit']
             amplitudes[ichild] = child_data.metadata['amplitudes'][scan_qubit]
-            components[:, ichild] = child_data.analysis_results('omega_zs').value
+            components[:, ichild] = child_data.analysis_results('omega_zs').value - base_omegas
 
         fit_results = [None] * 3
         fit_data = [None] * 3
