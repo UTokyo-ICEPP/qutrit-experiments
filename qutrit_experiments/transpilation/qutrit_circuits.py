@@ -57,6 +57,7 @@ def transpile_qutrit_circuits(
         return property_set['contains_qutrit_gate']
 
     pm = PassManager()
+    pm.append(InvertRZSign())
     pm.append(ContainsQutritInstruction())
     scheduling = ALAPScheduleAnalysis(instruction_durations)
     add_cal = AddQutritCalibrations(backend.target)
@@ -76,6 +77,16 @@ class ContainsQutritInstruction(AnalysisPass):
             self.property_set['contains_qutrit_gate'] = False
 
 
+class InvertRZSign(TransformationPass):
+    """Transpiler pass to invert all RZGate and RZ12Gate signs."""
+    def run(self, dag: DAGCircuit) -> DAGCircuit:
+        for node in list(dag.topological_op_nodes()):
+            if isinstance(node.op, (RZGate, RZ12Gate)):
+                # Fix the sign to make the gate correspond to its intended physical operation
+                node.op.params[0] *= -LO_SIGN
+        return dag
+
+
 class AddQutritCalibrations(TransformationPass):
     """Transpiler pass to give physical implementations to qutrit gates."""
     def __init__(
@@ -89,7 +100,7 @@ class AddQutritCalibrations(TransformationPass):
         self.calibrations: Calibrations = None
         self.target = target
 
-    def run(self, dag: DAGCircuit):
+    def run(self, dag: DAGCircuit) -> DAGCircuit:
         """Assign pulse implementations of qutrit gates.
 
         This class perform all of the following simultaneously:
@@ -131,9 +142,10 @@ class AddQutritCalibrations(TransformationPass):
           the ZX plane of the qubit Bloch spaces. However, when a third level is considered and what
           was a global phase in the qubit space has become an observable geometric phase, this is no
           longer true. We therefore need to invert the sign of the angles of all occurrences of Rz
-          and Rz12 gates. Sign inversion should be done centrally in this function so that the
-          experiments do not have to worry about this issue for most part (They still need to
-          account for the LO sign when using phase offsets directly in some calibration schedules).
+          and Rz12 gates.
+        - Sign inversion should be done centrally in InvertRZSign so that the experiments do not
+          have to worry about this issue for most part (They still need to account for the LO sign
+          when using phase offsets directly in some calibration schedules).
         """
         node_start_time = self.property_set['node_start_time']
 
@@ -165,23 +177,17 @@ class AddQutritCalibrations(TransformationPass):
                 ) * self.target.dt
                 dag.remove_op_node(node)
             elif isinstance(node.op, RZGate):
-                # Fix the sign to make the gate correspond to its intended physical operation
-                phi = -LO_SIGN * node.op.params[0]
-                # Qiskit convention
+                phi = node.op.params[0]
                 # Rz(phi) = ShiftPhase[ge](-phi).
                 # To cancel the geometric phase, we must apply ShiftPhase[ef](phi/2)
                 cumul_phase_ge[qubit] -= phi
                 cumul_phase_ef[qubit] += phi / 2.
                 logger.debug('%s[%d] Phase[ge] -= %f', node.op.name, qubit, phi)
                 logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubit, phi / 2.)
-                if current_space[qubit] == 0:
-                    node.op.params[0] = phi
-                else:
+                if current_space[qubit] == 1:
                     dag.substitute_node(node, RZGate(-phi / 2.), inplace=True)
             elif isinstance(node.op, RZ12Gate):
-                # We follow the Qiskit convention for RZ12 too
-                # Fix the sign to make the gate correspond to its intended physical operation
-                phi = -LO_SIGN * node.op.params[0]
+                phi = node.op.params[0]
                 # Rz12(phi) = ShiftPhase[ef](-phi)
                 # Then the geometric phase cancellation is ShiftPhase[ge](phi/2, qubit)]
                 cumul_phase_ge[qubit] += phi / 2.
