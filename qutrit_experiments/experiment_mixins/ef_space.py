@@ -1,3 +1,5 @@
+"""A mixin to BaseExperiment to upcast all qubit gates to EF gates and add X gates to the
+beginning and end of the circuits."""
 from qiskit import QuantumCircuit
 from qiskit.circuit import CircuitInstruction, Measure, Gate
 from qiskit.circuit.library import RZGate, SXGate, XGate, UGate, U3Gate
@@ -14,14 +16,14 @@ class EFSpaceExperiment:
 
     @classmethod
     def _default_experiment_options(cls) -> Options:
-        options = super()._default_experiment_options()
+        options = super()._default_experiment_options() # pylint: disable=no-member
         options.discrimination_basis = '01'
         return options
 
     def circuits(self) -> list[QuantumCircuit]:
         """Prepend and append X gates to all measured qubits."""
         circuits = []
-        for circuit in super().circuits():
+        for circuit in super().circuits(): # pylint: disable=no-member
             if self._decompose_before_cast:
                 circuit = circuit.decompose()
 
@@ -35,7 +37,7 @@ class EFSpaceExperiment:
                     inst.operation = X12Gate()
                 elif isinstance(op, (UGate, U3Gate)):
                     inst.operation = U12Gate(*op.params)
-                elif type(op) is Gate and op.num_qubits == 1:
+                elif type(op) is Gate and op.num_qubits == 1: # pylint: disable=unidiomatic-typecheck
                     inst.operation = QutritGate(op.name, 1, list(op.params))
 
             qubits = (circuit.qregs[0][0],)
@@ -43,14 +45,14 @@ class EFSpaceExperiment:
             if self._initial_xgate:
                 circuit.data.insert(0, CircuitInstruction(XGate(), qubits))
 
-            if self.experiment_options.discrimination_basis != '12':
+            if self.experiment_options.discrimination_basis != '12': # pylint: disable=no-member
                 idx = 0
                 while idx < len(circuit.data):
                     if isinstance(circuit.data[idx].operation, Measure):
                         # 02 or 01
                         circuit.data.insert(idx, CircuitInstruction(XGate(), qubits))
                         idx += 1
-                        if self.experiment_options.discrimination_basis == '01':
+                        if self.experiment_options.discrimination_basis == '01': # pylint: disable=no-member
                             circuit.data.insert(idx, CircuitInstruction(X12Gate(), qubits))
                             idx += 1
                     idx += 1

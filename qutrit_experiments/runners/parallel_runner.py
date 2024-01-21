@@ -8,7 +8,7 @@ from typing import Optional, Union
 from matplotlib.figure import Figure
 import numpy as np
 from qiskit.providers import Backend
-from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
+from qiskit_experiments.calibration_management import Calibrations
 from qiskit_experiments.framework import BackendData, BaseExperiment, ExperimentData
 from qiskit_experiments.framework.matplotlib import default_figure_canvas
 from qiskit_ibm_runtime import Session
@@ -18,7 +18,6 @@ from ..constants import RESTLESS_RUN_OPTIONS
 from ..experiment_config import (BatchExperimentConfig, ExperimentConfig, ExperimentConfigBase,
                                  ParallelExperimentConfig, experiments)
 from ..framework_overrides.batch_experiment import BatchExperiment
-from ..framework_overrides.parallel_experiment import ParallelExperiment
 from ..util.matplotlib import copy_axes
 
 logger = logging.getLogger(__name__)

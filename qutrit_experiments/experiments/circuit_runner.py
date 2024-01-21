@@ -63,8 +63,7 @@ class CircuitRunner(BaseExperiment):
 
     def _transpiled_circuits(self) -> list[QuantumCircuit]:
         if self.experiment_options.trivial_transpilation:
-            return [map_and_translate(circuit, self.physical_qubits, self.transpile_options.target)
-                    for circuit in self.circuits()]
+            return map_and_translate(self.circuits(), self.physical_qubits, self._backend)
         return super()._transpiled_circuits()
 
     def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:

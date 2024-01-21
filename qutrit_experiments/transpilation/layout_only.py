@@ -1,8 +1,8 @@
 """Functions to define and run layout-only PassManagers."""
 from collections.abc import Sequence
 from typing import Union
-from qiskit import QuantumCircuit, QuantumRegister
-from qiskit.transpiler import Layout, PassManager, StagedPassManager
+from qiskit import QuantumCircuit
+from qiskit.transpiler import PassManager, StagedPassManager
 from qiskit.transpiler.coupling import CouplingMap
 from qiskit.transpiler.passes import (
     ApplyLayout,
