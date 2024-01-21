@@ -18,15 +18,14 @@ from qiskit.result import Counts
 from qiskit_experiments.calibration_management import (BaseCalibrationExperiment, Calibrations,
                                                        ParameterValue)
 from qiskit_experiments.database_service import ExperimentEntryNotFound
-from qiskit_experiments.framework import (AnalysisStatus, BaseAnalysis, BaseExperiment,
+from qiskit_experiments.framework import (BaseExperiment,
                                           CompositeAnalysis as CompositeAnalysisOrig,
                                           ExperimentData)
 from qiskit_experiments.framework.composite.composite_experiment import CompositeExperiment
-from qiskit_experiments.exceptions import AnalysisError
 from qiskit_ibm_runtime import RuntimeJob, Session
 
 from ..constants import DEFAULT_REP_DELAY, DEFAULT_SHOTS, RESTLESS_REP_DELAY
-from ..experiment_config import (CompositeExperimentConfig, ExperimentConfig, ExperimentConfigBase,
+from ..experiment_config import (CompositeExperimentConfig, ExperimentConfigBase,
                                  experiments, postexperiments)
 from ..framework.child_data import set_child_data_structure, fill_child_data
 from ..framework_overrides.batch_experiment import BatchExperiment
@@ -188,8 +187,6 @@ class ExperimentsRunner:
 
         logger.info('run_experiment(%s)', exp_type)
 
-        if not getattr(config, 'restless', False):
-            experiment.set_run_options(rep_delay=DEFAULT_REP_DELAY)
         experiment.set_run_options(**config.run_options)
 
         if force_resubmit:
@@ -227,6 +224,10 @@ class ExperimentsRunner:
         with exp_data._analysis_callbacks.lock:
             exp_data.add_analysis_callback(self._check_status)
 
+        if block_for_results:
+            # Wait here once just to make the program execution easier to understand
+            exp_data.block_for_results()
+
         if not analyze or experiment.analysis is None:
             if isinstance(experiment, CompositeExperiment):
                 # Usually analysis fills the child data so we do it manually instead
@@ -234,11 +235,12 @@ class ExperimentsRunner:
                     exp_data.add_analysis_callback(fill_child_data)
 
             logger.info('No analysis will be performed for %s.', exp_type)
-            if block_for_results:
-                exp_data.block_for_results()
             return exp_data
 
-        logger.info('Running the analysis for %s', exp_type)
+        if block_for_results:
+            logger.info('Running the analysis for %s', exp_type)
+        else:
+            logger.info('Reserving the analysis for %s', exp_type)
         experiment.analysis.run(exp_data)
 
         if calibrate:
@@ -249,7 +251,10 @@ class ExperimentsRunner:
                 exp_data.add_analysis_callback(update_calibrations)
 
         if (postexp := postexperiments.get(exp_type)) is not None:
-            logger.info('Performing the postexperiment for %s.', exp_type)
+            if block_for_results:
+                logger.info('Performing the postexperiment for %s.', exp_type)
+            else:
+                logger.info('Reserving the postexperiment for %s.', exp_type)
             def postexperiment(exp_data):
                 postexp(self, exp_data)
             with exp_data._analysis_callbacks.lock:
@@ -493,6 +498,10 @@ class ExperimentsRunner:
 
         # Run options
         run_opts = {**experiment.run_options.__dict__}
+        if 'shots' not in run_opts:
+            run_opts['shots'] = DEFAULT_SHOTS
+        if 'rep_delay' not in run_opts:
+            run_opts['rep_delay'] = DEFAULT_REP_DELAY
 
         job_unique_tag = uuid.uuid4().hex
         # Add a tag to the job to make later identification easier

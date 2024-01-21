@@ -75,6 +75,8 @@ def qutrit_rough_frequency(runner, qubit):
 def qutrit_rough_amplitude(runner, qubit):
     """X12 and SX12 amplitude determination from Rabi oscillation."""
     from ..experiments.rough_amplitude import EFRoughXSXAmplitudeCal
+    def calibration_criterion(data):
+        return data.analysis_results('rabi_rate_12', block=False).value.n > 0.5
     return ExperimentConfig(
         EFRoughXSXAmplitudeCal,
         [qubit],
@@ -82,7 +84,7 @@ def qutrit_rough_amplitude(runner, qubit):
         restless=True,
         # rabi rate = "freq" of oscillation analysis fit. Must be greater than 0.5 to be able to
         # make a pi pulse within amp < 1
-        calibration_criterion=lambda data: data.analysis_results('rabi_rate_12').value.n > 0.5
+        calibration_criterion=calibration_criterion
     )
 
 def qutrit_discriminator(runner, qubit):
@@ -123,7 +125,7 @@ def qubit_assignment_error(runner, qubit):
 
 def qubit_assignment_error_post(runner, experiment_data):
     qubit = experiment_data.metadata['physical_qubits'][0]
-    mitigator = experiment_data.analysis_results('Correlated Readout Mitigator').value
+    mitigator = experiment_data.analysis_results('Correlated Readout Mitigator', block=False).value
     runner.program_data.setdefault('qubit_assignment_matrix', {})[qubit] = \
         mitigator.assignment_matrix([qubit])
 
@@ -190,7 +192,7 @@ def qutrit_fine_sx_amplitude(runner, qubit):
         prev_amp = data.metadata["cal_param_value"]
         if isinstance(prev_amp, list) and len(prev_amp) == 2:
             prev_amp = prev_amp[0] + 1.0j * prev_amp[1]
-        d_theta = data.analysis_results("d_theta").value.n
+        d_theta = data.analysis_results("d_theta", block=False).value.n
         return abs(prev_amp * target_angle / (target_angle + d_theta)) < 1.
 
     # qutrit T1 is short - shouldn't go too far with repetitions
@@ -224,7 +226,7 @@ def qutrit_fine_x_amplitude(runner, qubit):
         prev_amp = data.metadata["cal_param_value"]
         if isinstance(prev_amp, list) and len(prev_amp) == 2:
             prev_amp = prev_amp[0] + 1.0j * prev_amp[1]
-        d_theta = data.analysis_results("d_theta").value.n
+        d_theta = data.analysis_results("d_theta", block=False).value.n
         return abs(prev_amp * target_angle / (target_angle + d_theta)) < 1.
 
     # qutrit T1 is short - shouldn't go too far with repetitions
@@ -297,7 +299,7 @@ def qutrit_assignment_error(runner, qubit):
 
 def qutrit_assignment_error_post(runner, experiment_data):
     qubit = experiment_data.metadata['physical_qubits'][0]
-    matrix = experiment_data.analysis_results('assignment_matrix').value
+    matrix = experiment_data.analysis_results('assignment_matrix', block=False).value
     runner.program_data.setdefault('qutrit_assignment_matrix', {})[qubit] = matrix
 
 def qutrit_t1(runner, qubit):
