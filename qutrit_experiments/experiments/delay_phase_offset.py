@@ -39,9 +39,9 @@ class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
         SX^{(t)} = R_z(-\delta \omega t) SX R_z(\delta \omega t)
 
     so the excited-state probability after the "prompt" sequence
-     ┌───────────┐┌─────┐┌─────┐┌────┐
-     ┤ SX^{(t_0)}├┤Rz(φ)├┤Rz(ε)├┤ SX ├
-     └───────────┘└─────┘└─────┘└────┘
+     ┌────┐┌─────┐┌─────┐┌────────────┐
+     ┤ SX ├┤Rz(ε)├┤Rz(φ)├┤ SX^{(t_0)} ├
+     └────┘└─────┘└─────┘└────────────┘
     where t_0 and ε are the duration and phase shift of the schedule (0 for a standard
     delay experiment), is
 
@@ -62,9 +62,9 @@ class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
         H = \frac{\omega_z}{2} Z,
 
     the corresponding probability from the "delayed" sequence with delay τ
-     ┌───────────┐┌─────┐┌─────────────┐┌────┐
-     ┤ SX^{(t_1)}├┤Rz(φ)├┤Rz(ω_z τ + ε)├┤ SX ├
-     └───────────┘└─────┘└─────────────┘└────┘
+     ┌────┐┌─────────────┐┌─────┐┌────────────┐
+     ┤ SX ├┤Rz(ω_z τ + ε)├┤Rz(φ)├┤ SX^{(t_1)} ├
+     └────┘└─────────────┘└─────┘└────────────┘
     with t_1 = t_0 + τ, is
 
     ... math::

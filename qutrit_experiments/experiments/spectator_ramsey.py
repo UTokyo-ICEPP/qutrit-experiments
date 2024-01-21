@@ -6,8 +6,8 @@ from qiskit import QuantumCircuit, ClassicalRegister
 from qiskit.circuit import Delay, Gate
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
-from qiskit_experiments.framework import Options
-from qiskit_experiments.library import RamseyXY
+from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
+from qiskit_experiments.library.characterization import RamseyXY, RamseyXYAnalysis
 
 from ..constants import DEFAULT_SHOTS
 from ..gates import X12Gate
@@ -44,6 +44,7 @@ class SpectatorRamseyXY(RamseyXY):
             osc_freq = super()._default_experiment_options().osc_freq
 
         super().__init__(physical_qubits, backend=backend, delays=delays, osc_freq=osc_freq)
+        self.analysis = RamseyXYAnalysisOffset()
         self.control_state = control_state
         self.set_experiment_options(delay_schedule=delay_schedule)
         if extra_metadata is None:
@@ -51,7 +52,10 @@ class SpectatorRamseyXY(RamseyXY):
         else:
             self.extra_metadata = {'control_state': control_state, **extra_metadata}
         self.experiment_index = experiment_index
-        self.analysis.set_options(outcome='1')
+        self.analysis.set_options(
+            outcome='1', # default outcome will be set to '11' without this line
+            fixed_parameters={'tau': np.inf}
+        )
 
     def _pre_circuit(self) -> QuantumCircuit:
         circuit = QuantumCircuit(2)
@@ -117,3 +121,18 @@ class SpectatorRamseyXY(RamseyXY):
         p_ground[1::2] = p_ground_y
 
         return single_qubit_counts(p_ground, shots, num_qubits)
+
+
+class RamseyXYAnalysisOffset(RamseyXYAnalysis):
+    """RamseyXYAnalysis with additional analysis result (osc_freq subtracted freq)."""
+    def _run_analysis(
+        self,
+        experiment_data: ExperimentData
+    ) -> tuple[list[AnalysisResultData], list['Figure']]:
+        analysis_results, figures = super()._run_analysis(experiment_data)
+        freq = next(res.value for res in analysis_results if res.name == 'freq')
+        freq_offset = experiment_data.data(0)['metadata']['osc_freq']
+        analysis_results.append(
+            AnalysisResultData(name='ramsey_freq', value=freq - freq_offset)
+        )
+        return analysis_results, figures

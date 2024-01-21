@@ -85,7 +85,8 @@ class QutritZZRamseyAnalysis(CompoundAnalysis):
         omega_zs_by_state = np.empty(3, dtype=object)
         for control_state in range(3):
             child_data = experiment_data.child_data(component_index[control_state])
-            omega_zs_by_state[control_state] = child_data.analysis_results('freq').value * twopi
+            omega_zs_by_state[control_state] = (child_data.analysis_results('ramsey_freq').value
+                                                * twopi)
 
         op_to_state = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]])
         omega_zs = np.linalg.inv(op_to_state) @ omega_zs_by_state
