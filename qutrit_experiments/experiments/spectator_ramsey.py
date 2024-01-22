@@ -26,6 +26,7 @@ class SpectatorRamseyXY(RamseyXY):
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
+        options.control_state = None
         options.delay_schedule = None
         return options
 
@@ -45,12 +46,8 @@ class SpectatorRamseyXY(RamseyXY):
 
         super().__init__(physical_qubits, backend=backend, delays=delays, osc_freq=osc_freq)
         self.analysis = RamseyXYAnalysisOffset()
-        self.control_state = control_state
-        self.set_experiment_options(delay_schedule=delay_schedule)
-        if extra_metadata is None:
-            self.extra_metadata = {'control_state': control_state}
-        else:
-            self.extra_metadata = {'control_state': control_state, **extra_metadata}
+        self.set_experiment_options(control_state=control_state, delay_schedule=delay_schedule)
+        self.extra_metadata = extra_metadata
         self.experiment_index = experiment_index
         self.analysis.set_options(
             outcome='1', # default outcome will be set to '11' without this line
@@ -60,9 +57,9 @@ class SpectatorRamseyXY(RamseyXY):
     def _pre_circuit(self) -> QuantumCircuit:
         circuit = QuantumCircuit(2)
         # Control qubit is 1 in _pre_circuit
-        if self.control_state == 1:
+        if self.experiment_options.control_state == 1:
             circuit.x(1)
-        elif self.control_state == 2:
+        elif self.experiment_options.control_state == 2:
             circuit.x(1)
             circuit.append(X12Gate(), [1])
         circuit.barrier()
@@ -70,7 +67,9 @@ class SpectatorRamseyXY(RamseyXY):
 
     def _metadata(self):
         metadata = super()._metadata()
-        metadata.update(self.extra_metadata)
+        metadata['control_state'] = self.experiment_options.control_state
+        if self.extra_metadata:
+            metadata.update(self.extra_metadata)
         return metadata
 
     def circuits(self) -> list[QuantumCircuit]:

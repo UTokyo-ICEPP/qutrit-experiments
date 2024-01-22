@@ -224,7 +224,7 @@ class QutritCRHamiltonianTomographyAnalysis(CompoundAnalysis):
 
         component_index = experiment_data.metadata["component_child_index"]
 
-        for control_state, in range(3):
+        for control_state in range(3):
             child_data = experiment_data.child_data(component_index[control_state])
             # omega^c_g/2
             control_basis_components[control_state] = \

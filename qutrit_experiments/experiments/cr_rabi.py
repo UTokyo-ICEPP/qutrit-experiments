@@ -1,6 +1,6 @@
 """GSRabi experiment for a CR tone."""
 from collections.abc import Iterable, Sequence
-from typing import Optional
+from typing import Any, Optional
 from functools import partial
 import numpy as np
 from qiskit import QuantumCircuit
@@ -46,15 +46,16 @@ class CRRabi(GSRabi):
 
     def _pre_circuit(self) -> QuantumCircuit:
         circuit = super()._pre_circuit()
-
         if self.experiment_options.control_state >= 1:
             circuit.x(0)
         if self.experiment_options.control_state == 2:
             circuit.append(X12Gate(), [0])
-
-        circuit.metadata['control_state'] = self.experiment_options.control_state
-
         return circuit
+
+    def _metadata(self) -> dict[str, Any]:
+        metadata = super()._metadata()
+        metadata['control_state'] = self.experiment_options.control_state
+        return metadata
 
 
 def cr_rabi_init(control_state: int):
