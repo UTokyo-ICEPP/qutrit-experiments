@@ -136,7 +136,9 @@ class GSRabi(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
         gate = Gate(schedule.name, len(self._physical_qubits), [])
 
         template = self._pre_circuit()
+        template.barrier()
         template.append(gate, template.qregs[0])
+        template.barrier()
         template.compose(self._post_circuit(), inplace=True)
 
         if not hasattr(template, 'metadata'):
@@ -314,6 +316,17 @@ class GSRabiAnalysis(curve.OscillationAnalysis):
         user_opts += additional_opts
 
         return user_opts
+
+    def _run_curve_fit(
+        self,
+        curve_data: curve.CurveData,
+        models: list[lmfit.Model],
+    ) -> curve.CurveFitResult:
+        current = np.geterr()['invalid']
+        np.seterr(invalid='ignore')
+        result = super()._run_curve_fit(curve_data, models)
+        np.seterr(invalid=current)
+        return result
 
 
 class GSRabiTrigSumAnalysis(curve.CurveAnalysis):

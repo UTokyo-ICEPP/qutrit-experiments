@@ -278,12 +278,12 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
     def zx_evolution_factory(init, meas_basis):
         i_init = ['x', 'y', 'z'].index(init)
         i_meas = ['x', 'y', 'z'].index(meas_basis)
-        def evolution(x, freq, psi, phi, theta, chi, kappa):
+        def evolution(x, omega, psi, phi, theta, chi, kappa):
             xdims = tuple(range(np.asarray(x).ndim))
             theta = np.expand_dims(theta, xdims)
             return np.einsum('...i,...ij,...j->...',
                              rotation_matrix(theta, chi, -kappa)[..., i_meas, :],
-                             rotation_matrix(twopi * freq * x, psi, phi),
+                             rotation_matrix(omega * x, psi, phi),
                              rotation_matrix(theta, chi, kappa)[..., i_init])
         return evolution
 
@@ -306,7 +306,7 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
             bounds={
                 'psi': (-1.e-3, np.pi + 1.e-3),
                 'phi': (-twopi, twopi),
-                'freq': (-1.e+5, np.inf), # giving some slack on the negative side
+                'omega': (-1.e+5, np.inf), # giving some slack on the negative side
             }
         )
         self.plotter.set_figure_options(
@@ -327,15 +327,14 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
         fit_result = next(res.value for res in analysis_results
                           if res.name == PARAMS_ENTRY_PREFIX + self.name)
         popt = fit_result.ufloat_params
-        omega = popt['freq'] * twopi
         # Divide the omegas by factor two to interpret as coefficients of single-qubit X, Y, Z
         analysis_results.append(
             AnalysisResultData(
                 name='hamiltonian_components',
                 value=np.array([
-                    omega * unp.sin(popt['psi']) * unp.cos(popt['phi']), # pylint: disable=no-member
-                    omega * unp.sin(popt['psi']) * unp.sin(popt['phi']), # pylint: disable=no-member
-                    omega * unp.cos(popt['psi']) # pylint: disable=no-member
+                    popt['omega'] * unp.sin(popt['psi']) * unp.cos(popt['phi']), # pylint: disable=no-member
+                    popt['omega'] * unp.sin(popt['psi']) * unp.sin(popt['phi']), # pylint: disable=no-member
+                    popt['omega'] * unp.cos(popt['psi']) # pylint: disable=no-member
                 ]) / 2.
             )
         )
@@ -405,7 +404,7 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
             def set_params(params):
                 return {'theta': params[0], 'chi': params[1], 'kappa': params[2]}
             p0 = (0.01, np.pi / 2., 0.)
-            bounds = [(0., twopi), (0., np.pi), (-np.pi, np.pi)]
+            bounds = [(-twopi, twopi), (0., np.pi), (-np.pi, np.pi)]
         else:
             raise NotImplementedError('non-zx')
 
@@ -418,17 +417,17 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
         user_opt.p0.update(set_params(res.x))
 
         # freq is common but reliable only when amp is sufficiently large
-        freq_p0 = np.mean([res['freq'].n for res in reliable_results.values()])
-        logger.debug('Initial guess for freq=%f from %s', freq_p0,
+        omega_p0 = twopi * np.mean([res['freq'].n for res in reliable_results.values()])
+        logger.debug('Initial guess for omega=%f from %s', omega_p0,
                      {key: value['freq'] for key, value in reliable_results.items()})
-        user_opt.p0.set_if_empty(freq=freq_p0)
+        user_opt.p0.set_if_empty(omega=twopi * omega_p0)
 
         # Guess from init=Z (assuming no contribution from rise & fall)
         def estimate_amp(label):
             xdata = subdata[label].x
             ydata = subdata[label].y
             popt, _ = sciopt.curve_fit(
-                lambda x, amp, base: amp * np.cos(twopi * freq_p0 * x) + base,
+                lambda x, amp, base: amp * np.cos(omega_p0 * x) + base,
                 xdata, ydata, (0., ydata[0])
             )
             return unit_bound(np.abs(popt[0]))
