@@ -4,12 +4,15 @@ from functools import wraps
 import logging
 import numpy as np
 from uncertainties import unumpy as unp
+from qiskit import pulse
 from qiskit.circuit import Parameter
 from qiskit.qobj.utils import MeasLevel, MeasReturnType
 from qiskit_experiments.data_processing import DataProcessor, Probability
 
 from ..data_processing import ReadoutMitigation
 from ..experiment_config import BatchExperimentConfig, ExperimentConfig, register_exp, register_post
+from ..pulse_library import ModulatedGaussianSquare
+from ..util.pulse_area import rabi_freq_per_amp
 from .qutrit import (
     qutrit_rough_frequency,
     qutrit_rough_amplitude,
@@ -95,7 +98,7 @@ def qubits_assignment_error(runner):
 @register_post
 def qubits_assignment_error(runner, experiment_data):
     qubits = tuple(experiment_data.metadata['physical_qubits'])
-    mitigator = experiment_data.analysis_results('Correlated Readout Mitigator').value
+    mitigator = experiment_data.analysis_results('Correlated Readout Mitigator', block=False).value
     prog_data = runner.program_data.setdefault('readout_assignment_matrices', {})
     for combination in [qubits[0:1], qubits[1:2], qubits[2:3], qubits[:2], qubits[1:3], qubits]:
         prog_data[combination] = mitigator.assignment_matrix(combination)
@@ -117,8 +120,10 @@ def c2t_sizzle_frequency_scan(runner):
         'f_ef_t': t_props.frequency + t_props.anharmonicity
     }
     frequencies = []
+    for res_freq in resonances.values():
+        frequencies.extend([res_freq - 4.e+6, ])
     for freq in np.linspace(min(resonances.values()) - 1.e+8, max(resonances.values()) + 1.e+8, 20):
-        if all(abs(freq - res) > 1.e+7 for res in resonances.values()):
+        if all(abs(freq - res) > 2.e+6 for res in resonances.values()):
             frequencies.append(freq)
 
     cr_angle = runner.calibrations.get_parameter_value('cr_angle', [control2, target],
@@ -128,6 +133,7 @@ def c2t_sizzle_frequency_scan(runner):
         [control2, target],
         args={
             'frequencies': frequencies,
+            'amplitudes': (0.1, 0.1),
             'delays': np.linspace(0., 4.e-7, 16),
             'osc_freq': 5.e+6,
             'control_phase_offset': cr_angle
@@ -143,14 +149,16 @@ def c2t_sizzle_frequency_scan(runner, data):
     for ichild, child_index in enumerate(component_index[:-1]):
         child_data = data.child_data(child_index)
         frequencies[ichild] = child_data.metadata['frequency']
-        shifts[ichild] = unp.nominal_values(child_data.analysis_results('omega_zs').value)
+        shifts[ichild] = unp.nominal_values(
+            child_data.analysis_results('omega_zs', block=False).value
+        )
 
     runner.program_data['sizzle_frequencies'] = frequencies
     runner.program_data['sizzle_shifts'] = shifts
 
 @register_exp
 @add_readout_mitigation
-def c2t_hcr(runner):
+def c2t_hcr_template(runner):
     """CR HT with undefined amplitude."""
     from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianTomography
 
@@ -168,6 +176,65 @@ def c2t_hcr(runner):
         }
     )
 
+@register_exp
+@add_readout_mitigation
+def t_hx(runner):
+    """Target qubit Rx tone Hamiltonian with amplitude set for two cycles in 2048 dt."""
+    from ..experiments.hamiltonian_tomography import HamiltonianTomography
+
+    qubit = runner.program_data['qubits'][2]
+    width = Parameter('width')
+    sigma = 64
+    rsr = 2
+    duration = width + sigma * rsr * 2
+    amp = 2. / 2048 / runner.backend.dt / rabi_freq_per_amp(runner.backend, qubit)
+    with pulse.build(name='rx') as sched:
+        pulse.play(
+            pulse.GaussianSquare(duration=duration, amp=amp, sigma=sigma, width=width),
+            runner.backend.drive_channel(qubit)
+        )
+
+    return ExperimentConfig(
+        HamiltonianTomography,
+        [qubit],
+        args={
+            'schedule': sched,
+            'widths': np.linspace(0., 2048., 17)
+        }
+    )
+
+@register_post
+def t_hx(runner, data):
+    components = data.analysis_results('hamiltonian_components', block=False)
+    runner.program_data['target_rxtone_hamiltonian'] = components
+
+@register_exp
+@add_readout_mitigation
+def c2t_hcr_singlestate_template(runner):
+    """CR Hamiltonian tomography with a single control state and an offset Rx tone.
+
+    Control state and cr_amp should be set through cr_rabi_init(state) and
+    schedule.assign_parameters(), respectively, in args after the experiment configuration is
+    instantiated.
+    """
+    from ..experiments.hamiltonian_tomography import HamiltonianTomography
+
+    control2, target = runner.program_data['qubits'][1:]
+    width = Parameter('width')
+    cr_amp = Parameter('cr_amp')
+    counter_amp = 2. / 2048 / runner.backend.dt / rabi_freq_per_amp(runner.backend, target)
+    assign_params = {'width': width, 'cr_amp': cr_amp, 'counter_amp': counter_amp}
+    schedule = runner.calibrations.get_schedule('cr', qubits=[control2, target],
+                                                assign_params=assign_params)
+    return ExperimentConfig(
+        HamiltonianTomography,
+        [control2, target],
+        args={
+            'schedule': schedule,
+            'rabi_init': None,
+            'measured_logical_qubit': 1
+        }
+    )
 
 @register_exp
 @add_readout_mitigation
