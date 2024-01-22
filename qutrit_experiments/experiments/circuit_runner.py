@@ -6,7 +6,7 @@ from qiskit import QuantumCircuit
 from qiskit.providers import Backend
 from qiskit.result import Counts
 import qiskit_experiments.curve_analysis as curve
-from qiskit_experiments.framework import BaseExperiment, ExperimentData, Options
+from qiskit_experiments.framework import BaseAnalysis, BaseExperiment, ExperimentData, Options
 
 from ..constants import DEFAULT_SHOTS
 from ..transpilation import map_and_translate
@@ -25,7 +25,8 @@ class CircuitRunner(BaseExperiment):
         self,
         physical_qubits: Sequence[int],
         circuits: Union[QuantumCircuit, Sequence[QuantumCircuit]],
-        backend: Optional[Backend] = None
+        backend: Optional[Backend] = None,
+        analysis: Optional[BaseAnalysis] = None
     ):
         series_names = []
         for circuit in circuits:
@@ -38,8 +39,10 @@ class CircuitRunner(BaseExperiment):
         if not series_names:
             series_names = None
 
-        super().__init__(physical_qubits, analysis=DataExtraction(series_names),
-                         backend=backend)
+        if not analysis:
+            analysis = DataExtraction(series_names)
+
+        super().__init__(physical_qubits, analysis=analysis, backend=backend)
 
         if isinstance(circuits, QuantumCircuit):
             self._circuits = [circuits]
