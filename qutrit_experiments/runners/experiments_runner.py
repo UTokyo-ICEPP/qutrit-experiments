@@ -12,6 +12,7 @@ from typing import Optional, Union
 import matplotlib
 import numpy as np
 
+from qiskit import QuantumCircuit
 from qiskit.providers import Backend, JobStatus
 from qiskit.qobj.utils import MeasLevel
 from qiskit.result import Counts
@@ -269,37 +270,45 @@ class ExperimentsRunner:
 
         return exp_data
 
-    def get_transpiled_circuits(self, experiment: BaseExperiment):
+    def get_transpiled_circuits(
+        self,
+        experiment: Union[BaseExperiment, ExperimentConfigBase],
+        transpiled_circuits: Optional[list[QuantumCircuit]] = None
+    ) -> list[QuantumCircuit]:
         """Return a list of transpiled circuits accounting for qutrit-specific instructions."""
+        if isinstance(experiment, ExperimentConfigBase):
+            experiment = self.make_experiment(experiment)
+
         if self.calibrations is None:
             # Nothing to do
-            return experiment._transpiled_circuits()
+            return transpiled_circuits or experiment._transpiled_circuits()
 
         instruction_durations = make_instruction_durations(self._backend, self._calibrations,
                                                            qubits=experiment.physical_qubits)
 
-        if not isinstance(experiment, BaseCalibrationExperiment):
-            experiment.set_transpile_options(
-                # By setting the basis_gates, PassManagerConfig.from_backend() will not take the
-                # target from the backend, making target absent everywhere in the preset pass
-                # manager. When the target is None, HighLevelSynthesis (responsible for translating
-                # all gates to basis gates) will reference the passed basis_gates list and leaves
-                # all gates appearing in the list untouched.
-                basis_gates=self._backend.basis_gates + [
-                    inst.gate_name for inst in QUTRIT_PULSE_GATES + QUTRIT_VIRTUAL_GATES
-                ],
-                # Scheduling method has to be specified in case there are delay instructions that
-                # violate the alignment constraints, in which case a ConstrainedRescheduling is
-                # triggered, which fails without precalculated node_start_times.
-                scheduling_method='alap',
-                # And to run the scheduler, durations of all gates must be known.
-                instruction_durations=instruction_durations
-            )
+        if not transpiled_circuits:
+            if not isinstance(experiment, BaseCalibrationExperiment):
+                experiment.set_transpile_options(
+                    # By setting the basis_gates, PassManagerConfig.from_backend() will not take the
+                    # target from the backend, making target absent everywhere in the preset pass
+                    # manager. When the target is None, HighLevelSynthesis (responsible for translating
+                    # all gates to basis gates) will reference the passed basis_gates list and leaves
+                    # all gates appearing in the list untouched.
+                    basis_gates=self._backend.basis_gates + [
+                        inst.gate_name for inst in QUTRIT_PULSE_GATES + QUTRIT_VIRTUAL_GATES
+                    ],
+                    # Scheduling method has to be specified in case there are delay instructions that
+                    # violate the alignment constraints, in which case a ConstrainedRescheduling is
+                    # triggered, which fails without precalculated node_start_times.
+                    scheduling_method='alap',
+                    # And to run the scheduler, durations of all gates must be known.
+                    instruction_durations=instruction_durations
+                )
 
-        start = time.time()
-        transpiled_circuits = experiment._transpiled_circuits()
-        end = time.time()
-        logger.debug('Initial transpilation took %.1f seconds.', end - start)
+            start = time.time()
+            transpiled_circuits = experiment._transpiled_circuits()
+            end = time.time()
+            logger.debug('Initial transpilation took %.1f seconds.', end - start)
 
         start = time.time()
         transpiled_circuits = transpile_qutrit_circuits(transpiled_circuits,
@@ -383,7 +392,7 @@ class ExperimentsRunner:
             job_unique_tag = source.readline().strip()
 
         # provider.jobs() is a lot faster than calling retrieve_job multiple times
-        logger.info('Reconstructing experiment data using the unique id %s', job_unique_tag)
+        logger.info('Retrieving runtime job with unique id %s', job_unique_tag)
         return self._runtime_session.service.jobs(limit=num_jobs, backend_name=self._backend.name,
                                                   job_tags=[job_unique_tag])
 
