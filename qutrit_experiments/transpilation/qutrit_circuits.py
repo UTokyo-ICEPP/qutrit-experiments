@@ -6,14 +6,16 @@ import logging
 from typing import Optional, Union
 import numpy as np
 from qiskit import QuantumCircuit, QuantumRegister
+from qiskit.circuit import Gate
 from qiskit.circuit.library import RZGate, SXGate, XGate
-from qiskit.dagcircuit import DAGCircuit
+from qiskit.dagcircuit import DAGCircuit, DAGOpNode
 from qiskit.providers import Backend
 from qiskit.transpiler import (AnalysisPass, InstructionDurations, PassManager, Target,
                                TransformationPass, TranspilerError)
 
 from qiskit.transpiler.passes import ALAPScheduleAnalysis
 from qiskit_experiments.calibration_management import Calibrations
+import rustworkx as rx
 
 from ..constants import LO_SIGN
 from ..gates import (QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES, QutritGate, RZ12Gate, SetF12Gate,
@@ -63,6 +65,7 @@ def transpile_qutrit_circuits(
     add_cal = AddQutritCalibrations(backend.target)
     add_cal.calibrations = calibrations # See the comment in the class for why we do this
     pm.append([scheduling, add_cal], condition=contains_qutrit_gate)
+    pm.append(ConsolidateRZAngle())
     return pm.run(circuits)
 
 
@@ -84,6 +87,38 @@ class InvertRZSign(TransformationPass):
             if isinstance(node.op, (RZGate, RZ12Gate)):
                 # Fix the sign to make the gate correspond to its intended physical operation
                 node.op.params[0] *= -LO_SIGN
+        return dag
+
+
+class ConsolidateRZAngle(TransformationPass):
+    """Sum up the angles of neighboring Rz instructions."""
+    def run(self, dag: DAGCircuit) -> DAGCircuit:
+        node_start_time = self.property_set.get('node_start_time')
+
+        def filter_fn(node):
+            return (
+                isinstance(node, DAGOpNode)
+                and len(node.qargs) == 1
+                and len(node.cargs) == 0
+                and isinstance(node.op, RZGate)
+                and not node.op.is_parameterized()
+            )
+
+        for run in rx.collect_runs(dag._multi_graph, filter_fn):
+            angle = sum(node.op.params[0] for node in run) % twopi
+            subdag = DAGCircuit()
+            subdag.add_qreg((qreg := QuantumRegister(len(run[0].qargs))))
+            subdag.apply_operation_back(RZGate(angle), [qreg[0]])
+            subst_map = dag.substitute_node_with_dag(run[0], subdag)
+            # Delete the other nodes in the run
+            for node in run[1:]:
+                dag.remove_op_node(node)
+            # Update the node_start_time map if available
+            if node_start_time:
+                start_time = node_start_time.pop(run[0])
+                op_nodes = tuple(subdag.topological_op_nodes())
+                node_start_time[subst_map[op_nodes[0]._node_id]] = start_time
+
         return dag
 
 
@@ -155,17 +190,27 @@ class AddQutritCalibrations(TransformationPass):
         ef_lo_phase = defaultdict(float) # EF LO phase tracker
         current_space = defaultdict(int)
 
+        def switch_space(node, switch_to, iq=0):
+            qubit = dag.find_bit(node.qargs[iq]).index
+            angle = cumul_phase_ef[qubit] - cumul_phase_ge[qubit] + ef_lo_phase[qubit]
+            if switch_to == 1:
+                logger.debug('%s[%d] GE->EF control switching phase %f', node.op.name, qubit,
+                             angle)
+            else:
+                angle *= -1.
+                logger.debug('%s[%d] EF->GE control switching phase %f', node.op.name, qubit,
+                             angle)
+            replace_op_with_rz_op(dag, node, angle, node_start_time, iq=iq)
+            current_space[qubit] = switch_to
+
         for node in list(dag.topological_op_nodes()):
             if node not in node_start_time:
                 raise TranspilerError(
                     f"Operation {repr(node)} is likely added after the circuit is scheduled. "
                     "Schedule the circuit again if you transformed it."
                 )
-            if not isinstance(node.op, (RZGate, SXGate, XGate, QutritGate)):
-                continue
 
             qubit = dag.find_bit(node.qargs[0]).index
-
             logger.debug('%s[%d]', node.op.name, qubit)
 
             if isinstance(node.op, SetF12Gate):
@@ -176,6 +221,7 @@ class AddQutritCalibrations(TransformationPass):
                     node.op.params[0] - self.target.qubit_properties[qubit].frequency
                 ) * self.target.dt
                 dag.remove_op_node(node)
+
             elif isinstance(node.op, RZGate):
                 phi = node.op.params[0]
                 # Rz(phi) = ShiftPhase[ge](-phi).
@@ -186,6 +232,7 @@ class AddQutritCalibrations(TransformationPass):
                 logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubit, phi / 2.)
                 if current_space[qubit] == 1:
                     dag.substitute_node(node, RZGate(-phi / 2.), inplace=True)
+
             elif isinstance(node.op, RZ12Gate):
                 phi = node.op.params[0]
                 # Rz12(phi) = ShiftPhase[ef](-phi)
@@ -198,13 +245,10 @@ class AddQutritCalibrations(TransformationPass):
                     dag.substitute_node(node, RZGate(-phi / 2.), inplace=True)
                 else:
                     dag.substitute_node(node, RZGate(phi), inplace=True)
+
             elif isinstance(node.op, (XGate, SXGate)):
                 if current_space[qubit] == 1:
-                    angle = cumul_phase_ge[qubit] - cumul_phase_ef[qubit] - ef_lo_phase[qubit]
-                    logger.debug('%s[%d] EF->GE control switching phase %f', node.op.name, qubit,
-                                 angle)
-                    replace_op_with_rz_op(dag, node, angle, node_start_time)
-                    current_space[qubit] = 0
+                    switch_space(node, 0)
 
                 # X = P2(delta/2 - pi/2) U_x(pi)
                 # SX = P2(delta/2 - pi/4) U_x(pi/2)
@@ -217,7 +261,8 @@ class AddQutritCalibrations(TransformationPass):
                 offset = LO_SIGN * (delta / 2. - geom_phase)
                 cumul_phase_ef[qubit] += offset
                 logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubit, offset)
-            else:
+
+            elif isinstance(node.op, QutritGate):
                 if (mod_freq := modulation_frequencies.get(qubit)) is None:
                     mod_freq = (self.calibrations.get_parameter_value('f12', qubit)
                                 - self.target.qubit_properties[qubit].frequency) * self.target.dt
@@ -227,17 +272,13 @@ class AddQutritCalibrations(TransformationPass):
                 current_ef_lo_phase = LO_SIGN * node_start_time[node] * twopi * mod_freq
 
                 if current_space[qubit] == 0:
-                    angle = cumul_phase_ef[qubit] - cumul_phase_ge[qubit] + current_ef_lo_phase
-                    logger.debug('%s[%d] GE->EF control switching phase %f', node.op.name, qubit,
-                                 angle)
-                    replace_op_with_rz_op(dag, node, angle, node_start_time)
-                    current_space[qubit] = 1
+                    ef_lo_phase[qubit] = current_ef_lo_phase
+                    switch_space(node, 1)
                 else:
                     angle = current_ef_lo_phase - ef_lo_phase[qubit]
                     logger.debug('%s[%d] EF LO fast-forward phase %f', node.op.name, qubit, angle)
                     replace_op_with_rz_op(dag, node, angle, node_start_time)
-
-                ef_lo_phase[qubit] = current_ef_lo_phase
+                    ef_lo_phase[qubit] = current_ef_lo_phase
 
                 if isinstance(node.op, (X12Gate, SX12Gate)):
                     if ((qubit,), ()) not in dag.calibrations.get(node.op.name, {}):
@@ -258,19 +299,26 @@ class AddQutritCalibrations(TransformationPass):
                     cumul_phase_ge[qubit] += offset
                     logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qubit, offset)
 
+            elif isinstance(node.op, Gate) and current_space.get(qubit, 0) == 1:
+                switch_space(node, 0)
+
+            # Two-qubit gate target (currently we have only qubit controlled gates)
+            if (isinstance(node.op, Gate) and len(node.qargs) == 2
+                and current_space.get(node.qargs[1], 0)) == 1:
+                switch_space(node, 0, iq=1)
+
         return dag
 
 
-def replace_op_with_rz_op(dag, node, angle, node_start_time):
+def replace_op_with_rz_op(dag, node, angle, node_start_time, iq=0):
     subdag = DAGCircuit()
-    subdag.add_qreg((qreg := QuantumRegister(1)))
+    logger.debug('op = %s qargs = %s', node.op, node.qargs)
+    subdag.add_qreg((qreg := QuantumRegister(len(node.qargs))))
     # Qiskit convention: this is ShiftPhase(angle)
-    subdag.apply_operation_back(RZGate(-angle), [qreg[0]])
-    subdag.apply_operation_back(node.op, [qreg[0]])
+    subdag.apply_operation_back(RZGate(-angle), [qreg[iq]])
+    subdag.apply_operation_back(node.op, tuple(qreg))
     subst_map = dag.substitute_node_with_dag(node, subdag)
-    # Update the node_start_time map. InstructionDurations passed to the scheduling
-    # pass must be constructed using the same calibrations object and therefore the
-    # node duration must be consistent with sched.duration.
+    # Update the node_start_time map
     start_time = node_start_time.pop(node)
     op_nodes = tuple(subdag.topological_op_nodes())
     node_start_time[subst_map[op_nodes[0]._node_id]] = start_time
