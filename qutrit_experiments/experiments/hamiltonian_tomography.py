@@ -409,7 +409,7 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
             raise NotImplementedError('non-zx')
 
         def objective(params):
-            y_pred = np.array([model.eval(x=0., freq=0., psi=0., phi=0., **set_params(params))
+            y_pred = np.array([model.eval(x=0., omega=0., psi=0., phi=0., **set_params(params))
                                for model in self._models])
             return np.sum(np.square(y_0 - y_pred))
 
@@ -420,7 +420,7 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
         omega_p0 = twopi * np.mean([res['freq'].n for res in reliable_results.values()])
         logger.debug('Initial guess for omega=%f from %s', omega_p0,
                      {key: value['freq'] for key, value in reliable_results.items()})
-        user_opt.p0.set_if_empty(omega=twopi * omega_p0)
+        user_opt.p0.set_if_empty(omega=omega_p0)
 
         # Guess from init=Z (assuming no contribution from rise & fall)
         def estimate_amp(label):
