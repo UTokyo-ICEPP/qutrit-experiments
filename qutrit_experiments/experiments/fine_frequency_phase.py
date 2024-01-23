@@ -86,21 +86,16 @@ class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
         options.nwind_hypotheses = [0]
         return options
 
+    @classmethod
+    def _propagated_option_keys(cls) -> list[str]:
+        keys = super()._propagated_option_keys()
+        return keys + ['common_amp', 'nwind_hypotheses']
+
     def __init__(
         self,
         analyses: list[RamseyPhaseSweepAnalysis]
     ):
         super().__init__(analyses, flatten_results=False)
-
-    def _set_subanalysis_options(self, experiment_data: ExperimentData):
-        for subanalysis in self._analyses:
-            subanalysis.set_options(
-                plot=self.options.plot,
-                common_amp=self.options.common_amp,
-                nwind_hypotheses=self.options.nwind_hypotheses
-            )
-            if (data_processor := self.options.data_processor) is not None:
-                subanalysis.set_options(data_processor=data_processor)
 
     def _run_additional_analysis(
         self,

@@ -209,10 +209,6 @@ class QutritCRHamiltonianTomographyAnalysis(CompoundAnalysis):
         options.plot = True
         return options
 
-    def _set_subanalysis_options(self, experiment_data: ExperimentData):
-        for analysis in self._analyses:
-            analysis.options.plot = self.options.plot
-
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,

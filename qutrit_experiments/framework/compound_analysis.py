@@ -11,8 +11,15 @@ if TYPE_CHECKING:
 
 class CompoundAnalysis(CompositeAnalysis):
     """CompositeAnalysis with additional analysis on top."""
+    @classmethod
+    def _propagated_option_keys(cls) -> list[str]:
+        return ['outcome', 'data_processor', 'plot']
+
     def _set_subanalysis_options(self, experiment_data: 'ExperimentData'):
-        pass
+        for key in self._propagated_option_keys():
+            if (value := self.options.get(key)) is not None:
+                for analysis in self._analyses:
+                analysis.set_options(**{key: value})
 
     def _run_additional_analysis(
         self,
