@@ -83,32 +83,8 @@ class CircuitTomography(TomographyExperiment):
 
         prep_circuits = self._decomposed_prep_circuits(apply_layout)
         meas_circuits = self._decomposed_meas_circuits(apply_layout)
+        return self._compose_qpt_circuits(channel, prep_circuits, meas_circuits, apply_layout)
 
-        mqubits = self._meas_physical_qubits
-
-        circuits = super().circuits()
-        decomposed_circuits = []
-        for circuit, (prep_element, meas_element) in zip(circuits, self._basis_indices()):
-            decomposed = channel.copy_empty_like(name=circuit.name)
-            decomposed.metadata = circuit.metadata
-            decomposed.add_register(ClassicalRegister(len(mqubits)))
-
-            for iq, idx in enumerate(prep_element):
-                decomposed.compose(prep_circuits[iq][idx], inplace=True)
-            decomposed.barrier()
-            decomposed.compose(channel, inplace=True)
-            decomposed.barrier()
-            for iq, idx in enumerate(meas_element):
-                decomposed.compose(meas_circuits[iq][idx], inplace=True)
-            decomposed.barrier()
-            if apply_layout:
-                decomposed.measure(mqubits, range(len(mqubits)))
-            else:
-                decomposed.measure(self._meas_indices, range(len(mqubits)))
-
-            decomposed_circuits.append(decomposed)
-
-        return decomposed_circuits
     
     def _decomposed_prep_circuits(self, apply_layout: bool) -> list[QuantumCircuit]:
         pbasis = self._prep_circ_basis
@@ -149,6 +125,37 @@ class CircuitTomography(TomographyExperiment):
                     translate_to_basis(qubit_meas_circuits, self._backend)
                 )
         return meas_circuits
+    
+    def _compose_qpt_circuits(
+        self,
+        channel: QuantumCircuit,
+        prep_circuits: list[list[QuantumCircuit]],
+        meas_circuits: list[list[QuantumCircuit]],
+        apply_layout: bool
+    ) -> list[QuantumCircuit]:
+        mqubits = self._meas_physical_qubits
+        circuits = super().circuits()
+        decomposed_circuits = []
+        for circuit, (prep_element, meas_element) in zip(circuits, self._basis_indices()):
+            decomposed = channel.copy_empty_like(name=circuit.name)
+            decomposed.metadata = circuit.metadata
+            decomposed.add_register(ClassicalRegister(len(mqubits)))
+
+            for iq, idx in enumerate(prep_element):
+                decomposed.compose(prep_circuits[iq][idx], inplace=True)
+            decomposed.barrier()
+            decomposed.compose(channel, inplace=True)
+            decomposed.barrier()
+            for iq, idx in enumerate(meas_element):
+                decomposed.compose(meas_circuits[iq][idx], inplace=True)
+            decomposed.barrier()
+            if apply_layout:
+                decomposed.measure(mqubits, range(len(mqubits)))
+            else:
+                decomposed.measure(self._meas_indices, range(len(mqubits)))
+
+            decomposed_circuits.append(decomposed)
+        return decomposed_circuits
 
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()

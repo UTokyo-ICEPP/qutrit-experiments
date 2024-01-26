@@ -12,6 +12,7 @@ from qiskit_experiments.framework import AnalysisResultData, ExperimentData
 from ..framework_overrides.batch_experiment import BatchExperiment
 from ..framework.compound_analysis import CompoundAnalysis
 from ..gates import X12Gate
+from ..transpilation import map_to_physical_qubits
 from .process_tomography import CircuitTomography
 
 
@@ -49,7 +50,29 @@ class QutritQubitQPT(BatchExperiment):
         if self.extra_metadata:
             metadata.update(self.extra_metadata)
         return metadata
-    
+
+    def _batch_circuits(self, to_transpile=False) -> list[QuantumCircuit]:
+        prep_circuits = self._experiments[0]._decomposed_prep_circuits(to_transpile)
+        meas_circuits = self._experiments[0]._decomposed_meas_circuits(to_transpile)
+        batch_circuits = []
+        for index, exp in enumerate(self._experiments):
+            channel = exp._circuit
+            if to_transpile:
+                channel = map_to_physical_qubits(channel, self.physical_qubits,
+                                                 self._backend.coupling_map)
+            expr_circuits = exp._compose_qpt_circuits(channel, prep_circuits, meas_circuits,
+                                                      to_transpile)
+            for circuit in expr_circuits:
+                # Update metadata
+                circuit.metadata = {
+                    "experiment_type": self._type,
+                    "composite_metadata": [circuit.metadata],
+                    "composite_index": [index],
+                }
+                batch_circuits.append(circuit)
+
+        return batch_circuits
+
 
 class QutritQubitQPTAnalysis(CompoundAnalysis):
     """Analysis for QutritQubitQPT."""
@@ -59,6 +82,7 @@ class QutritQubitQPTAnalysis(CompoundAnalysis):
         analysis_results: list[AnalysisResultData],
         figures: list["matplotlib.figure.Figure"]
     ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
+        return [], []
         component_index = experiment_data.metadata['component_child_index']
 
         for control_state in range(3):

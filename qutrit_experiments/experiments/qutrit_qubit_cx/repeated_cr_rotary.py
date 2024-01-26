@@ -87,18 +87,24 @@ class RepeatedCRRotaryAmplitude(BatchExperiment):
         super().__init__(experiments, backend=backend,
                          analysis=RepeatedCRRotaryAmplitudeAnalysis(analyses))
 
-    def circuits(self) -> list[QuantumCircuit]:
-        circuits_0 = self._experiments[0].circuits()
-        circuits = list(circuits_0)
+    def _batch_circuits(self, to_transpile=False) -> list[QuantumCircuit]:
+        circuit_lists = [self._experiments[0]._batch_circuits(to_transpile)]
         for exp in self._experiments[1:]:
-            circuits_exp = [c.copy() for c in circuits_0]
+            circuit_lists.append([c.copy() for c in circuit_lists[0]])
             cr_schedule = exp.experiment_options.cr_schedule
-            for circuit in circuits_exp:
+            for circuit in circuit_lists[-1]:
                 circuit.calibrations['cr'][(self.physical_qubits, ())] = cr_schedule
-            circuits.extend(circuits_exp)
+        
+        for index, circuit_list in enumerate(circuit_lists):
+            for circuit in circuit_list:
+                # Update metadata
+                circuit.metadata = {
+                    "experiment_type": self._type,
+                    "composite_metadata": [circuit.metadata],
+                    "composite_index": [index],
+                }
 
-        return circuits
-
+        return sum(circuit_lists, [])
 
 
 class RepeatedCRRotaryAmplitudeAnalysis(CompoundAnalysis):
