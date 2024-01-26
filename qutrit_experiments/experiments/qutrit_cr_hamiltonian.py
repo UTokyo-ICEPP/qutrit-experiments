@@ -215,7 +215,7 @@ class QutritCRHamiltonianTomographyAnalysis(CompoundAnalysis):
         analysis_results: list[AnalysisResultData],
         figures: list["matplotlib.figure.Figure"]
     ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
-        """Compute the Hamiltonian components from the fit results."""
+        """Compute the Hamiltonian components (coefficients of [Izζ][XYZ]/2) from fit results."""
         control_basis_components = np.empty((3, 3), dtype=object)
 
         component_index = experiment_data.metadata["component_child_index"]

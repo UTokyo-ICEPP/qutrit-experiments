@@ -286,6 +286,7 @@ class SiZZleFrequencyScanAnalysis(CompoundAnalysis):
     def _default_options(cls) -> Options:
         options = super()._default_options()
         options.plot = True
+        options.base_omegas = np.zeros(3)
         return options
 
     def _run_additional_analysis(
@@ -301,7 +302,7 @@ class SiZZleFrequencyScanAnalysis(CompoundAnalysis):
             base_omegas = ref_data.analysis_results('omega_zs').value
             component_index = list(component_index[:-1])
         else:
-            base_omegas = np.zeros(3)
+            base_omegas = self.options.base_omegas
 
         num_freqs = len(component_index)
         frequencies = np.empty(num_freqs)
@@ -425,6 +426,7 @@ class SiZZlePhaseScanAnalysis(CompoundAnalysis):
     def _default_options(cls) -> Options:
         options = super()._default_options()
         options.plot = True
+        options.base_omegas = np.zeros(3)
         options.return_fit_parameters = False
         options.expected_signs = [-1, 1, -1] # Iz, zz, ζz
         return options
@@ -442,7 +444,7 @@ class SiZZlePhaseScanAnalysis(CompoundAnalysis):
             base_omegas = ref_data.analysis_results('omega_zs').value
             component_index = list(component_index[:-1])
         else:
-            base_omegas = np.zeros(3)
+            base_omegas = self.options.base_omegas
 
         num_phases = len(component_index)
         phase_offsets = np.empty(num_phases)
@@ -600,10 +602,6 @@ class SiZZleAmplitudeScan(BatchExperiment):
 
         super().__init__(experiments, backend=backend,
                          analysis=SiZZleAmplitudeScanAnalysis(analyses))
-
-        if amplitudes is not None:
-            self.set_experiment_options(amplitudes=amplitudes)
-
         self.measure_shift = measure_shift
 
     def _metadata(self) -> dict[str, Any]:
@@ -618,6 +616,8 @@ class SiZZleAmplitudeScanAnalysis(CompoundAnalysis):
     def _default_options(cls) -> Options:
         options = super()._default_options()
         options.plot = True
+        options.base_omegas = np.zeros(3)
+        options.curve_fit = True
         options.return_fit_parameters = False
         return options
 
@@ -634,7 +634,7 @@ class SiZZleAmplitudeScanAnalysis(CompoundAnalysis):
             base_omegas = ref_data.analysis_results('omega_zs').value
             component_index = list(component_index[:-1])
         else:
-            base_omegas = np.zeros(3)
+            base_omegas = self.options.base_omegas
 
         num_amps = len(component_index)
         amplitudes = np.empty(num_amps)
@@ -646,52 +646,16 @@ class SiZZleAmplitudeScanAnalysis(CompoundAnalysis):
             child_data = experiment_data.child_data(idx)
             scan_qubit = child_data.metadata['scan_qubit']
             amplitudes[ichild] = child_data.metadata['sizzle_amplitudes'][scan_qubit]
-            components[:, ichild] = child_data.analysis_results('omega_zs').value - base_omegas
+            try:
+                components[:, ichild] = child_data.analysis_results('omega_zs').value - base_omegas
+            except:
+                print(ichild)
+                raise
 
-        fit_results = [None] * 3
-        fit_data = [None] * 3
-        for ic, op in enumerate(ops):
-            yval = unp.nominal_values(components[ic])
-
-            if ic == 0:
-                if scan_qubit == 0:
-                    model = lmfit.models.ConstantModel()
-                    c = np.mean(yval)
-                    params = model.make_params(c=c)
-
-                else:
-                    model = lmfit.models.QuadraticModel()
-                    diff_amp = np.diff(amplitudes)
-                    a = np.mean(np.diff(np.diff(yval) / diff_amp) / diff_amp[:-1] / 2.)
-                    c = yval[0] - a * np.square(amplitudes[0])
-                    params = model.make_params(a=a, b={'value': 0., 'vary': False}, c=c)
-            else:
-                model = lmfit.models.LinearModel()
-                slope = (yval[-1] - yval[0]) / (amplitudes[-1] - amplitudes[0])
-                intercept = yval[0] - slope * amplitudes[0]
-                params = model.make_params(slope=slope, intercept=intercept)
-
-            fit_results[ic] = model.fit(yval, params, x=amplitudes)
-            fit_data[ic] = convert_lmfit_result(fit_results[ic], [model], amplitudes, yval)
-
-            if fit_data[ic].success:
-                quality = 'good'
-
-                analysis_results.append(AnalysisResultData(
-                    name=f'ω_{op}_coeffs',
-                    value=fit_data[ic].ufloat_params,
-                    chisq=fit_data[ic].reduced_chisq,
-                    quality=quality
-                ))
-            else:
-                quality = 'bad'
-
-            if self.options.return_fit_parameters:
-                analysis_results.append(AnalysisResultData(
-                    name=PARAMS_ENTRY_PREFIX + self.__class__.__name__ + f'_{op}',
-                    value=fit_data[ic],
-                    quality=quality,
-                ))
+        analysis_results.extend([
+            AnalysisResultData(name='scan_amplitudes', value=amplitudes),
+            AnalysisResultData(name='omega_zs', value=components)
+        ])
 
         if self.options.plot:
             plotter = CurvePlotter(MplDrawer())
@@ -702,31 +666,93 @@ class SiZZleAmplitudeScanAnalysis(CompoundAnalysis):
 
             plotter.set_figure_options(
                 xlabel=xlabel,
-                ylabel='Hamiltonian components (rad/s)',
-                ylim=(-5.e+6, 5.e+6)
+                ylabel='Hamiltonian components (rad/s)'
             )
 
-            x_interp = np.linspace(amplitudes[0], amplitudes[-1], 100)
-
-            for ic, label in enumerate(ops):
+            for ic, op in enumerate(ops):
                 plotter.set_series_data(
-                    label,
+                    op,
                     x_formatted=amplitudes,
                     y_formatted=unp.nominal_values(components[ic]),
                     y_formatted_err=unp.std_devs(components[ic])
                 )
 
-                if fit_data[ic].success:
+        if not self.options.curve_fit:
+            figures.append(plotter.figure())
+            return analysis_results, figures
+
+        fit_results = {}
+        fit_data = {}
+        for ic, op in enumerate(ops):
+            xval = amplitudes
+            yval = unp.nominal_values(components[ic])
+
+            if op == 'Iz':
+                if scan_qubit == 0:
+                    model = lmfit.models.ConstantModel()
+                    c = np.mean(yval)
+                    params = model.make_params(c=c)
+                else:
+                    model = lmfit.models.QuadraticModel()
+                    if base_omegas.dtype == np.dtype('O'):
+                        nom_base_omegas = unp.nominal_values(base_omegas)
+                    else:
+                        nom_base_omegas = base_omegas
+                    base_subtracted = (experiment_data.metadata['measure_shift'] 
+                                       or not np.allclose(nom_base_omegas, 0.))
+                    if base_subtracted and not np.isclose(xval[0], 0.):
+                        xval = np.insert(xval, 0, 0.)
+                        yval = np.insert(yval, 0, 0.)
+                    diff_amp = np.diff(xval)
+                    a = np.mean(np.diff(np.diff(yval) / diff_amp) / diff_amp[:-1] / 2.)
+                    if base_subtracted:
+                        c = {'value': 0., 'vary': False}
+                    else:
+                        c = yval[0] - a * np.square(xval[0])
+                    params = model.make_params(a=a, b={'value': 0., 'vary': False}, c=c)
+            else:
+                model = lmfit.models.LinearModel()
+                slope = (yval[-1] - yval[0]) / (xval[-1] - xval[0])
+                intercept = yval[0] - slope * xval[0]
+                params = model.make_params(slope=slope, intercept=intercept)
+
+            fit_results[op] = model.fit(yval, params, x=xval)
+            fit_data[op] = convert_lmfit_result(fit_results[op], [model], xval, yval)
+
+            if fit_data[op].success:
+                quality = 'good'
+
+                analysis_results.append(AnalysisResultData(
+                    name=f'ω_{op}_coeffs',
+                    value=fit_data[op].ufloat_params,
+                    chisq=fit_data[op].reduced_chisq,
+                    quality=quality
+                ))
+            else:
+                quality = 'bad'
+
+            if self.options.return_fit_parameters:
+                analysis_results.append(AnalysisResultData(
+                    name=PARAMS_ENTRY_PREFIX + self.__class__.__name__ + f'_{op}',
+                    value=fit_data[op],
+                    quality=quality,
+                ))
+
+        if self.options.plot:
+            x_interp = np.linspace(amplitudes[0], amplitudes[-1], 100)
+
+            for op in ops:
+                if fit_data[op].success:
                     # y_data_with_uncertainty = eval_with_uncertainties(
                     #     x=x_interp,
                     #     model=models[ic],
                     #     params=fit_data.ufloat_params,
                     # )
                     # y_interp = unp.nominal_values(y_data_with_uncertainty)
-                    y_interp = fit_results[ic].eval(x=x_interp)
+                    y_interp = fit_results[op].eval(x=x_interp)
 
                     plotter.set_series_data(
-                        label,
+                        op,
                         x_interp=x_interp,
                         y_interp=y_interp
                     )
@@ -734,7 +760,7 @@ class SiZZleAmplitudeScanAnalysis(CompoundAnalysis):
                     #     y_interp_err = unp.std_devs(y_data_with_uncertainty)
                     #     if np.isfinite(y_interp_err).all():
                     #         plotter.set_series_data(
-                    #             label,
+                    #             op,
                     #             y_interp_err=y_interp_err
                     #         )
 

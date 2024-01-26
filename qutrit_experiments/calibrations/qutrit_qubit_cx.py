@@ -38,7 +38,8 @@ def add_qutrit_qubit_cr(
     width = Parameter('width')
     margin = Parameter('margin')
     duration = sigma * rsr * 2 + width + margin
-    stark_detuning = Parameter('stark_detuning')
+    stark_frequency = Parameter('stark_frequency')
+    stark_detuning = (stark_frequency - Parameter('target_frequency')) * backend.dt
 
     cr_amp = Parameter('cr_amp')
     cr_angle = Parameter('cr_angle')
@@ -70,6 +71,7 @@ def add_qutrit_qubit_cr(
     for qubits, control_channels in backend.control_channels.items():
         control_channel = control_channels[0]
         target_channel = backend.drive_channel(qubits[1])
+        target_frequency = backend.qubit_properties(qubits[1]).frequency
         ecr_sched = get_default_ecr_schedule(backend, qubits)
         control_instructions = [inst for _, inst in ecr_sched.instructions
                                 if isinstance(inst, pulse.Play) and
@@ -98,7 +100,8 @@ def add_qutrit_qubit_cr(
             ('sigma', default_cr.sigma),
             ('width', 0.),
             ('margin', 0.),
-            ('stark_detuning', 0.),
+            ('stark_frequency', target_frequency),
+            ('target_frequency', target_frequency),
             ('cr_amp', 0.),
             ('cr_angle', default_cr.angle),
             ('cr_stark_amp', 0.),
