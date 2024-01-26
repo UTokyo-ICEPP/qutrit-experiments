@@ -19,7 +19,7 @@ class CompoundAnalysis(CompositeAnalysis):
         for key in self._propagated_option_keys():
             if (value := self.options.get(key)) is not None:
                 for analysis in self._analyses:
-                analysis.set_options(**{key: value})
+                    analysis.set_options(**{key: value})
 
     def _run_additional_analysis(
         self,
