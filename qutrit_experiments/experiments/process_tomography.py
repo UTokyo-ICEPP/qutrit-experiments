@@ -6,21 +6,27 @@ from qiskit import QuantumCircuit, ClassicalRegister
 from qiskit.providers import Backend
 from qiskit.quantum_info import Operator
 from qiskit.result import Counts
+from qiskit_experiments.framework import Options
 from qiskit_experiments.library.tomography import basis, ProcessTomographyAnalysis
 from qiskit_experiments.library.tomography.tomography_experiment import TomographyExperiment
 from qiskit_experiments.library.tomography.fitters.cvxpy_utils import cvxpy
 
 from ..constants import DEFAULT_SHOTS
-from ..transpilation.layout_only import map_to_physical_qubits
-from ..transpilation.layout_and_translation import map_and_translate
+from ..transpilation import map_and_translate, map_to_physical_qubits, translate_to_basis
 
 
 class CircuitTomography(TomographyExperiment):
     """QPT experiment with custom target circuit."""
+    @classmethod
+    def _default_experiment_options(cls) -> Options:
+        options = super()._default_experiment_options()
+        options.decompose_circuits = False
+        return options
+
     def __init__(
         self,
         circuit: QuantumCircuit,
-        target_circuit: QuantumCircuit,
+        target_circuit: Optional[QuantumCircuit] = None,
         backend: Optional[Backend] = None,
         physical_qubits: Optional[Sequence[int]] = None,
         measurement_basis: basis.MeasurementBasis = basis.PauliMeasurementBasis(),
@@ -30,7 +36,10 @@ class CircuitTomography(TomographyExperiment):
         basis_indices: Optional[Iterable[tuple[list[int], list[int]]]] = None,
         extra_metadata: Optional[dict[str, Any]] = None
     ):
-        target = Operator(target_circuit)
+        if target_circuit:
+            target = Operator(target_circuit)
+        else:
+            target = None
 
         analysis = ProcessTomographyAnalysis()
         analysis.set_options(target=target)
@@ -52,69 +61,94 @@ class CircuitTomography(TomographyExperiment):
         self.extra_metadata = extra_metadata
 
     def circuits(self) -> list[QuantumCircuit]:
+        if self.experiment_options.decompose_circuits:
+            return self._decomposed_circuits(apply_layout=False)
+        
         circs = super().circuits()
         for circuit in circs:
             for inst in list(circuit.data):
                 if inst.operation.name == 'reset':
                     circuit.data.remove(inst)
 
-            circuit.metadata['qubits'] = self.physical_qubits
-
         return circs
 
     def _transpiled_circuits(self) -> list[QuantumCircuit]:
-        pbasis = self._prep_circ_basis
-        pqubits = self._prep_physical_qubits
-        mbasis = self._meas_circ_basis
+        return self._decomposed_circuits(apply_layout=True)
+    
+    def _decomposed_circuits(self, apply_layout=False) -> list[QuantumCircuit]:
+        channel = self._circuit
+        if apply_layout:
+            channel = map_to_physical_qubits(channel, self.physical_qubits,
+                                             self._backend.coupling_map)
+
+        prep_circuits = self._decomposed_prep_circuits(apply_layout)
+        meas_circuits = self._decomposed_meas_circuits(apply_layout)
+
         mqubits = self._meas_physical_qubits
 
-        prep_shape = pbasis.index_shape(pqubits)
-        meas_shape = mbasis.index_shape(mqubits)
-
-        channel = map_to_physical_qubits(self._circuit.decompose(), self.physical_qubits,
-                                         self._backend.coupling_map)
-
-        prep_circuits = []
-        for physical_qubit, basis_size in zip(pqubits, prep_shape):
-            prep_circuits.append([
-                map_and_translate(pbasis.circuit((idx,), [physical_qubit]).decompose(),
-                                  [physical_qubit], self._backend)
-                for idx in range(basis_size)
-            ])
-
-        meas_circuits = []
-        for physical_qubit, basis_size in zip(mqubits, meas_shape):
-            circuits = [
-                map_and_translate(mbasis.circuit((idx,), [physical_qubit]).decompose(),
-                                  [physical_qubit], self._backend)
-                for idx in range(basis_size)
-            ]
-            for circuit in circuits:
-                # All single-qubit circuits -> always uses creg0
-                circuit.remove_final_measurements()
-            meas_circuits.append(circuits)
-
-        circuits = self.circuits()
-        transpiled_circuits = []
-
+        circuits = super().circuits()
+        decomposed_circuits = []
         for circuit, (prep_element, meas_element) in zip(circuits, self._basis_indices()):
-            transpiled = channel.copy_empty_like(name=circuit.name)
-            transpiled.metadata = circuit.metadata
-            transpiled.add_register(ClassicalRegister(len(mqubits)))
+            decomposed = channel.copy_empty_like(name=circuit.name)
+            decomposed.metadata = circuit.metadata
+            decomposed.add_register(ClassicalRegister(len(mqubits)))
 
             for iq, idx in enumerate(prep_element):
-                transpiled.compose(prep_circuits[iq][idx], inplace=True)
-            transpiled.barrier()
-            transpiled.compose(channel, inplace=True)
-            transpiled.barrier()
+                decomposed.compose(prep_circuits[iq][idx], inplace=True)
+            decomposed.barrier()
+            decomposed.compose(channel, inplace=True)
+            decomposed.barrier()
             for iq, idx in enumerate(meas_element):
-                transpiled.compose(meas_circuits[iq][idx], inplace=True)
-            transpiled.barrier()
-            transpiled.measure(mqubits, range(len(mqubits)))
+                decomposed.compose(meas_circuits[iq][idx], inplace=True)
+            decomposed.barrier()
+            if apply_layout:
+                decomposed.measure(mqubits, range(len(mqubits)))
+            else:
+                decomposed.measure(self._meas_indices, range(len(mqubits)))
 
-            transpiled_circuits.append(transpiled)
+            decomposed_circuits.append(decomposed)
 
-        return transpiled_circuits
+        return decomposed_circuits
+    
+    def _decomposed_prep_circuits(self, apply_layout: bool) -> list[QuantumCircuit]:
+        pbasis = self._prep_circ_basis
+        pqubits = self._prep_physical_qubits
+        prep_shape = pbasis.index_shape(pqubits)
+        prep_circuits = []
+        for physical_qubit, basis_size in zip(pqubits, prep_shape):
+            qubit_prep_circuits = [pbasis.circuit((idx,), [physical_qubit]).decompose()
+                                   for idx in range(basis_size)]
+            if apply_layout:
+                prep_circuits.append(
+                    map_and_translate(qubit_prep_circuits, [physical_qubit], self._backend)
+                )
+            else:
+                prep_circuits.append(
+                    translate_to_basis(qubit_prep_circuits, self._backend)
+                )
+        return prep_circuits
+
+    def _decomposed_meas_circuits(self, apply_layout: bool) -> list[QuantumCircuit]:
+        mbasis = self._meas_circ_basis
+        mqubits = self._meas_physical_qubits
+        meas_shape = mbasis.index_shape(mqubits)
+        meas_circuits = []
+        for physical_qubit, basis_size in zip(mqubits, meas_shape):
+            qubit_meas_circuits = [mbasis.circuit((idx,), [physical_qubit]).decompose()
+                                   for idx in range(basis_size)]
+            for circuit in qubit_meas_circuits:
+                # All single-qubit circuits -> always uses creg0
+                circuit.remove_final_measurements()
+
+            if apply_layout:
+                meas_circuits.append(
+                    map_and_translate(qubit_meas_circuits, [physical_qubit], self._backend)
+                )
+            else:
+                meas_circuits.append(
+                    translate_to_basis(qubit_meas_circuits, self._backend)
+                )
+        return meas_circuits
 
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()

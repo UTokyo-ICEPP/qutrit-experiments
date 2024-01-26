@@ -16,7 +16,7 @@ from qiskit_experiments.library import CorrelatedReadoutError as CorrelatedReado
 from ..constants import DEFAULT_SHOTS
 from ..experiment_mixins import MapToPhysicalQubits
 from ..gates import X12Gate
-from ..transpilation.layout_only import map_to_physical_qubits
+from ..transpilation import map_to_physical_qubits
 
 
 class CorrelatedReadoutError(CorrelatedReadoutErrorOrig):
