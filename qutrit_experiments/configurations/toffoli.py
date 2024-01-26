@@ -7,7 +7,7 @@ from uncertainties import unumpy as unp
 from qiskit import pulse
 from qiskit.circuit import Parameter
 from qiskit.qobj.utils import MeasLevel, MeasReturnType
-from qiskit_experiments.data_processing import DataProcessor, Probability
+from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 
 from ..data_processing import ReadoutMitigation
 from ..experiment_config import BatchExperimentConfig, ExperimentConfig, register_exp, register_post
@@ -59,8 +59,13 @@ qutrit_functions = [
 for func in qutrit_functions:
     register_single_qutrit_exp(func)
 
-def add_readout_mitigation(gen):
+def add_readout_mitigation(gen=None, *, logical_qubits=None):
     """Decorator to add a readout error mitigation node to the DataProcessor."""
+    if gen is None:
+        def wrapper(gen):
+            return add_readout_mitigation(gen, logical_qubits=logical_qubits)
+        return wrapper
+
     @wraps(gen)
     def converted_gen(runner):
         config = gen(runner)
@@ -68,7 +73,12 @@ def add_readout_mitigation(gen):
             logger.warning('MeasLevel is not CLASSIFIED; no readout mitigation for %s',
                            gen.__name__)
             return config
-        qubits = tuple(config.physical_qubits)
+
+        if logical_qubits is not None:
+            qubits = tuple(config.physical_qubits[q] for q in logical_qubits)
+        else:
+            qubits = tuple(config.physical_qubits)
+
         if (matrix := runner.program_data.get('readout_assignment_matrices', {}).get(qubits)) is None:
             logger.warning('Assignment matrix missing; no readout mitigation for %s',
                            gen.__name__)
@@ -104,7 +114,50 @@ def qubits_assignment_error(runner, experiment_data):
         prog_data[combination] = mitigator.assignment_matrix(combination)
 
 @register_exp
-@add_readout_mitigation
+@add_readout_mitigation(logical_qubits=[1])
+def c2t_sizzle_template(runner):
+    """Template for SiZZle measurement at a single frequency and amplitude combination.
+
+    Frequency, amplitudes should be set in args.
+    """
+    from ..experiments.sizzle import SiZZle
+
+    cr_angle = runner.calibrations.get_parameter_value('cr_angle', [control2, target],
+                                                       schedule='cr')
+
+    return ExperimentConfig(
+        SiZZle,
+        runner.program_data['qubits'][1:],
+        args={
+            'frequency': None,
+            'amplitudes': None,
+            'delays': np.linspace(0., 4.e-7, 16),
+            'osc_freq': 5.e+6,
+            'control_phase_offset': cr_angle
+        }
+    )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1])
+def c2t_zzramsey(runner):
+    from ..experiments.zzramsey import QutritZZRamsey
+    return ExperimentConfig(
+        QutritZZRamsey,
+        runner.program_data['qubits'][1:],
+        args={
+            'delays': np.linspace(0., 4.e-7, 16),
+            'osc_freq': 5.e+6
+        },
+        run_options={'shots': 4000}
+    )
+
+@register_post
+def c2t_zzramsey(runner, experiment_data):
+    omega_zs = experiment_data.analysis_results('omega_zs', block=False).value
+    runner.program_data['c2t_static_omega_zs'] = omega_zs
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1])
 def c2t_sizzle_frequency_scan(runner):
     from ..experiments.sizzle import SiZZleFrequencyScan
     from ..experiments.zzramsey import QutritZZRamsey
@@ -141,23 +194,28 @@ def c2t_sizzle_frequency_scan(runner):
         experiment_options={'frequencies_of_interest': resonances}
     )
 
-@register_post
-def c2t_sizzle_frequency_scan(runner, data):
-    frequencies = np.empty(len(data.child_data()) - 1, dtype=float)
-    shifts = np.empty(frequencies.shape + (3,), dtype=float)
-    component_index = data.metadata["component_child_index"]
-    for ichild, child_index in enumerate(component_index[:-1]):
-        child_data = data.child_data(child_index)
-        frequencies[ichild] = child_data.metadata['frequency']
-        shifts[ichild] = unp.nominal_values(
-            child_data.analysis_results('omega_zs', block=False).value
-        )
+@register_exp
+@add_readout_mitigation(logical_qubits=[1])
+def c2t_sizzle_amplitude_scan_template(runner):
+    from ..experiments.sizzle import SiZZleAmplitudeScan
 
-    runner.program_data['sizzle_frequencies'] = frequencies
-    runner.program_data['sizzle_shifts'] = shifts
+    control2, target = runner.program_data['qubits'][1:]
+    cr_angle = runner.calibrations.get_parameter_value('cr_angle', [control2, target],
+                                                       schedule='cr')
+    return ExperimentConfig(
+        SiZZleAmplitudeScan,
+        [control2, target],
+        args={
+            'frequency': None,
+            'amplitudes': None,
+            'delays': np.linspace(0., 4.e-7, 16),
+            'osc_freq': 5.e+6,
+            'control_phase_offset': cr_angle
+        }
+    )
 
 @register_exp
-@add_readout_mitigation
+@add_readout_mitigation(logical_qubits=[1])
 def c2t_hcr_template(runner):
     """CR HT with undefined amplitude."""
     from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianTomography
@@ -173,6 +231,10 @@ def c2t_hcr_template(runner):
         [control2, target],
         args={
             'schedule': schedule
+        },
+        analysis_options={
+            # Need to set this manually to avoid being overwritten by add_readout_mitigation
+            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
         }
     )
 
@@ -200,6 +262,10 @@ def t_hx(runner):
         args={
             'schedule': sched,
             'widths': np.linspace(0., 2048., 17)
+        },
+        analysis_options={
+            # Need to set this manually to avoid being overwritten by add_readout_mitigation
+            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
         }
     )
 
@@ -209,7 +275,7 @@ def t_hx(runner, data):
     runner.program_data['target_rxtone_hamiltonian'] = components
 
 @register_exp
-@add_readout_mitigation
+@add_readout_mitigation(logical_qubits=[1])
 def c2t_hcr_singlestate_template(runner):
     """CR Hamiltonian tomography with a single control state and an offset Rx tone.
 
@@ -233,11 +299,15 @@ def c2t_hcr_singlestate_template(runner):
             'schedule': schedule,
             'rabi_init': None,
             'measured_logical_qubit': 1
+        },
+        analysis_options={
+            # Need to set this manually to avoid being overwritten by add_readout_mitigation
+            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
         }
     )
 
 @register_exp
-@add_readout_mitigation
+@add_readout_mitigation(logical_qubits=[1])
 def c2t_hcr_amplitude_scan(runner):
     from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianTomographyScan
 
@@ -259,5 +329,35 @@ def c2t_hcr_amplitude_scan(runner):
             'parameter': 'cr_amp',
             'values': amplitudes
         },
-        analysis_options={'poly_orders': poly_orders}
+        analysis_options={
+            # Need to set this manually to avoid being overwritten by add_readout_mitigation
+            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()]),
+            'poly_orders': poly_orders
+        }
     )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1])
+def c2t_rcrx_rotary(runner):
+    from ..experiments.qutrit_qubit_cx.repeated_cr_rotary import RepeatedCRRotaryAmplitudeCal
+    return ExperimentConfig(
+        RepeatedCRRotaryAmplitudeCal,
+        runner.program_data['qubits'][1:],
+        args={
+            'rcr_type': 'x'
+        }
+    )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1])
+def c2t_rcrx12_rotary(runner):
+    from ..experiments.qutrit_qubit_cx.repeated_cr_rotary import RepeatedCRRotaryAmplitudeCal
+    return ExperimentConfig(
+        RepeatedCRRotaryAmplitudeCal,
+        runner.program_data['qubits'][1:],
+        args={
+            'rcr_type': 'x12'
+        }
+    )
+
+    
