@@ -23,6 +23,7 @@ def make_qutrit_qubit_cx_calibrations(
         calibrations = Calibrations.from_backend(backend)
 
     add_qutrit_qubit_cr(backend, calibrations)
+    add_offset_rx(backend, calibrations)
 
     return calibrations
 
@@ -42,26 +43,28 @@ def add_qutrit_qubit_cr(
     stark_detuning = (stark_frequency - Parameter('target_frequency')) * backend.dt
 
     cr_amp = Parameter('cr_amp')
-    cr_angle = Parameter('cr_angle')
+    cr_base_angle = Parameter('cr_base_angle')
+    cr_sign_angle = Parameter('cr_sign_angle')
     cr_stark_amp = Parameter('cr_stark_amp')
     cr_stark_phase = Parameter('cr_stark_phase')
     cr_full_amp = cr_amp + cr_stark_amp
 
     counter_amp = Parameter('counter_amp')
-    counter_angle = Parameter('counter_angle')
+    counter_base_angle = Parameter('counter_base_angle')
+    counter_sign_angle = Parameter('counter_sign_angle')
     counter_stark_amp = Parameter('counter_stark_amp')
     counter_full_amp = counter_amp + counter_stark_amp
 
     cr_pulse = ModulatedGaussianSquare(duration=duration, amp=cr_full_amp,
                                        sigma=sigma, freq=(0., stark_detuning),
                                        fractions=(cr_amp, cr_stark_amp), width=width,
-                                       angle=cr_angle, risefall_sigma_ratio=rsr,
+                                       angle=cr_base_angle + cr_sign_angle, risefall_sigma_ratio=rsr,
                                        phases=(cr_stark_phase,), name='CR')
     counter_pulse = ModulatedGaussianSquare(duration=duration, amp=counter_full_amp,
                                             sigma=sigma, freq=(0., stark_detuning),
                                             fractions=(counter_amp, counter_stark_amp), width=width,
-                                            angle=counter_angle, risefall_sigma_ratio=rsr,
-                                            name='Counter')
+                                            angle=counter_base_angle + counter_sign_angle,
+                                            risefall_sigma_ratio=rsr, name='Counter')
 
     with pulse.build(name='cr', default_alignment='left') as sched:
         pulse.play(cr_pulse, pulse.ControlChannel(Parameter('ch0.1')), name='CR')
@@ -103,13 +106,48 @@ def add_qutrit_qubit_cr(
             ('stark_frequency', target_frequency),
             ('target_frequency', target_frequency),
             ('cr_amp', 0.),
-            ('cr_angle', default_cr.angle),
+            ('cr_base_angle', default_cr.angle),
+            ('cr_sign_angle', 0.),
             ('cr_stark_amp', 0.),
             ('cr_stark_phase', 0.),
             ('counter_amp', 0.),
-            ('counter_angle', 0. if default_rotary is None else default_rotary.angle),
+            ('counter_base_angle', 0. if default_rotary is None else default_rotary.angle),
+            ('counter_sign_angle', 0.),
             ('counter_stark_amp', 0.)
         ]
         for pname, value in param_defaults:
             calibrations.add_parameter_value(ParameterValue(value), pname, qubits=qubits,
                                              schedule='cr')
+
+def add_offset_rx(
+    backend: Backend,
+    calibrations: Calibrations
+) -> None:
+    """Add the schedule for offset Rx on the target qubit."""
+    duration = Parameter('duration')
+    amp = Parameter('amp')
+    sigma = Parameter('sigma')
+    base_angle = Parameter('base_angle')
+    sign_angle = Parameter('sign_angle')
+
+    rx_pulse = pulse.Gaussian(duration=duration, amp=amp, sigma=sigma, angle=base_angle + sign_angle,
+                              name='Rx')
+
+    with pulse.build(name='offset_rx') as sched:
+        pulse.play(rx_pulse, pulse.DriveChannel(Parameter('ch0')), name='Rx')
+    calibrations.add_schedule(sched, num_qubits=1)
+
+    for _, qubit in backend.control_channels.keys():
+        x_sched = backend.defaults().instruction_schedule_map.get('x', qubit)
+        x_pulse = next(inst.pulse for _, inst in x_sched.instructions
+                       if isinstance(inst, pulse.Play))
+        param_defaults = [
+            ('duration', x_sched.duration),
+            ('amp', 0.),
+            ('sigma', x_sched.duration / 4),
+            ('base_angle', x_pulse.angle),
+            ('sign_angle', 0.)
+        ]
+        for pname, value in param_defaults:
+            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=[qubit],
+                                             schedule='offset_rx')

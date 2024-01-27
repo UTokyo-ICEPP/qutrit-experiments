@@ -3,7 +3,6 @@ from typing import Any, Optional
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit import Gate, Parameter
-from qiskit.circuit.library import XGate
 from qiskit.pulse import ScheduleBlock
 from qiskit.providers import Backend, Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
@@ -32,16 +31,18 @@ class RepeatedCRTomography(QutritQubitQPT):
         backend: Optional[Backend] = None,
         extra_metadata: Optional[dict[str, Any]] = None
     ):
-        if rcr_type == 'x':
-            x_gate = XGate()
-        else:
-            x_gate = X12Gate()
-
         rcr_circuit = QuantumCircuit(2)
-        rcr_circuit.append(Gate('cr', 2, []), [0, 1])
-        rcr_circuit.append(x_gate, [0])
-        rcr_circuit.append(Gate('cr', 2, []), [0, 1])
-        rcr_circuit.append(x_gate, [0])
+        if rcr_type == 'x':
+            rcr_circuit.x(0)
+            rcr_circuit.append(Gate('cr', 2, []), [0, 1])
+            rcr_circuit.x(0)
+            rcr_circuit.append(Gate('cr', 2, []), [0, 1])
+        else:
+            rcr_circuit.append(Gate('cr', 2, []), [0, 1])
+            rcr_circuit.append(X12Gate(), [0])
+            rcr_circuit.append(Gate('cr', 2, []), [0, 1])
+            rcr_circuit.append(X12Gate(), [0])
+
         rcr_circuit.add_calibration('cr', physical_qubits, cr_schedule)
 
         super().__init__(physical_qubits, rcr_circuit, backend=backend,
@@ -63,7 +64,7 @@ class RepeatedCRRotaryAmplitude(BatchExperiment):
         cr_schedule: ScheduleBlock,
         rcr_type: str,
         amp_param_name: str = 'counter_amp',
-        angle_param_name: str = 'counter_phase',
+        angle_param_name: str = 'counter_sign_angle',
         amplitudes: Optional[Sequence[float]] = None,
         backend: Optional[Backend] = None
     ):
@@ -185,7 +186,7 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, RepeatedCRRotaryAm
         calibrations: Calibrations,
         rcr_type: str,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['counter_amp', 'counter_angle'],
+        cal_parameter_name: list[str] = ['counter_amp', 'counter_sign_angle'],
         schedule_name: str = 'cr',
         amplitudes: Optional[Sequence[float]] = None,
         width: Optional[float] = None,
