@@ -46,7 +46,8 @@ def add_qutrit_qubit_cr(
     cr_base_angle = Parameter('cr_base_angle')
     cr_sign_angle = Parameter('cr_sign_angle')
     cr_stark_amp = Parameter('cr_stark_amp')
-    cr_stark_phase = Parameter('cr_stark_phase')
+    cr_stark_base_phase = Parameter('cr_stark_base_phase')
+    cr_stark_sign_phase = Parameter('cr_stark_sign_phase')
     cr_full_amp = cr_amp + cr_stark_amp
 
     counter_amp = Parameter('counter_amp')
@@ -59,7 +60,8 @@ def add_qutrit_qubit_cr(
                                        sigma=sigma, freq=(0., stark_detuning),
                                        fractions=(cr_amp, cr_stark_amp), width=width,
                                        angle=cr_base_angle + cr_sign_angle, risefall_sigma_ratio=rsr,
-                                       phases=(cr_stark_phase,), name='CR')
+                                       phases=(cr_stark_base_phase + cr_stark_sign_phase,),
+                                       name='CR')
     counter_pulse = ModulatedGaussianSquare(duration=duration, amp=counter_full_amp,
                                             sigma=sigma, freq=(0., stark_detuning),
                                             fractions=(counter_amp, counter_stark_amp), width=width,
@@ -109,7 +111,8 @@ def add_qutrit_qubit_cr(
             ('cr_base_angle', default_cr.angle),
             ('cr_sign_angle', 0.),
             ('cr_stark_amp', 0.),
-            ('cr_stark_phase', 0.),
+            ('cr_stark_base_phase', 0.),
+            ('cr_stark_sign_phase', 0.),
             ('counter_amp', 0.),
             ('counter_base_angle', 0. if default_rotary is None else default_rotary.angle),
             ('counter_sign_angle', 0.),

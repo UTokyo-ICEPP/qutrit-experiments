@@ -8,6 +8,7 @@ from qiskit import pulse
 from qiskit.circuit import Parameter
 from qiskit.qobj.utils import MeasLevel, MeasReturnType
 from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
+from qiskit_experiments.framework import BackendTiming
 
 from ..data_processing import ReadoutMitigation
 from ..experiment_config import BatchExperimentConfig, ExperimentConfig, register_exp, register_post
@@ -120,8 +121,8 @@ def c2t_sizzle_template(runner):
     """
     from ..experiments.sizzle import SiZZle
 
-    cr_angle = runner.calibrations.get_parameter_value('cr_angle', [control2, target],
-                                                       schedule='cr')
+    cr_base_angle = runner.calibrations.get_parameter_value('cr_base_angle', [control2, target],
+                                                            schedule='cr')
 
     return ExperimentConfig(
         SiZZle,
@@ -131,7 +132,7 @@ def c2t_sizzle_template(runner):
             'amplitudes': None,
             'delays': np.linspace(0., 4.e-7, 16),
             'osc_freq': 5.e+6,
-            'control_phase_offset': cr_angle
+            'control_phase_offset': cr_base_angle
         }
     )
 
@@ -177,8 +178,8 @@ def c2t_sizzle_frequency_scan(runner):
         if all(abs(freq - res) > 2.e+6 for res in resonances.values()):
             frequencies.append(freq)
 
-    cr_angle = runner.calibrations.get_parameter_value('cr_angle', [control2, target],
-                                                       schedule='cr')
+    cr_base_angle = runner.calibrations.get_parameter_value('cr_base_angle', [control2, target],
+                                                            schedule='cr')
     return ExperimentConfig(
         SiZZleFrequencyScan,
         [control2, target],
@@ -187,7 +188,7 @@ def c2t_sizzle_frequency_scan(runner):
             'amplitudes': (0.1, 0.1),
             'delays': np.linspace(0., 4.e-7, 16),
             'osc_freq': 5.e+6,
-            'control_phase_offset': cr_angle
+            'control_phase_offset': cr_base_angle
         },
         experiment_options={'frequencies_of_interest': resonances}
     )
@@ -198,8 +199,8 @@ def c2t_sizzle_amplitude_scan_template(runner):
     from ..experiments.sizzle import SiZZleAmplitudeScan
 
     control2, target = runner.program_data['qubits'][1:]
-    cr_angle = runner.calibrations.get_parameter_value('cr_angle', [control2, target],
-                                                       schedule='cr')
+    cr_base_angle = runner.calibrations.get_parameter_value('cr_base_angle', [control2, target],
+                                                            schedule='cr')
     return ExperimentConfig(
         SiZZleAmplitudeScan,
         [control2, target],
@@ -208,7 +209,7 @@ def c2t_sizzle_amplitude_scan_template(runner):
             'amplitudes': None,
             'delays': np.linspace(0., 4.e-7, 16),
             'osc_freq': 5.e+6,
-            'control_phase_offset': cr_angle
+            'control_phase_offset': cr_base_angle
         }
     )
 
@@ -219,9 +220,7 @@ def c2t_hcr_template(runner):
     from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianTomography
 
     control2, target = runner.program_data['qubits'][1:]
-    width = Parameter('width')
-    cr_amp = Parameter('cr_amp')
-    assign_params = {'width': width, 'cr_amp': cr_amp}
+    assign_params = {'width': Parameter('width'), 'cr_amp': Parameter('cr_amp')}
     schedule = runner.calibrations.get_schedule('cr', qubits=[control2, target],
                                                 assign_params=assign_params)
     return ExperimentConfig(
@@ -235,6 +234,48 @@ def c2t_hcr_template(runner):
             'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
         }
     )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1])
+def c2t_hcr_validation(runner):
+    """CR HT with calibrated amplitude."""
+    from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianTomography
+
+    control2, target = runner.program_data['qubits'][1:]
+    assign_params = {'width': Parameter('width')}
+    schedule = runner.calibrations.get_schedule('cr', qubits=[control2, target],
+                                                assign_params=assign_params)
+    return ExperimentConfig(
+        QutritCRHamiltonianTomography,
+        runner.program_data['qubits'][1:],
+        args={
+            'schedule': schedule
+        },
+        analysis_options={
+            # Need to set this manually to avoid being overwritten by add_readout_mitigation
+            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
+        }
+    )
+
+@register_post
+def c2t_hcr_validation(runner, experiment_data):
+    components = experiment_data.analysis_results('hamiltonian_components', block=False).value
+    runner.program_data['cr_hamiltonian'] = components
+    omega_x = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) @ unp.nominal_values(components[:, 0])
+
+    # Approximate angular rate at which the Rabi phase difference accummulates between 0/2 and 1 blocks
+    crcr_omega_0 = 2. * np.array([omega_x[2], omega_x[0]])
+    crcr_omega_1 = 2. * np.sum(omega_x[None, :] * np.array([[1., 1., -1.], [-1., 1., 1.]]), axis=1)
+    crcr_rel_freqs = np.abs(crcr_omega_1 - crcr_omega_0)
+    rcr_type_index = np.argmax(crcr_rel_freqs)
+    runner.program_data['rcr_type'] = ['x', 'x12'][rcr_type_index]
+    runner.program_data['crcr_omega_0'] = crcr_omega_0[rcr_type_index]
+
+    # Approximate width of the CR pulse to be used in CX
+    backend_timing = BackendTiming(runner.backend)
+    rcr_width = backend_timing.round_pulse(time=np.pi / (crcr_rel_freqs[rcr_type_index]))
+    runner.calibrations.add_parameter_value(rcr_width, 'width',
+                                            qubits=runner.program_data['qubits'][1:], schedule='cr')
 
 @register_exp
 @add_readout_mitigation
@@ -358,6 +399,43 @@ def c2t_rcrx12_rotary(runner):
         runner.program_data['qubits'][1:],
         args={
             'rcr_type': 'x12'
+        },
+        analysis_options={
+            'data_processor': DataProcessor('counts', [])
+        }
+    )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1])
+def c2t_cr_width_rx_amp(runner):
+    from ..experiments.qutrit_qubit_cx.cr_width_rx_amp import CRWidthAndRxAmpScanCal
+    qubits = runner.program_data['qubits'][1:]
+
+    current_width = runner.calibrations.get_parameter_value('width', qubits, schedule='cr')
+    if current_width != 0.:
+        widths = np.linspace(current_width - 128, current_width + 128, 6)
+
+        x_sched = runner.backend.defaults().instruction_schedule_map.get('x', qubits[1])
+        pi_amp = next(inst.pulse.amp for _, inst in x_sched.instructions
+                      if isinstance(inst, pulse.Play))
+        crcr_omega_0 = runner.program_data['crcr_omega_0']
+        center_amp = max(-1.,
+                         min(1.,
+                             -pi_amp / np.pi * crcr_omega_0 * current_width * runner.backend.dt
+                            )
+                        )
+        amplitudes = np.linspace(max(-1., center_amp - 0.1), min(1., center_amp + 0.1), 6)
+    else:
+        widths = None
+        amplitudes = None
+
+    return ExperimentConfig(
+        CRWidthAndRxAmpScanCal,
+        runner.program_data['qubits'][1:],
+        args={
+            'rcr_type': 'x12',
+            'widths': widths,
+            'amplitudes': amplitudes
         },
         analysis_options={
             'data_processor': DataProcessor('counts', [])
