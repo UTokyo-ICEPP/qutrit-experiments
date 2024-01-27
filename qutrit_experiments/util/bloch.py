@@ -54,3 +54,19 @@ def rotation_matrix(theta: array_like, psi: array_like, phi: array_like, npmod=n
     base = npmod.expand_dims(base, theta_dims)
     theta = npmod.expand_dims(theta, (-2, -1))
     return amp * npmod.cos(theta + phase) + base
+
+
+paulis = np.array([
+    [[0., 1.], [1., 0.]],
+    [[0., -1.j], [1.j, 0.]],
+    [[1., 0.], [0., -1.]]
+], dtype='complex128')
+
+def rotation_matrix_xyz(xyz: array_like, npmod=np):
+    if npmod is np:
+        xyz = np.asarray(xyz)
+    norm = npmod.sqrt(npmod.sum(npmod.square(xyz), axis=-1))
+    sigma = npmod.sum((xyz / npmod.expand_dims(norm, -1))[..., None, None] * paulis, axis=-3)
+    unitary = npmod.cos(norm / 2.)[..., None, None] * npmod.eye(2, dtype='complex128')
+    unitary -= 1.j * npmod.sin(norm / 2.)[..., None, None] * sigma
+    return unitary

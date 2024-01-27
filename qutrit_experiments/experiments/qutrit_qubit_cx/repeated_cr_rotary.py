@@ -8,6 +8,7 @@ from qiskit.pulse import ScheduleBlock
 from qiskit.providers import Backend, Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
+from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ...framework.compound_analysis import CompoundAnalysis
 from ...framework_overrides.batch_experiment import BatchExperiment
@@ -93,7 +94,7 @@ class RepeatedCRRotaryAmplitude(BatchExperiment):
             cr_schedule = exp.experiment_options.cr_schedule
             for circuit in circuit_lists[-1]:
                 circuit.calibrations['cr'][(self.physical_qubits, ())] = cr_schedule
-        
+
         for index, circuit_list in enumerate(circuit_lists):
             for circuit in circuit_list:
                 # Update metadata
@@ -112,6 +113,7 @@ class RepeatedCRRotaryAmplitudeAnalysis(CompoundAnalysis):
     def _default_options(cls) -> Options:
         options = super()._default_options()
         options.data_processor = None # Needed to have DP propagated to QPT analysis
+        options.plot = True
         return options
 
     def _run_additional_analysis(
@@ -124,15 +126,55 @@ class RepeatedCRRotaryAmplitudeAnalysis(CompoundAnalysis):
 
         amplitudes = []
         unitaries = []
+        fidelities = []
         for child_index in component_index:
             child_data = experiment_data.child_data(child_index)
             amplitudes.append(child_data.metadata['amplitude'])
             unitaries.append(child_data.analysis_results('unitary_parameters').value)
+            fidelities.append(child_data.analysis_results('fidelities').value)
+
+        amplitudes = np.array(amplitudes)
+        unitaries = np.array(unitaries)
+        fidelities = np.array(fidelities)
 
         analysis_results.extend([
-            AnalysisResultData(name='amplitudes', value=np.array(amplitudes)),
-            AnalysisResultData(name='unitary_parameters', value=np.array(unitaries))
+            AnalysisResultData(name='amplitudes', value=amplitudes),
+            AnalysisResultData(name='unitary_parameters', value=unitaries),
+            AnalysisResultData(name='fidelities', value=fidelities)
         ])
+
+        if self.options.plot:
+            for iop, op in enumerate(['X', 'Y', 'Z']):
+                plotter = CurvePlotter(MplDrawer())
+                plotter.set_figure_options(
+                    xlabel='Rotary amplitude',
+                    ylabel=f'Unitary parameters',
+                    ylim=(-2. * np.pi - 0.2, 2. * np.pi + 0.2)
+                )
+                for control_state in range(3):
+                    plotter.set_series_data(
+                        f'c{control_state}_{op}',
+                        x_formatted=amplitudes,
+                        y_formatted=unitaries[:, control_state, iop],
+                        y_formatted_err=np.zeros_like(amplitudes)
+                    )
+                figures.append(plotter.figure())
+
+            plotter = CurvePlotter(MplDrawer())
+            plotter.set_figure_options(
+                xlabel='Rotary amplitude',
+                ylabel='QPT fidelities',
+                ylim=(-0.1, 1.1)
+            )
+            for control_state in range(3):
+                plotter.set_series_data(
+                    f'c{control_state}',
+                    x_formatted=amplitudes,
+                    y_formatted=fidelities[:, control_state],
+                    y_formatted_err=np.zeros_like(amplitudes)
+                )
+            figures.append(plotter.figure())
+
         return analysis_results, figures
 
 
@@ -177,4 +219,27 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, RepeatedCRRotaryAm
         pass
 
     def update_calibrations(self, experiment_data: ExperimentData):
-        pass
+        amplitudes = experiment_data.analysis_results('amplitudes', block=False).value
+        unitaries = experiment_data.analysis_results('unitary_parameters', block=False).value
+        # Sort the amplitudes by max of |Y| over control states, then find the first local minimum
+        # of max |Z|
+        max_y = np.max(np.abs(unitaries[:, :, 1]), axis=1)
+        max_z = np.max(np.abs(unitaries[:, :, 2]), axis=1)
+        sort_by_y = np.argsort(max_y)
+        max_z_sorted = max_z[sort_by_y]
+        iamp = next(sort_by_y[idx] for idx in range(len(amplitudes) - 1)
+                    if max_z_sorted[idx] < max_z_sorted[idx + 1])
+        amplitude = amplitudes[iamp]
+        angle = 0.
+        if amplitude < 0.:
+            amplitude *= -1.
+            angle = np.pi
+
+        BaseUpdater.add_parameter_value(
+            self._cals, experiment_data, amplitude, self._param_name[0], schedule=self._sched_name,
+            group=self.experiment_options.group
+        )
+        BaseUpdater.add_parameter_value(
+            self._cals, experiment_data, angle, self._param_name[1], schedule=self._sched_name,
+            group=self.experiment_options.group
+        )

@@ -21,6 +21,7 @@ from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ..constants import DEFAULT_SHOTS
 from ..transpilation import map_and_translate, map_to_physical_qubits, translate_to_basis
+from ..util.bloch import paulis, rotation_matrix_xyz
 
 logger = logging.getLogger(__name__)
 
@@ -233,30 +234,14 @@ class CircuitTomographyAnalysis(ProcessTomographyAnalysis):
         choi = next(res for res in analysis_results if res.name == 'state').value
         channel = _to_superop("Choi", choi, 2, 2)
 
-        paulis = np.array([
-            [[0., 1.], [1., 0.]],
-            [[0., -1.j], [1.j, 0.]],
-            [[1., 0.], [0., -1.]]
-        ], dtype='complex128')
-
-        def _make_unitary(params):
-            norm = jnp.sqrt(jnp.sum(jnp.square(params)))
-            params /= norm
-            unitary = jnp.cos(norm / 2.) * jnp.eye(2, dtype='complex128')
-            unitary -= 1.j * jnp.sin(norm / 2.) * jnp.sum(params[:, None, None] * paulis, axis=0)
-            return unitary
-
-        def make_unitary(params):
-            return jax.lax.cond(
-                jnp.allclose(params, 0.),
-                lambda params: jnp.eye(2, dtype='complex128'),
-                _make_unitary,
-                params
-            )
-
         @jax.jit
         def infidelity(params):
-            unitary = make_unitary(params)
+            unitary = jax.lax.cond(
+                jnp.allclose(params, 0.),
+                lambda params: jnp.eye(2, dtype='complex128'),
+                lambda params: rotation_matrix_xyz(params, npmod=jnp),
+                params
+            )
             target = jnp.kron(jnp.conj(unitary), unitary)
             return 1. - jnp.trace(target.T.conjugate() @ channel).real / 4
 
@@ -296,7 +281,7 @@ class CircuitTomographyAnalysis(ProcessTomographyAnalysis):
             ])
             # Z, X, Y
             meas_bases = paulis[[2, 0, 1]]
-            unitary = make_unitary(res.params)
+            unitary = rotation_matrix_xyz(res.params)
             evolved = np.einsum('ij,sj->si', unitary, initial_states)
             y_pred = np.einsum('si,mik,sk->sm', evolved.conjugate(), meas_bases, evolved).real
             ax.bar(np.arange(12), np.zeros(12), 1., bottom=y_pred.reshape(-1), fill=False,
@@ -311,7 +296,7 @@ class CircuitTomographyAnalysis(ProcessTomographyAnalysis):
         return analysis_results, figures
 
     def _update_data(self, experiment_data: ExperimentData):
-        logger.info('Overwriting counts using the output of the DataProcessor.')
+        logger.debug('Overwriting counts using the output of the DataProcessor.')
         processed_ydata = self.options.data_processor(experiment_data.data())
         original_counts = [datum['counts'] for datum in experiment_data.data()]
         for datum, ydatum in zip(experiment_data.data(), processed_ydata):
@@ -319,6 +304,6 @@ class CircuitTomographyAnalysis(ProcessTomographyAnalysis):
         return original_counts
 
     def _restore_data(self, experiment_data: ExperimentData, original_counts: list[dict[str, int]]):
-        logger.info('Restoring counts.')
+        logger.debug('Restoring counts.')
         for datum, counts in zip(experiment_data.data(), original_counts):
             datum['counts'] = counts
