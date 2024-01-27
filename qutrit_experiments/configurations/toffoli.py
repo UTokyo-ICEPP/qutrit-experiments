@@ -90,9 +90,7 @@ def add_readout_mitigation(gen=None, *, logical_qubits=None):
                 Probability(config.analysis_options.get('outcome', '1' * len(qubits)))
             ])
         else:
-            probability_pos = next(i for i, node in enumerate(processor._nodes)
-                                   if isinstance(node, Probability))
-            processor._nodes.insert(probability_pos, ReadoutMitigation(matrix))
+            processor._nodes.insert(0, ReadoutMitigation(matrix))
         return config
 
     return converted_gen
@@ -345,6 +343,9 @@ def c2t_rcrx_rotary(runner):
         runner.program_data['qubits'][1:],
         args={
             'rcr_type': 'x'
+        },
+        analysis_options={
+            'data_processor': DataProcessor('counts', [])
         }
     )
 
@@ -357,7 +358,8 @@ def c2t_rcrx12_rotary(runner):
         runner.program_data['qubits'][1:],
         args={
             'rcr_type': 'x12'
+        },
+        analysis_options={
+            'data_processor': DataProcessor('counts', [])
         }
     )
-
-    

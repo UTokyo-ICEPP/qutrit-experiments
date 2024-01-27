@@ -7,7 +7,6 @@ from qiskit.circuit.library import XGate
 from qiskit.pulse import ScheduleBlock
 from qiskit.providers import Backend, Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
-from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 
 from ...framework.compound_analysis import CompoundAnalysis
@@ -109,6 +108,12 @@ class RepeatedCRRotaryAmplitude(BatchExperiment):
 
 class RepeatedCRRotaryAmplitudeAnalysis(CompoundAnalysis):
     """Analysis for RepeatedCRRotaryAmplitude."""
+    @classmethod
+    def _default_options(cls) -> Options:
+        options = super()._default_options()
+        options.data_processor = None # Needed to have DP propagated to QPT analysis
+        return options
+
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
@@ -119,6 +124,15 @@ class RepeatedCRRotaryAmplitudeAnalysis(CompoundAnalysis):
 
         amplitudes = []
         unitaries = []
+        for child_index in component_index:
+            child_data = experiment_data.child_data(child_index)
+            amplitudes.append(child_data.metadata['amplitude'])
+            unitaries.append(child_data.analysis_results('unitary_parameters').value)
+
+        analysis_results.extend([
+            AnalysisResultData(name='amplitudes', value=np.array(amplitudes)),
+            AnalysisResultData(name='unitary_parameters', value=np.array(unitaries))
+        ])
         return analysis_results, figures
 
 

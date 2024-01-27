@@ -1,18 +1,28 @@
 """QPT experiment with custom target circuit."""
 from collections.abc import Iterable, Sequence
+import logging
 from typing import Any, Optional
+import jax
+import jax.numpy as jnp
+import jaxopt
 import numpy as np
+from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit, ClassicalRegister
 from qiskit.providers import Backend
 from qiskit.quantum_info import Operator
+from qiskit.quantum_info.operators.channel.transformations import _to_superop
 from qiskit.result import Counts
-from qiskit_experiments.framework import Options
+from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
+from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 from qiskit_experiments.library.tomography import basis, ProcessTomographyAnalysis
-from qiskit_experiments.library.tomography.tomography_experiment import TomographyExperiment
 from qiskit_experiments.library.tomography.fitters.cvxpy_utils import cvxpy
+from qiskit_experiments.library.tomography.tomography_experiment import TomographyExperiment
+from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ..constants import DEFAULT_SHOTS
 from ..transpilation import map_and_translate, map_to_physical_qubits, translate_to_basis
+
+logger = logging.getLogger(__name__)
 
 
 class CircuitTomography(TomographyExperiment):
@@ -41,7 +51,7 @@ class CircuitTomography(TomographyExperiment):
         else:
             target = None
 
-        analysis = ProcessTomographyAnalysis()
+        analysis = CircuitTomographyAnalysis()
         analysis.set_options(target=target)
         if cvxpy is not None:
             analysis.set_options(fitter='cvxpy_gaussian_lstsq')
@@ -63,7 +73,7 @@ class CircuitTomography(TomographyExperiment):
     def circuits(self) -> list[QuantumCircuit]:
         if self.experiment_options.decompose_circuits:
             return self._decomposed_circuits(apply_layout=False)
-        
+
         circs = super().circuits()
         for circuit in circs:
             for inst in list(circuit.data):
@@ -74,19 +84,18 @@ class CircuitTomography(TomographyExperiment):
 
     def _transpiled_circuits(self) -> list[QuantumCircuit]:
         return self._decomposed_circuits(apply_layout=True)
-    
+
     def _decomposed_circuits(self, apply_layout=False) -> list[QuantumCircuit]:
         channel = self._circuit
         if apply_layout:
             channel = map_to_physical_qubits(channel, self.physical_qubits,
                                              self._backend.coupling_map)
 
-        prep_circuits = self._decomposed_prep_circuits(apply_layout)
-        meas_circuits = self._decomposed_meas_circuits(apply_layout)
+        prep_circuits = self._decomposed_prep_circuits()
+        meas_circuits = self._decomposed_meas_circuits()
         return self._compose_qpt_circuits(channel, prep_circuits, meas_circuits, apply_layout)
 
-    
-    def _decomposed_prep_circuits(self, apply_layout: bool) -> list[QuantumCircuit]:
+    def _decomposed_prep_circuits(self) -> list[QuantumCircuit]:
         pbasis = self._prep_circ_basis
         pqubits = self._prep_physical_qubits
         prep_shape = pbasis.index_shape(pqubits)
@@ -94,17 +103,12 @@ class CircuitTomography(TomographyExperiment):
         for physical_qubit, basis_size in zip(pqubits, prep_shape):
             qubit_prep_circuits = [pbasis.circuit((idx,), [physical_qubit]).decompose()
                                    for idx in range(basis_size)]
-            if apply_layout:
-                prep_circuits.append(
-                    map_and_translate(qubit_prep_circuits, [physical_qubit], self._backend)
-                )
-            else:
-                prep_circuits.append(
-                    translate_to_basis(qubit_prep_circuits, self._backend)
-                )
+            prep_circuits.append(
+                translate_to_basis(qubit_prep_circuits, self._backend)
+            )
         return prep_circuits
 
-    def _decomposed_meas_circuits(self, apply_layout: bool) -> list[QuantumCircuit]:
+    def _decomposed_meas_circuits(self) -> list[QuantumCircuit]:
         mbasis = self._meas_circ_basis
         mqubits = self._meas_physical_qubits
         meas_shape = mbasis.index_shape(mqubits)
@@ -115,17 +119,11 @@ class CircuitTomography(TomographyExperiment):
             for circuit in qubit_meas_circuits:
                 # All single-qubit circuits -> always uses creg0
                 circuit.remove_final_measurements()
-
-            if apply_layout:
-                meas_circuits.append(
-                    map_and_translate(qubit_meas_circuits, [physical_qubit], self._backend)
-                )
-            else:
-                meas_circuits.append(
-                    translate_to_basis(qubit_meas_circuits, self._backend)
-                )
+            meas_circuits.append(
+                translate_to_basis(qubit_meas_circuits, self._backend)
+            )
         return meas_circuits
-    
+
     def _compose_qpt_circuits(
         self,
         channel: QuantumCircuit,
@@ -133,29 +131,42 @@ class CircuitTomography(TomographyExperiment):
         meas_circuits: list[list[QuantumCircuit]],
         apply_layout: bool
     ) -> list[QuantumCircuit]:
+        pqubits = self._prep_physical_qubits
         mqubits = self._meas_physical_qubits
         circuits = super().circuits()
-        decomposed_circuits = []
+        qpt_circuits = []
         for circuit, (prep_element, meas_element) in zip(circuits, self._basis_indices()):
-            decomposed = channel.copy_empty_like(name=circuit.name)
-            decomposed.metadata = circuit.metadata
-            decomposed.add_register(ClassicalRegister(len(mqubits)))
+            qpt_circuit = channel.copy_empty_like(name=circuit.name)
+            qpt_circuit.metadata = circuit.metadata
+            qpt_circuit.add_register(ClassicalRegister(len(mqubits)))
 
             for iq, idx in enumerate(prep_element):
-                decomposed.compose(prep_circuits[iq][idx], inplace=True)
-            decomposed.barrier()
-            decomposed.compose(channel, inplace=True)
-            decomposed.barrier()
-            for iq, idx in enumerate(meas_element):
-                decomposed.compose(meas_circuits[iq][idx], inplace=True)
-            decomposed.barrier()
-            if apply_layout:
-                decomposed.measure(mqubits, range(len(mqubits)))
-            else:
-                decomposed.measure(self._meas_indices, range(len(mqubits)))
+                if apply_layout:
+                    qubit = pqubits[iq]
+                else:
+                    qubit = self._prep_indices[iq]
+                qpt_circuit.compose(prep_circuits[iq][idx], qubits=[qubit], inplace=True)
 
-            decomposed_circuits.append(decomposed)
-        return decomposed_circuits
+            qpt_circuit.barrier()
+            qpt_circuit.compose(channel, inplace=True)
+            qpt_circuit.barrier()
+
+            for iq, idx in enumerate(meas_element):
+                if apply_layout:
+                    qubit = mqubits[iq]
+                else:
+                    qubit = self._meas_indices[iq]
+
+                qpt_circuit.compose(meas_circuits[iq][idx], qubits=[qubit], inplace=True)
+
+            qpt_circuit.barrier()
+            if apply_layout:
+                qpt_circuit.measure(mqubits, range(len(mqubits)))
+            else:
+                qpt_circuit.measure(self._meas_indices, range(len(mqubits)))
+
+            qpt_circuits.append(qpt_circuit)
+        return qpt_circuits
 
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
@@ -191,3 +202,123 @@ class CircuitTomography(TomographyExperiment):
             data.append(counts)
 
         return data
+
+
+class CircuitTomographyAnalysis(ProcessTomographyAnalysis):
+    """ProcessTomographyAnalysis with an optional fit to a unitary when number of qubits is 1."""
+    @classmethod
+    def _default_options(cls) -> Options:
+        options = super()._default_options()
+        options.unitary_parameters_p0 = None
+        options.data_processor = None
+        options.plot = True
+        return options
+
+    def _run_analysis(
+        self,
+        experiment_data: ExperimentData
+    ) -> tuple[list[AnalysisResultData, list['matplotlib.figure.Figure']]]:
+        if self.options.data_processor:
+            original_counts = self._update_data(experiment_data)
+
+        analysis_results, figures = super()._run_analysis(experiment_data)
+
+        num_qubits = len(experiment_data.metadata['m_qubits'])
+        num_qubits *= len(experiment_data.metadata['p_qubits'])
+        if num_qubits != 1:
+            if self.options.data_processor:
+                self._restore_data(experiment_data, original_counts)
+            return analysis_results, figures
+
+        choi = next(res for res in analysis_results if res.name == 'state').value
+        channel = _to_superop("Choi", choi, 2, 2)
+
+        paulis = np.array([
+            [[0., 1.], [1., 0.]],
+            [[0., -1.j], [1.j, 0.]],
+            [[1., 0.], [0., -1.]]
+        ], dtype='complex128')
+
+        def _make_unitary(params):
+            norm = jnp.sqrt(jnp.sum(jnp.square(params)))
+            params /= norm
+            unitary = jnp.cos(norm / 2.) * jnp.eye(2, dtype='complex128')
+            unitary -= 1.j * jnp.sin(norm / 2.) * jnp.sum(params[:, None, None] * paulis, axis=0)
+            return unitary
+
+        def make_unitary(params):
+            return jax.lax.cond(
+                jnp.allclose(params, 0.),
+                lambda params: jnp.eye(2, dtype='complex128'),
+                _make_unitary,
+                params
+            )
+
+        @jax.jit
+        def infidelity(params):
+            unitary = make_unitary(params)
+            target = jnp.kron(jnp.conj(unitary), unitary)
+            return 1. - jnp.trace(target.T.conjugate() @ channel).real / 4
+
+        solver = jaxopt.GradientDescent(fun=infidelity)
+
+        if (init := self.options.unitary_parameters_p0) is None:
+            init = np.array([np.pi, 0., 0.])
+
+        res = solver.run(init)
+        analysis_results.append(
+            AnalysisResultData(name='unitary_fit_result', value=res)
+        )
+
+        if self.options.plot:
+            plotter = CurvePlotter(MplDrawer())
+            plotter.set_figure_options(
+                xlabel='Circuit',
+                ylabel='Pauli expectation'
+            )
+            data_processor = DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
+            yval = data_processor(experiment_data.data())
+            plotter.set_series_data(
+                'qpt',
+                x_formatted=np.arange(12),
+                y_formatted=unp.nominal_values(yval),
+                y_formatted_err=unp.std_devs(yval)
+            )
+            figure = plotter.figure()
+            ax = figure.axes[0]
+            # assuming Pauli bases
+            # Zp, Zm, Xp, Yp
+            initial_states = np.array([
+                [1., 0.],
+                [0., 1.],
+                [1. / np.sqrt(2.), 1. / np.sqrt(2.)],
+                [1. / np.sqrt(2.), 1.j / np.sqrt(2.)]
+            ])
+            # Z, X, Y
+            meas_bases = paulis[[2, 0, 1]]
+            unitary = make_unitary(res.params)
+            evolved = np.einsum('ij,sj->si', unitary, initial_states)
+            y_pred = np.einsum('si,mik,sk->sm', evolved.conjugate(), meas_bases, evolved).real
+            ax.bar(np.arange(12), np.zeros(12), 1., bottom=y_pred.reshape(-1), fill=False,
+                   label='fit result')
+            ax.set_ylim(-1.05, 1.05)
+            ax.legend()
+
+            figures.append(figure)
+
+        if self.options.data_processor:
+            self._restore_data(experiment_data, original_counts)
+        return analysis_results, figures
+
+    def _update_data(self, experiment_data: ExperimentData):
+        logger.info('Overwriting counts using the output of the DataProcessor.')
+        processed_ydata = self.options.data_processor(experiment_data.data())
+        original_counts = [datum['counts'] for datum in experiment_data.data()]
+        for datum, ydatum in zip(experiment_data.data(), processed_ydata):
+            datum['counts'] = ydatum
+        return original_counts
+
+    def _restore_data(self, experiment_data: ExperimentData, original_counts: list[dict[str, int]]):
+        logger.info('Restoring counts.')
+        for datum, counts in zip(experiment_data.data(), original_counts):
+            datum['counts'] = counts
