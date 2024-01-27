@@ -203,6 +203,9 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         component_expdata = analysis._component_experiment_data(experiment_data)
         logger.debug('Extracted component data for task %s..', parent_task_id)
 
+        if hasattr(analysis, '_set_subanalysis_options'):
+            analysis._set_subanalysis_options(experiment_data)
+
         for itask, (sub_analysis, sub_data) in enumerate(zip(analysis._analyses,
                                                              component_expdata)):
             task_id = parent_task_id + (itask,)
@@ -212,9 +215,6 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                 logger.debug('Booked %s for data from qubits %s',
                              sub_analysis.__class__.__name__, sub_data.metadata['physical_qubits'])
                 task_list.append((sub_analysis, sub_data, task_id))
-
-        if hasattr(analysis, '_set_subanalysis_options'):
-            analysis._set_subanalysis_options(experiment_data)
 
         # A call to _component_experiment_data recreates subdata and/or clears the saved results
         # -> keep the list in a container
