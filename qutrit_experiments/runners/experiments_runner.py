@@ -276,6 +276,8 @@ class ExperimentsRunner:
         transpiled_circuits: Optional[list[QuantumCircuit]] = None
     ) -> list[QuantumCircuit]:
         """Return a list of transpiled circuits accounting for qutrit-specific instructions."""
+        if isinstance(experiment, str):
+            experiment = experiments[experiment](self)
         if isinstance(experiment, ExperimentConfigBase):
             experiment = self.make_experiment(experiment)
 
