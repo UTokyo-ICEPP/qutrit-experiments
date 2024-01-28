@@ -3,6 +3,7 @@
 from functools import wraps
 import logging
 import numpy as np
+from qiskit import pulse
 from qiskit.circuit import Parameter
 from qiskit.qobj.utils import MeasLevel, MeasReturnType
 from qiskit_experiments.data_processing import (DataProcessor, DiscriminatorNode, MemoryToCounts,
@@ -70,7 +71,25 @@ def add_readout_mitigation(gen):
 def qutrit_rough_frequency(runner, qubit):
     """EF frequency measurement based on spectroscopy."""
     from ..experiments.rough_frequency import EFRoughFrequencyCal
-    return ExperimentConfig(EFRoughFrequencyCal, [qubit])
+    sx_sched = runner.backend.defaults().instruction_schedule_map.get('sx', qubit)
+    sx_pulse = next(inst.pulse for _, inst in sx_sched.instructions if isinstance(inst, pulse.Play))
+    sx_amp = sx_pulse.amp
+    sx_duration = sx_pulse.duration
+    sx_sigma = sx_pulse.sigma
+    # aim for pi/2 rotation at the resonance with stretched pulse
+    # factor sqrt(2) for ef transition amp
+    factor = 4.
+    while (amp := sx_amp / factor / np.sqrt(2.)) < 0.005:
+        factor *= 0.9
+    return ExperimentConfig(
+        EFRoughFrequencyCal,
+        [qubit],
+        experiment_options={
+            'amp': amp,
+            'duration': sx_duration * factor * runner.backend.dt,
+            'sigma': sx_sigma * factor * runner.backend.dt
+        }
+    )
 
 def qutrit_rough_amplitude(runner, qubit):
     """X12 and SX12 amplitude determination from Rabi oscillation."""

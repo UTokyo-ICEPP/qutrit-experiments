@@ -1,6 +1,6 @@
 """Rough f12 calibration based on spectroscopy."""
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from typing import Optional, Union
 import numpy as np
 import lmfit
@@ -11,6 +11,9 @@ from qiskit.qobj.utils import MeasReturnType
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.framework import Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
+from qiskit_experiments.curve_analysis.base_curve_analysis import (DATA_ENTRY_PREFIX,
+                                                                   PARAMS_ENTRY_PREFIX)
+from qiskit_experiments.framework import AnalysisResultData, ExperimentData
 from qiskit_experiments.library import EFSpectroscopy
 
 from ..experiment_mixins import MapToPhysicalQubitsCommonCircuit
@@ -23,7 +26,7 @@ class EFRoughFrequency(MapToPhysicalQubitsCommonCircuit, EFSpectroscopy):
     def _default_experiment_options(cls) -> Options:
         """Default option values used for the spectroscopy pulse."""
         options = super()._default_experiment_options()
-        options.amp = 0.06
+        options.center_frequency = None
         return options
 
     @classmethod
@@ -40,11 +43,19 @@ class EFRoughFrequency(MapToPhysicalQubitsCommonCircuit, EFSpectroscopy):
     def __init__(
         self,
         physical_qubits: Sequence[int],
-        frequencies: Iterable[float],
+        frequencies: Sequence[float],
         backend: Optional[Backend] = None
     ):
         super().__init__(physical_qubits, frequencies, backend=backend, absolute=True)
+        center_frequency = np.mean(frequencies)
+        self.set_experiment_options(center_frequency=center_frequency)
         self.analysis = GaussianResonanceAnalysis()
+        self.analysis.set_options(center_frequency=center_frequency)
+        self.analysis.options.plotter.set_figure_options(
+            xlabel=f"Frequency - {center_frequency}",
+            ylabel="Signal (arb. units)",
+            xval_unit="Hz",
+        )
 
     def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]: # pylint: disable=unused-argument
         center = self._frequencies[len(self._frequencies) // 2]
@@ -60,7 +71,14 @@ class EFRoughFrequency(MapToPhysicalQubitsCommonCircuit, EFSpectroscopy):
 
 
 class GaussianResonanceAnalysis(curve.CurveAnalysis):
-    r"""A class to analyze a resonance peak with a Gaussian function."""
+    """A class to analyze a resonance peak with a Gaussian function."""
+    @classmethod
+    def _default_options(cls) -> Options:
+        options = super()._default_options()
+        options.result_parameters = [curve.ParameterRepr("freq", "f12", "Hz")]
+        options.normalization = True
+        options.center_frequency = None
+        return options
 
     def __init__(
         self,
@@ -76,17 +94,26 @@ class GaussianResonanceAnalysis(curve.CurveAnalysis):
             name=name,
         )
 
-    @classmethod
-    def _default_options(cls) -> Options:
-        options = super()._default_options()
-        options.plotter.set_figure_options(
-            xlabel="Frequency",
-            ylabel="Signal (arb. units)",
-            xval_unit="Hz",
-        )
-        options.result_parameters = [curve.ParameterRepr("freq", "f12", "Hz")]
-        options.normalization = True
-        return options
+    def _run_analysis(
+        self, experiment_data: ExperimentData
+    ) -> tuple[list[AnalysisResultData], list["pyplot.Figure"]]:
+        if (x0 := self.options.center_frequency):
+            for datum in experiment_data.data():
+                datum['metadata']['xval'] -= x0
+
+        analysis_results, figures = super()._run_analysis(experiment_data)
+
+        if x0:
+            for result in analysis_results:
+                if result.name == PARAMS_ENTRY_PREFIX + self.name:
+                    result.value.params['freq'] += x0
+                    result.value.x_data += x0
+                elif result.name == 'f12':
+                    result.value += x0
+                elif result.name == DATA_ENTRY_PREFIX + self.__class__.__name__:
+                    result.value['xdata'] += x0
+
+        return analysis_results, figures
 
     def _generate_fit_guesses(
         self,
@@ -132,7 +159,7 @@ class EFRoughFrequencyCal(BaseCalibrationExperiment, EFRoughFrequency):
         self,
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
-        frequencies: Optional[Iterable[float]] = None,
+        frequencies: Optional[Sequence[float]] = None,
         backend: Optional[Backend] = None,
         auto_update: bool = True
     ):
