@@ -24,6 +24,7 @@ from ..transpilation import map_and_translate, map_to_physical_qubits, translate
 from ..util.bloch import paulis, rotation_matrix_xyz
 
 logger = logging.getLogger(__name__)
+twopi = 2. * np.pi
 
 
 class CircuitTomography(TomographyExperiment):
@@ -251,9 +252,36 @@ class CircuitTomographyAnalysis(ProcessTomographyAnalysis):
             init = np.array([np.pi, 0., 0.])
 
         res = solver.run(init)
-        analysis_results.append(
-            AnalysisResultData(name='unitary_fit_result', value=res)
-        )
+        params = np.array(res.params)
+        while (pnorm := np.sqrt(np.sum(np.square(params)))) > twopi:
+            params *= (1. - twopi / pnorm)
+        if (pnorm := np.sqrt(np.sum(np.square(params)))) > np.pi:
+            params *= -(twopi - pnorm) / pnorm
+
+        data_processor = DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
+        expval_obs = data_processor(experiment_data.data())
+
+        # assuming Pauli bases
+        # Zp, Zm, Xp, Yp
+        initial_states = np.array([
+            [1., 0.],
+            [0., 1.],
+            [1. / np.sqrt(2.), 1. / np.sqrt(2.)],
+            [1. / np.sqrt(2.), 1.j / np.sqrt(2.)]
+        ])
+        # Z, X, Y
+        meas_bases = paulis[[2, 0, 1]]
+        unitary = rotation_matrix_xyz(params)
+        evolved = np.einsum('ij,sj->si', unitary, initial_states)
+        expval_pred = np.einsum('si,mik,sk->sm', evolved.conjugate(), meas_bases, evolved).real
+        expval_pred = expval_pred.reshape(-1)
+
+        analysis_results.extend([
+            AnalysisResultData(name='unitary_fit_state', value=res.state),
+            AnalysisResultData(name='unitary_fit_params', value=params),
+            AnalysisResultData(name='expvals_observed', value=expval_obs),
+            AnalysisResultData(name='expvals_predicted', value=expval_pred)
+        ])
 
         if self.options.plot:
             plotter = CurvePlotter(MplDrawer())
@@ -261,30 +289,16 @@ class CircuitTomographyAnalysis(ProcessTomographyAnalysis):
                 xlabel='Circuit',
                 ylabel='Pauli expectation'
             )
-            data_processor = DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
-            yval = data_processor(experiment_data.data())
+
             plotter.set_series_data(
                 'qpt',
                 x_formatted=np.arange(12),
-                y_formatted=unp.nominal_values(yval),
-                y_formatted_err=unp.std_devs(yval)
+                y_formatted=unp.nominal_values(expval_obs),
+                y_formatted_err=unp.std_devs(expval_obs)
             )
             figure = plotter.figure()
             ax = figure.axes[0]
-            # assuming Pauli bases
-            # Zp, Zm, Xp, Yp
-            initial_states = np.array([
-                [1., 0.],
-                [0., 1.],
-                [1. / np.sqrt(2.), 1. / np.sqrt(2.)],
-                [1. / np.sqrt(2.), 1.j / np.sqrt(2.)]
-            ])
-            # Z, X, Y
-            meas_bases = paulis[[2, 0, 1]]
-            unitary = rotation_matrix_xyz(res.params)
-            evolved = np.einsum('ij,sj->si', unitary, initial_states)
-            y_pred = np.einsum('si,mik,sk->sm', evolved.conjugate(), meas_bases, evolved).real
-            ax.bar(np.arange(12), np.zeros(12), 1., bottom=y_pred.reshape(-1), fill=False,
+            ax.bar(np.arange(12), np.zeros(12), 1., bottom=expval_pred.reshape(-1), fill=False,
                    label='fit result')
             ax.set_ylim(-1.05, 1.05)
             ax.legend()
