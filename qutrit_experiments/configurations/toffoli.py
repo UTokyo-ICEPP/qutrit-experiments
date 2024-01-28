@@ -70,31 +70,34 @@ def add_readout_mitigation(gen=None, *, logical_qubits=None):
     @wraps(gen)
     def converted_gen(runner):
         config = gen(runner)
-        if config.run_options.get('meas_level', MeasLevel.CLASSIFIED) != MeasLevel.CLASSIFIED:
-            logger.warning('MeasLevel is not CLASSIFIED; no readout mitigation for %s',
-                           gen.__name__)
-            return config
-
-        if logical_qubits is not None:
-            qubits = tuple(config.physical_qubits[q] for q in logical_qubits)
-        else:
-            qubits = tuple(config.physical_qubits)
-
-        if (matrix := runner.program_data.get('readout_assignment_matrices', {}).get(qubits)) is None:
-            logger.warning('Assignment matrix missing; no readout mitigation for %s',
-                           gen.__name__)
-            return config
-
-        if (processor := config.analysis_options.get('data_processor')) is None:
-            config.analysis_options['data_processor'] = DataProcessor('counts', [
-                ReadoutMitigation(matrix),
-                Probability(config.analysis_options.get('outcome', '1' * len(qubits)))
-            ])
-        else:
-            processor._nodes.insert(0, ReadoutMitigation(matrix))
+        configure_readout_mitigation(runner, config, logical_qubits=logical_qubits)
         return config
 
     return converted_gen
+
+def configure_readout_mitigation(runner, config, logical_qubits=None):
+    if config.run_options.get('meas_level', MeasLevel.CLASSIFIED) != MeasLevel.CLASSIFIED:
+        logger.warning('MeasLevel is not CLASSIFIED; no readout mitigation for %s',
+                       config.exp_type)
+        return
+
+    if logical_qubits is not None:
+        qubits = tuple(config.physical_qubits[q] for q in logical_qubits)
+    else:
+        qubits = tuple(config.physical_qubits)
+
+    if (matrix := runner.program_data.get('readout_assignment_matrices', {}).get(qubits)) is None:
+        logger.warning('Assignment matrix missing; no readout mitigation for %s',
+                       config.exp_type)
+        return
+
+    if (processor := config.analysis_options.get('data_processor')) is None:
+        config.analysis_options['data_processor'] = DataProcessor('counts', [
+            ReadoutMitigation(matrix),
+            Probability(config.analysis_options.get('outcome', '1' * len(qubits)))
+        ])
+    else:
+        processor._nodes.insert(0, ReadoutMitigation(matrix))
 
 @register_exp
 def qubits_assignment_error(runner):
@@ -377,13 +380,13 @@ def c2t_hcr_amplitude_scan(runner):
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1])
-def c2t_rcrx_rotary(runner):
+def c2t_rcr_rotary(runner):
     from ..experiments.qutrit_qubit_cx.repeated_cr_rotary import RepeatedCRRotaryAmplitudeCal
     return ExperimentConfig(
         RepeatedCRRotaryAmplitudeCal,
         runner.program_data['qubits'][1:],
         args={
-            'rcr_type': 'x'
+            'rcr_type': runner.program_data['rcr_type']
         },
         analysis_options={
             'data_processor': DataProcessor('counts', [])
@@ -392,50 +395,39 @@ def c2t_rcrx_rotary(runner):
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1])
-def c2t_rcrx12_rotary(runner):
-    from ..experiments.qutrit_qubit_cx.repeated_cr_rotary import RepeatedCRRotaryAmplitudeCal
-    return ExperimentConfig(
-        RepeatedCRRotaryAmplitudeCal,
-        runner.program_data['qubits'][1:],
-        args={
-            'rcr_type': 'x12'
-        },
-        analysis_options={
-            'data_processor': DataProcessor('counts', [])
-        }
-    )
-
-@register_exp
-@add_readout_mitigation(logical_qubits=[1])
-def c2t_cr_width_rx_amp(runner):
-    from ..experiments.qutrit_qubit_cx.cr_width_rx_amp import CRWidthAndRxAmpScanCal
+def c2t_crcr_cr_width(runner):
+    from ..experiments.qutrit_qubit_cx.cr_width_rx_amp import CycledRepeatedCRWidthCal
     qubits = runner.program_data['qubits'][1:]
 
     current_width = runner.calibrations.get_parameter_value('width', qubits, schedule='cr')
     if current_width != 0.:
-        widths = np.linspace(current_width - 128, current_width + 128, 6)
-
-        x_sched = runner.backend.defaults().instruction_schedule_map.get('x', qubits[1])
-        pi_amp = next(inst.pulse.amp for _, inst in x_sched.instructions
-                      if isinstance(inst, pulse.Play))
-        crcr_omega_0 = runner.program_data['crcr_omega_0']
-        center_amp = max(-1.,
-                         min(1.,
-                             -pi_amp / np.pi * crcr_omega_0 * current_width * runner.backend.dt
-                            )
-                        )
-        amplitudes = np.linspace(max(-1., center_amp - 0.1), min(1., center_amp + 0.1), 6)
+        widths = np.linspace(current_width - 64, current_width + 64, 5)
+        while widths[0] < 0.:
+            widths += 16.
     else:
         widths = None
-        amplitudes = None
 
     return ExperimentConfig(
-        CRWidthAndRxAmpScanCal,
+        CycledRepeatedCRWidthCal,
         runner.program_data['qubits'][1:],
         args={
-            'rcr_type': 'x12',
+            'rcr_type': runner.program_data['rcr_type'],
             'widths': widths,
-            'amplitudes': amplitudes
+        },
+        analysis_options={
+            'data_processor': DataProcessor('counts', [])
+        }
+    )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1])
+def c2t_crcr_rx_amp(runner):
+    from ..experiments.qutrit_qubit_cx.cr_width_rx_amp import CycledRepeatedCRRxAmplitudeCal
+    return ExperimentConfig(
+        CycledRepeatedCRRxAmplitudeCal,
+        runner.program_data['qubits'][1:],
+        args={
+            'rcr_type': runner.program_data['rcr_type']
         },
         analysis_options={
             'data_processor': DataProcessor('counts', [])
