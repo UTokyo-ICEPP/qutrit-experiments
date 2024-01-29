@@ -698,17 +698,14 @@ class SiZZleAmplitudeScanAnalysis(CompoundAnalysis):
                         nom_base_omegas = unp.nominal_values(base_omegas)
                     else:
                         nom_base_omegas = base_omegas
-                    base_subtracted = (experiment_data.metadata['measure_shift'] 
+                    base_subtracted = (experiment_data.metadata['measure_shift']
                                        or not np.allclose(nom_base_omegas, 0.))
                     if base_subtracted and not np.isclose(xval[0], 0.):
                         xval = np.insert(xval, 0, 0.)
                         yval = np.insert(yval, 0, 0.)
                     diff_amp = np.diff(xval)
                     a = np.mean(np.diff(np.diff(yval) / diff_amp) / diff_amp[:-1] / 2.)
-                    if base_subtracted:
-                        c = {'value': 0., 'vary': False}
-                    else:
-                        c = yval[0] - a * np.square(xval[0])
+                    c = yval[0] - a * np.square(xval[0])
                     params = model.make_params(a=a, b={'value': 0., 'vary': False}, c=c)
             else:
                 model = lmfit.models.LinearModel()
