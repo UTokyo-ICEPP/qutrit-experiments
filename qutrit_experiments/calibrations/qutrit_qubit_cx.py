@@ -46,7 +46,6 @@ def add_qutrit_qubit_cr(
     cr_base_angle = Parameter('cr_base_angle')
     cr_sign_angle = Parameter('cr_sign_angle')
     cr_stark_amp = Parameter('cr_stark_amp')
-    cr_stark_base_phase = Parameter('cr_stark_base_phase')
     cr_stark_sign_phase = Parameter('cr_stark_sign_phase')
     cr_full_amp = cr_amp + cr_stark_amp
 
@@ -60,7 +59,7 @@ def add_qutrit_qubit_cr(
                                        sigma=sigma, freq=(0., stark_detuning),
                                        fractions=(cr_amp, cr_stark_amp), width=width,
                                        angle=cr_base_angle + cr_sign_angle, risefall_sigma_ratio=rsr,
-                                       phases=(cr_stark_base_phase + cr_stark_sign_phase,),
+                                       phases=(cr_stark_sign_phase,),
                                        name='CR')
     counter_pulse = ModulatedGaussianSquare(duration=duration, amp=counter_full_amp,
                                             sigma=sigma, freq=(0., stark_detuning),
@@ -89,9 +88,9 @@ def add_qutrit_qubit_cr(
                                   inst.channel == target_channel]
         try:
             default_cr = next(inst.pulse for inst in control_instructions
-                              if inst.name.startswith('CR90m'))
+                              if inst.name.startswith('CR90p'))
             default_rotary = next(inst.pulse for inst in target_instructions
-                                  if inst.name.startswith('CR90m'))
+                                  if inst.name.startswith('CR90p'))
         except StopIteration: # Direct CX
             try:
                 default_cr = next(inst.pulse for inst in control_instructions
@@ -111,7 +110,6 @@ def add_qutrit_qubit_cr(
             ('cr_base_angle', default_cr.angle),
             ('cr_sign_angle', 0.),
             ('cr_stark_amp', 0.),
-            ('cr_stark_base_phase', 0.),
             ('cr_stark_sign_phase', 0.),
             ('counter_amp', 0.),
             ('counter_base_angle', 0. if default_rotary is None else default_rotary.angle),
