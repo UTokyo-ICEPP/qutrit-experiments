@@ -162,7 +162,6 @@ def c2t_zzramsey(runner, experiment_data):
 @add_readout_mitigation(logical_qubits=[1])
 def c2t_sizzle_frequency_scan(runner):
     from ..experiments.sizzle import SiZZleFrequencyScan
-    from ..experiments.zzramsey import QutritZZRamsey
 
     control2, target = runner.program_data['qubits'][1:]
     c2_props = runner.backend.qubit_properties(control2)
@@ -223,7 +222,16 @@ def c2t_hcr_template(runner):
     from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianTomography
 
     control2, target = runner.program_data['qubits'][1:]
-    assign_params = {'width': Parameter('width'), 'cr_amp': Parameter('cr_amp')}
+    assign_params = {
+        'width': Parameter('width'),
+        'margin': 0.,
+        'stark_frequency': runner.backend.qubit_properties(target).frequency,
+        'cr_amp': Parameter('cr_amp'),
+        'cr_sign_angle': 0.,
+        'cr_stark_amp': 0.,
+        'counter_amp': 0.,
+        'counter_stark_amp': 0.
+    }
     schedule = runner.calibrations.get_schedule('cr', qubits=[control2, target],
                                                 assign_params=assign_params)
     return ExperimentConfig(
@@ -241,7 +249,7 @@ def c2t_hcr_template(runner):
 @register_exp
 @add_readout_mitigation(logical_qubits=[1])
 def c2t_hcr_validation(runner):
-    """CR HT with calibrated amplitude."""
+    """HT for fully calibrated CR."""
     from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianTomography
 
     control2, target = runner.program_data['qubits'][1:]
@@ -292,9 +300,12 @@ def t_hx(runner):
     rsr = 2
     duration = width + sigma * rsr * 2
     amp = 2. / 2048 / runner.backend.dt / rabi_freq_per_amp(runner.backend, qubit)
+    angle = runner.calibrations.get_parameter_value('counter_base_angle',
+                                                    runner.program_data['qubits'][1:],
+                                                    schedule='cr')
     with pulse.build(name='rx') as sched:
         pulse.play(
-            pulse.GaussianSquare(duration=duration, amp=amp, sigma=sigma, width=width),
+            pulse.GaussianSquare(duration=duration, amp=amp, sigma=sigma, width=width, angle=angle),
             runner.backend.drive_channel(qubit)
         )
 
@@ -313,7 +324,7 @@ def t_hx(runner):
 
 @register_post
 def t_hx(runner, data):
-    components = data.analysis_results('hamiltonian_components', block=False)
+    components = data.analysis_results('hamiltonian_components', block=False).value
     runner.program_data['target_rxtone_hamiltonian'] = components
 
 @register_exp
@@ -328,10 +339,18 @@ def c2t_hcr_singlestate_template(runner):
     from ..experiments.hamiltonian_tomography import HamiltonianTomography
 
     control2, target = runner.program_data['qubits'][1:]
-    width = Parameter('width')
-    cr_amp = Parameter('cr_amp')
     counter_amp = 2. / 2048 / runner.backend.dt / rabi_freq_per_amp(runner.backend, target)
-    assign_params = {'width': width, 'cr_amp': cr_amp, 'counter_amp': counter_amp}
+    assign_params = {
+        'width': Parameter('width'),
+        'margin': 0.,
+        'stark_frequency': runner.backend.qubit_properties(target).frequency,
+        'cr_amp': Parameter('cr_amp'),
+        'cr_sign_angle': 0.,
+        'cr_stark_amp': 0.,
+        'counter_amp': counter_amp,
+        'counter_sign_angle': 0.,
+        'counter_stark_amp': 0.
+    }
     schedule = runner.calibrations.get_schedule('cr', qubits=[control2, target],
                                                 assign_params=assign_params)
     return ExperimentConfig(
@@ -354,9 +373,16 @@ def c2t_hcr_amplitude_scan(runner):
     from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianTomographyScan
 
     control2, target = runner.program_data['qubits'][1:]
-    width = Parameter('width')
-    cr_amp = Parameter('cr_amp')
-    assign_params = {'width': width, 'cr_amp': cr_amp}
+    assign_params = {
+        'width': Parameter('width'),
+        'margin': 0.,
+        'stark_frequency': runner.backend.qubit_properties(target).frequency,
+        'cr_amp': Parameter('cr_amp'),
+        'cr_sign_angle': 0.,
+        'cr_stark_amp': 0.,
+        'counter_amp': 0.,
+        'counter_stark_amp': 0.
+    }
     schedule = runner.calibrations.get_schedule('cr', qubits=[control2, target],
                                                 assign_params=assign_params)
     amplitudes = np.linspace(0.1, 0.9, 9)
