@@ -126,6 +126,8 @@ def c2t_sizzle_template(runner):
 
     cr_base_angle = runner.calibrations.get_parameter_value('cr_base_angle', [control2, target],
                                                             schedule='cr')
+    counter_base_angle = runner.calibrations.get_parameter_value('counter_base_angle',
+                                                                 [control2, target], schedule='cr')
 
     return ExperimentConfig(
         SiZZle,
@@ -135,7 +137,7 @@ def c2t_sizzle_template(runner):
             'amplitudes': None,
             'delays': np.linspace(0., 4.e-7, 16),
             'osc_freq': 5.e+6,
-            'control_phase_offset': cr_base_angle
+            'angles': (cr_base_angle, counter_base_angle)
         }
     )
 
@@ -182,6 +184,8 @@ def c2t_sizzle_frequency_scan(runner):
 
     cr_base_angle = runner.calibrations.get_parameter_value('cr_base_angle', [control2, target],
                                                             schedule='cr')
+    counter_base_angle = runner.calibrations.get_parameter_value('counter_base_angle',
+                                                                 [control2, target], schedule='cr')
     return ExperimentConfig(
         SiZZleFrequencyScan,
         [control2, target],
@@ -190,7 +194,7 @@ def c2t_sizzle_frequency_scan(runner):
             'amplitudes': (0.1, 0.1),
             'delays': np.linspace(0., 4.e-7, 16),
             'osc_freq': 5.e+6,
-            'control_phase_offset': cr_base_angle
+            'angles': (cr_base_angle, counter_base_angle)
         },
         experiment_options={'frequencies_of_interest': resonances}
     )
@@ -203,6 +207,8 @@ def c2t_sizzle_amplitude_scan_template(runner):
     control2, target = runner.program_data['qubits'][1:]
     cr_base_angle = runner.calibrations.get_parameter_value('cr_base_angle', [control2, target],
                                                             schedule='cr')
+    counter_base_angle = runner.calibrations.get_parameter_value('counter_base_angle',
+                                                                 [control2, target], schedule='cr')
     return ExperimentConfig(
         SiZZleAmplitudeScan,
         [control2, target],
@@ -211,7 +217,7 @@ def c2t_sizzle_amplitude_scan_template(runner):
             'amplitudes': None,
             'delays': np.linspace(0., 4.e-7, 16),
             'osc_freq': 5.e+6,
-            'control_phase_offset': cr_base_angle
+            'angles': (cr_base_angle, counter_base_angle)
         }
     )
 
