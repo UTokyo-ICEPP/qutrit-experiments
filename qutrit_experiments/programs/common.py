@@ -50,9 +50,9 @@ def _load_backend(program_config: dict[str, Any]):
         client_params, backend_config, defaults, properties, target = pickle.load(source)
 
     backend = IBMBackend(instance=program_config['provider_instance'],
-                            configuration=backend_config,
-                            api_client=RuntimeClient(client_params),
-                            service=None)
+                         configuration=backend_config,
+                         api_client=RuntimeClient(client_params),
+                         service=None)
     backend._defaults = defaults
     backend._properties = properties
     backend._target = target
@@ -73,8 +73,8 @@ def _save_backend(backend: Backend, program_config: dict[str, Any]):
     file_name += f'-{program_config["provider_instance"].replace("/", "_")}.pkl'
     with open(file_name, 'wb') as out:
         data = (
-            runtime_service._client_params,
-            runtime_service._backend_configs[program_config['backend_name']],
+            backend.service._client_params,
+            backend.service._backend_configs[program_config['backend_name']],
             backend.defaults(),
             backend.properties(),
             backend.target
