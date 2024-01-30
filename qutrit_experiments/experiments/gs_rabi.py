@@ -228,6 +228,12 @@ class GSRabiAnalysis(curve.OscillationAnalysis):
     guess fails. CR Rabi is rather slow, so FFT usually fails, and we therefore need to
     have the input probability values shifted down by 0.5.
     """
+    @classmethod
+    def _default_options(cls) -> Options:
+        options = super()._default_options()
+        options.phase_offset = 0.
+        return options
+
     def __init__(self, name: Optional[str] = None):
         super().__init__(name=name)
         self.set_options(
@@ -269,51 +275,48 @@ class GSRabiAnalysis(curve.OscillationAnalysis):
             base=0.
         )
 
-        fixed_freq_sign = 'freq' in self.options.fixed_parameters
+        freq_sign = None
+        if (freq_p0 := self.options.fixed_parameters.get('freq')) is not None:
+            freq_sign = np.sign(freq_p0)
+        elif (freq_bounds := self.options.bounds.get('freq')) is not None:
+            if freq_bounds[0] >= 0.:
+                freq_sign = 1.
+            elif freq_bounds[1] <= 0.:
+                freq_sign = -1.
 
-        if not fixed_freq_sign:
-            bounds = user_opt.bounds['freq']
-            if bounds is None:
-                user_opt.bounds.set_if_empty(
-                    freq=(-np.inf, np.inf)
-                )
-            else:
-                if bounds[0] >= 0. or bounds[1] <= 0.:
-                    fixed_freq_sign = True
+        if freq_sign == 1.:
+            user_opt.bounds.set_if_empty(phase=(0., twopi))
+        elif freq_sign == -1.:
+            user_opt.bounds.set_if_empty(phase=(-twopi, 0.))
 
-        if fixed_freq_sign:
-            phase_bounds = (0., twopi)
+        # superclass options are copies of options with only the phase p0 varied; we'll make our own p0s
+        user_opt = super()._generate_fit_guesses(user_opt, curve_data)[0]
+
+        if 'phase' in self.options.p0:
+            return user_opt
+
+        user_opts = []
+
+        if freq_sign is None:
+            for phase_guess in np.linspace(-np.pi, np.pi, 9):
+                if phase_guess == 0.:
+                    continue
+                new_opt = user_opt.copy()
+                if freq_bounds is None:
+                    new_opt.bounds['freq'] = (0., np.inf) if phase_guess > 0. else (-np.inf, 0.)
+                new_opt.bounds['phase'] = (0., np.pi) if phase_guess > 0. else (-np.pi, 0.)
+                new_opt.p0['freq'] = np.sign(phase_guess) * np.abs(user_opt.p0['freq'])
+                new_opt.p0['phase'] = phase_guess
+                user_opts.append(new_opt)
         else:
-            phase_bounds = (0., np.pi)
+            for phase_guess in np.linspace(0., twopi, 8, endpoint=False) * freq_sign:
+                new_opt = user_opt.copy()
+                new_opt.p0['phase'] = phase_guess
+                user_opts.append(new_opt)
 
-        user_opt.bounds.set_if_empty(
-            phase=phase_bounds
-        )
-
-        has_phase_guess = user_opt.p0['phase'] is not None
-
-        user_opts = super()._generate_fit_guesses(user_opt, curve_data)
-
-        if has_phase_guess:
-            # OscillationAnalysis simply repeats the same guess with different phase offsets
-            user_opts = user_opts[:1]
-
-        additional_opts = []
-
-        if fixed_freq_sign:
-            # Add negative phase guesses (which are lacking in OscillationAnalysis)
-            for phase_guess in np.linspace(-np.pi * 0.75, -np.pi * 0.25, 3):
-                user_opt = user_opts[0].copy()
-                user_opt.p0['phase'] = phase_guess
-                additional_opts.append(user_opt)
-
-        else:
-            for positive_freq_opt in user_opts:
-                negative_freq_opt = positive_freq_opt.copy()
-                negative_freq_opt.p0['freq'] *= -1.
-                additional_opts.append(negative_freq_opt)
-
-        user_opts += additional_opts
+        for opt in user_opts:
+            opt.bounds['phase'] = tuple(np.array(opt.bounds['phase']) + self.options.phase_offset)
+            opt.p0['phase'] += self.options.phase_offset
 
         return user_opts
 
