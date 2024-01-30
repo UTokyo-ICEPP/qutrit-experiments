@@ -137,7 +137,9 @@ def static_hamiltonian(
         A square array with shape ``(nlevels**2, nlevels**2)`` that represents the lab-frame static
         Hamiltonian in the free Hamiltonian energy eigenbasis.
     """
-    coupling = hvars[f'jq{min(qubits)}q{max(qubits)}']
+    if (coupling := hvars.get(f'jq{min(qubits)}q{max(qubits)}', 0.)) == 0.:
+        # Sometimes (e.g. kawasaki) the couplings have not been measured
+        coupling = 11.e+6
 
     annihilation = np.diagflat(np.sqrt(np.arange(1, nlevels)), 1)
     creation = np.diagflat(np.sqrt(np.arange(1, nlevels)), -1)
