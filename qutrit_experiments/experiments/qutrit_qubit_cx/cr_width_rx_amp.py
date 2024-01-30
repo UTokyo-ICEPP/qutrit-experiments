@@ -232,11 +232,6 @@ class CycledRepeatedCRWidthCal(BaseCalibrationExperiment, CycledRepeatedCRWidth)
             margin_param_name=cal_parameter_name[1],
             widths=widths
         )
-        # Need to have circuits() return decomposed circuits because of how _transpiled_circuits
-        # work in calibration experiments
-        for qutrit_tomography in self.component_experiment():
-            for tomography in qutrit_tomography.component_experiment():
-                tomography.set_experiment_options(decompose_circuits=True)
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         pass

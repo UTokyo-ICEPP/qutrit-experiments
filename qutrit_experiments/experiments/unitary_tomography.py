@@ -20,6 +20,7 @@ class UnitaryTomography(MapToPhysicalQubits, BaseExperiment):
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
         options.circuit = None
+        options.pre_circuit = None
         options.measured_logical_qubit = 0
         return options
 
@@ -42,13 +43,18 @@ class UnitaryTomography(MapToPhysicalQubits, BaseExperiment):
         circuits = []
         for idx_i, initial_state in enumerate(axes):
             template = QuantumCircuit(num_qubits, 1)
+            if (pre_circuit := self.experiment_options.pre_circuit) is not None:
+                template.compose(pre_circuit, inplace=True)
+                template.barrier()
             if initial_state != 'z':
                 template.sx(meas_qubit)
             if initial_state == 'x':
                 template.rz(np.pi / 2., meas_qubit)
             elif initial_state == 'y':
                 template.rz(-np.pi, meas_qubit)
+            template.barrier()
             template.compose(self.experiment_options.circuit, inplace=True)
+            template.barrier()
             for idx_m in range(idx_i + 1):
                 meas_basis = axes[idx_m]
                 circuit = template.copy()
