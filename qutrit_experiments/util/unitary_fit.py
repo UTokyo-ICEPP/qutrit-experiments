@@ -38,7 +38,7 @@ def fit_unitary(
 
     @jax.jit
     def objective(params):
-        r_elements = so3_cartesian(params, npmod=jnp)[..., initial_states, meas_bases] * signs
+        r_elements = so3_cartesian(params, npmod=jnp)[..., meas_bases, initial_states] * signs
         return jnp.sum(jnp.square(r_elements - unp.nominal_values(expvals)), axis=-1)
 
     solver = jaxopt.GradientDescent(fun=objective)
@@ -52,7 +52,7 @@ def fit_unitary(
 
     res = min(fit_results, key=lambda r: r.state.error)
     params = rescale_axis(np.array(res.params))
-    expvals_pred = so3_cartesian(params)[..., initial_states, meas_bases] * signs
+    expvals_pred = so3_cartesian(params)[..., meas_bases, initial_states] * signs
 
     if plot:
         ax = get_non_gui_ax()
