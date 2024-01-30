@@ -5,6 +5,7 @@ from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.providers import Backend, Options
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
+from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ..framework_overrides.batch_experiment import BatchExperiment
@@ -13,14 +14,16 @@ from ..framework.compound_analysis import CompoundAnalysis
 from ..gates import X12Gate
 from ..transpilation import map_to_physical_qubits
 from .process_tomography import CircuitTomography
+from .unitary_tomography import UnitaryTomography
 
 
-class QutritQubitQPT(BatchExperiment):
-    """Target-qubit QPT for three initial states of the control qubit."""
+class QutritQubitTomography(BatchExperiment):
+    """Target-qubit Tomography for three initial states of the control qubit."""
     def __init__(
         self,
         physical_qubits: Sequence[int],
         circuit: QuantumCircuit,
+        tomography_type: str = 'unitary',
         backend: Optional[Backend] = None,
         extra_metadata: Optional[dict[str, Any]] = None
     ):
@@ -34,51 +37,60 @@ class QutritQubitQPT(BatchExperiment):
             channel.barrier()
             channel.compose(circuit, inplace=True)
 
-            experiments.append(
-                CircuitTomography(channel, physical_qubits=physical_qubits,
-                                  measurement_indices=[1], preparation_indices=[1], backend=backend,
-                                  extra_metadata={'control_state': control_state})
-            )
+            if tomography_type == 'unitary':
+                exp = UnitaryTomography(physical_qubits, channel, backend=backend,
+                                        extra_metadata={'control_state': control_state})
+                exp.set_experiment_options(measured_logical_qubit=1)
+            else:
+                exp = CircuitTomography(channel, physical_qubits=physical_qubits,
+                                        measurement_indices=[1], preparation_indices=[1],
+                                        backend=backend,
+                                        extra_metadata={'control_state': control_state})
+            experiments.append(exp)
 
+        analyses = [exp.analysis for exp in experiments]
         super().__init__(experiments, backend=backend,
-                         analysis=QutritQubitQPTAnalysis([exp.analysis for exp in experiments]))
-        self.extra_metadata = extra_metadata
+                         analysis=QutritQubitTomographyAnalysis(analyses))
+        self.tomography_type = tomography_type
+        self.extra_metadata = extra_metadata or {}
 
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
-        if self.extra_metadata:
-            metadata.update(self.extra_metadata)
+        metadata.update(self.extra_metadata)
         return metadata
 
     def _batch_circuits(self, to_transpile=False) -> list[QuantumCircuit]:
-        prep_circuits = self._experiments[0]._decomposed_prep_circuits()
-        meas_circuits = self._experiments[0]._decomposed_meas_circuits()
-        batch_circuits = []
-        for index, exp in enumerate(self._experiments):
-            channel = exp._circuit
-            if to_transpile:
-                channel = map_to_physical_qubits(channel, self.physical_qubits,
-                                                 self._backend.coupling_map)
-            expr_circuits = exp._compose_qpt_circuits(channel, prep_circuits, meas_circuits,
-                                                      to_transpile)
-            for circuit in expr_circuits:
-                # Update metadata
-                circuit.metadata = {
-                    "experiment_type": self._type,
-                    "composite_metadata": [circuit.metadata],
-                    "composite_index": [index],
-                }
-                batch_circuits.append(circuit)
+        if self.tomography_type == 'unitary':
+            return super()._batch_circuits(to_transpile)
+        else:
+            prep_circuits = self._experiments[0]._decomposed_prep_circuits()
+            meas_circuits = self._experiments[0]._decomposed_meas_circuits()
+            batch_circuits = []
+            for index, exp in enumerate(self._experiments):
+                channel = exp._circuit
+                if to_transpile:
+                    channel = map_to_physical_qubits(channel, self.physical_qubits,
+                                                    self._backend.coupling_map)
+                expr_circuits = exp._compose_tomography_circuits(channel, prep_circuits, meas_circuits,
+                                                                to_transpile)
+                for circuit in expr_circuits:
+                    # Update metadata
+                    circuit.metadata = {
+                        "experiment_type": self._type,
+                        "composite_metadata": [circuit.metadata],
+                        "composite_index": [index],
+                    }
+                    batch_circuits.append(circuit)
 
-        return batch_circuits
+            return batch_circuits
 
 
-class QutritQubitQPTAnalysis(CompoundAnalysis):
-    """Analysis for QutritQubitQPT."""
+class QutritQubitTomographyAnalysis(CompoundAnalysis):
+    """Analysis for QutritQubitTomography."""
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
-        options.data_processor = None # Needed to have DP propagated to QPT analysis
+        options.data_processor = None # Needed to have DP propagated to tomography analysis
         options.plot = True
         return options
 
@@ -88,64 +100,54 @@ class QutritQubitQPTAnalysis(CompoundAnalysis):
         analysis_results: list[AnalysisResultData],
         figures: list["matplotlib.figure.Figure"]
     ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
-        """Compute the rotation parameters θ that maximize the fidelity between exp(-i/2 θ.σ) and
-        the observed Choi matrices."""
         component_index = experiment_data.metadata['component_child_index']
 
         unitary_parameters = []
-        fidelities = []
-        expval_obss = []
-        expval_preds = []
+        observeds = []
+        predicteds = []
 
         for control_state in range(3):
             child_data = experiment_data.child_data(component_index[control_state])
-            fit_state = child_data.analysis_results('unitary_fit_state').value
             popt = child_data.analysis_results('unitary_fit_params').value
             unitary_parameters.append(popt)
-            fidelities.append(1. - fit_state.error)
-            expval_obss.append(child_data.analysis_results('expvals_observed').value)
-            expval_preds.append(child_data.analysis_results('expvals_predicted').value)
+            observeds.append(child_data.analysis_results('expvals_observed').value)
+            predicteds.append(child_data.analysis_results('expvals_predicted').value)
 
         analysis_results.extend([
             AnalysisResultData(name='unitary_parameters', value=np.array(unitary_parameters)),
-            AnalysisResultData(name='fidelities', value=np.array(fidelities)),
-            AnalysisResultData(name='expvals_observed', value=np.array(expval_obss)),
-            AnalysisResultData(name='expvals_predicted', value=np.array(expval_preds))
+            AnalysisResultData(name='expvals_observed', value=np.array(observeds)),
+            AnalysisResultData(name='expvals_predicted', value=np.array(predicteds))
         ])
 
         if self.options.plot:
-            plotter = CurvePlotter(MplDrawer())
-            plotter.set_figure_options(
-                xlabel='Circuit',
-                ylabel='Pauli expectation'
-            )
-
-            for control_state in range(3):
-                plotter.set_series_data(
-                    f'c{control_state}',
-                    x_formatted=np.arange(12),
-                    y_formatted=unp.nominal_values(expval_obss[control_state]),
-                    y_formatted_err=unp.std_devs(expval_obss[control_state])
-                )
-
-            figure = plotter.figure()
-            ax = figure.axes[0]
-            # assuming Pauli bases
-            # Zp, Zm, Xp, Yp
-            for control_state, expval_pred in enumerate(expval_preds):
-                ax.bar(np.arange(12), np.zeros(12), 1., bottom=expval_pred.reshape(-1), fill=False,
-                       edgecolor=plotter.drawer.DefaultColors[control_state],
-                       label=f'c{control_state} fit')
+            labels = []
+            child_data = experiment_data.child_data(component_index[0])
+            for datum in child_data.data():
+                metadata = datum['metadata']
+                label = metadata['meas_basis']
+                label += '|' + metadata['initial_state']
+                label += '+' if metadata.get('initial_state_sign', 1) > 0 else '-'
+                labels.append(label)
+            ax = get_non_gui_ax()
+            xvalues = np.arange(observeds[0].shape[0])
+            ax.set_xticks(xvalues, labels=labels)
             ax.set_ylim(-1.05, 1.05)
-            ax.legend()
+            ax.set_ylabel('Pauli expectation')
+            for control_state in range(3):
+                ec = ax.errorbar(xvalues, unp.nominal_values(observeds[control_state]),
+                                 unp.std_devs(observeds[control_state]), fmt='o',
+                                 label=f'c={control_state}')
+                ax.bar(xvalues, np.zeros_like(xvalues), 1., bottom=predicteds[control_state],
+                       fill=False, edgecolor=ec.lines[0].get_markerfacecolor())
 
-            figures.append(figure)
+            ax.legend()
+            figures.append(ax.get_figure())
 
         return analysis_results, figures
 
 
-class QutritQubitQPTScan(BatchExperiment):
-    """BatchExperiment of QutritQubitQPT scanning over variables."""
+class QutritQubitTomographyScan(BatchExperiment):
+    """BatchExperiment of QutritQubitTomography scanning over variables."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
@@ -162,6 +164,7 @@ class QutritQubitQPTScan(BatchExperiment):
         param_name: Union[str, Sequence[str]],
         values: Union[Sequence[float], Sequence[Sequence[float]]],
         angle_param_name: Optional[Union[str, dict[str, str]]] = None,
+        tomography_type: str = 'unitary',
         backend: Optional[Backend] = None,
         analysis: Optional[CompositeAnalysis] = None
     ):
@@ -189,16 +192,18 @@ class QutritQubitQPTScan(BatchExperiment):
         experiments = []
         for exp_values in zip(*values):
             assign_params = self._make_assign_map(exp_values, params, angle_params)
+            extra_metadata = {p.name: v for p, v in zip(params, exp_values)}
             experiments.append(
-                QutritQubitQPT(physical_qubits,
-                               circuit.assign_parameters(assign_params, inplace=False),
-                               backend=backend,
-                               extra_metadata={p.name: v for p, v in zip(params, exp_values)})
-            )
+                QutritQubitTomography(physical_qubits,
+                                      circuit.assign_parameters(assign_params, inplace=False),
+                                      tomography_type=tomography_type,
+                                      backend=backend,
+                                      extra_metadata=extra_metadata))
 
         if analysis is None:
-            analysis = QutritQubitQPTScanAnalysis([exp.analysis for exp in experiments])
+            analysis = QutritQubitTomographyScanAnalysis([exp.analysis for exp in experiments])
         super().__init__(experiments, backend=backend, analysis=analysis)
+        self.tomography_type = tomography_type
 
         self.set_experiment_options(
             template_circuit=circuit,
@@ -214,9 +219,10 @@ class QutritQubitQPTScan(BatchExperiment):
         return metadata
 
     def _batch_circuits(self, to_transpile=False) -> list[QuantumCircuit]:
-        dummy_experiment = QutritQubitQPT(self.physical_qubits,
-                                          self.experiment_options.template_circuit,
-                                          backend=self._backend)
+        dummy_experiment = QutritQubitTomography(self.physical_qubits,
+                                                 self.experiment_options.template_circuit,
+                                                 tomography_type=self.tomography_type,
+                                                 backend=self._backend)
         try:
             # Can we transpile without assigning values?
             template_circuits = dummy_experiment._batch_circuits(to_transpile)
@@ -252,12 +258,12 @@ class QutritQubitQPTScan(BatchExperiment):
         return assign_params
 
 
-class QutritQubitQPTScanAnalysis(CompoundAnalysis):
-    """Analysis for QutritQubitQPTScan."""
+class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
+    """Analysis for QutritQubitTomographyScan."""
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
-        options.data_processor = None # Needed to have DP propagated to QPT analysis
+        options.data_processor = None # Needed to have DP propagated to tomography analysis
         options.plot = True
         return options
 
@@ -272,29 +278,25 @@ class QutritQubitQPTScanAnalysis(CompoundAnalysis):
         scan_values = [np.array(v) for v in experiment_data.metadata['scan_values']]
 
         unitaries = []
-        fidelities = []
-        expval_obss = []
-        expval_preds = []
+        observeds = []
+        predicteds = []
         for child_index in component_index:
             child_data = experiment_data.child_data(child_index)
             unitaries.append(child_data.analysis_results('unitary_parameters').value)
-            fidelities.append(child_data.analysis_results('fidelities').value)
-            expval_obss.append(child_data.analysis_results('expvals_observed').value)
-            expval_preds.append(child_data.analysis_results('expvals_predicted').value)
+            observeds.append(child_data.analysis_results('expvals_observed').value)
+            predicteds.append(child_data.analysis_results('expvals_predicted').value)
 
         unitaries = np.array(unitaries)
-        fidelities = np.array(fidelities)
-        expval_obss = np.array(expval_obss)
-        expval_preds = np.array(expval_preds)
+        observeds = np.array(observeds)
+        predicteds = np.array(predicteds)
 
         analysis_results.extend([
             AnalysisResultData(name=p, value=v) for p, v in zip(parameters, scan_values)
         ])
         analysis_results.extend([
             AnalysisResultData(name='unitary_parameters', value=unitaries),
-            AnalysisResultData(name='fidelities', value=fidelities),
-            AnalysisResultData(name='expvals_observed', value=expval_obss),
-            AnalysisResultData(name='expvals_predicted', value=expval_preds)
+            AnalysisResultData(name='expvals_observed', value=observeds),
+            AnalysisResultData(name='expvals_predicted', value=predicteds)
         ])
 
         if self.options.plot:
@@ -314,27 +316,12 @@ class QutritQubitQPTScanAnalysis(CompoundAnalysis):
                     )
                 figures.append(plotter.figure())
 
-            plotter = CurvePlotter(MplDrawer())
-            plotter.set_figure_options(
-                xlabel='Circuit',
-                ylabel='QPT fidelity',
-                ylim=(-0.1, 1.1)
-            )
-            for control_state in range(3):
-                plotter.set_series_data(
-                    f'c{control_state}',
-                    x_formatted=np.arange(len(scan_values[0])),
-                    y_formatted=fidelities[:, control_state],
-                    y_formatted_err=np.zeros_like(scan_values[0])
-                )
-            figures.append(plotter.figure())
-
             chisq = np.sum(
-                np.square((unp.nominal_values(expval_obss) - expval_preds)
-                           / unp.std_devs(expval_obss)),
+                np.square((unp.nominal_values(observeds) - predicteds)
+                           / unp.std_devs(observeds)),
                 axis=2
             )
-            chisq /= expval_obss.shape[2]
+            chisq /= observeds.shape[2]
 
             plotter = CurvePlotter(MplDrawer())
             plotter.set_figure_options(

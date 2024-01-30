@@ -3,13 +3,10 @@ from collections.abc import Iterable, Sequence
 import logging
 from typing import Any, Optional
 import numpy as np
-from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit, ClassicalRegister
 from qiskit.providers import Backend
 from qiskit.quantum_info import Operator
-from qiskit.quantum_info.operators.channel.transformations import _to_superop
 from qiskit.result import Counts
-from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 from qiskit_experiments.library.tomography import basis, ProcessTomographyAnalysis
 from qiskit_experiments.library.tomography.fitters.cvxpy_utils import cvxpy
@@ -66,7 +63,7 @@ class CircuitTomography(TomographyExperiment):
             analysis=analysis
         )
 
-        self.extra_metadata = extra_metadata
+        self.extra_metadata = extra_metadata or {}
 
     def circuits(self) -> list[QuantumCircuit]:
         if self.experiment_options.decompose_circuits:
@@ -77,6 +74,9 @@ class CircuitTomography(TomographyExperiment):
             for inst in list(circuit.data):
                 if inst.operation.name == 'reset':
                     circuit.data.remove(inst)
+
+        if len(self._prep_physical_qubits) * len(self._meas_physical_qubits) == 1:
+            self._add_basis_metadata(circs)
 
         return circs
 
@@ -164,13 +164,25 @@ class CircuitTomography(TomographyExperiment):
                 qpt_circuit.measure(self._meas_indices, range(len(mqubits)))
 
             qpt_circuits.append(qpt_circuit)
+
+        if len(pqubits) * len(mqubits) == 1:
+            self._add_basis_metadata(qpt_circuits)
+
         return qpt_circuits
+
+    def _add_basis_metadata(self, circuits: list[QuantumCircuit]):
+        # Assuming Pauli basis
+        prep_states = ['z', 'z', 'x', 'y']
+        prep_signs = [1, -1, 1, 1]
+        meas_bases = ['z', 'x', 'y']
+        for circuit, (prep_element, meas_element) in zip(circuits, self._basis_indices()):
+            circuit.metadata['initial_state'] = prep_states[prep_element[0]]
+            circuit.metadata['initial_state_sign'] = prep_signs[prep_element[0]]
+            circuit.metadata['meas_basis'] = meas_bases[meas_element[0]]
 
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
-        if self.extra_metadata is not None:
-            metadata.update(self.extra_metadata)
-
+        metadata.update(self.extra_metadata)
         return metadata
 
     def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]: # pylint: disable=unused-argument
@@ -228,10 +240,12 @@ class CircuitTomographyAnalysis(ProcessTomographyAnalysis):
                 self._restore_data(experiment_data, original_counts)
             return analysis_results, figures
 
-        data = experiment_data.data()
-        popt, state, predicted, figure = fit_unitary(data, p0=self.options.unitary_parameters_p0,
-                                                     plot=self.options.plot)
-        observed = DataProcessor('counts', [Probability('1'), BasisExpectationValue()])(data)
+        # Not passing the custom data processor as counts have been updated
+        popt, state, observed, predicted, figure = fit_unitary(
+            experiment_data.data(),
+            p0=self.options.unitary_parameters_p0,
+            plot=self.options.plot
+        )
 
         analysis_results.extend([
             AnalysisResultData(name='unitary_fit_state', value=state),

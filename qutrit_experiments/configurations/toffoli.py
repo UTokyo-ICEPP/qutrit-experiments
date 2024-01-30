@@ -123,15 +123,15 @@ def c2t_sizzle_template(runner):
     Frequency, amplitudes should be set in args.
     """
     from ..experiments.sizzle import SiZZle
+    qubits = runner.program_data['qubits'][1:]
 
-    cr_base_angle = runner.calibrations.get_parameter_value('cr_base_angle', [control2, target],
-                                                            schedule='cr')
-    counter_base_angle = runner.calibrations.get_parameter_value('counter_base_angle',
-                                                                 [control2, target], schedule='cr')
+    cr_base_angle = runner.calibrations.get_parameter_value('cr_base_angle', qubits, schedule='cr')
+    counter_base_angle = runner.calibrations.get_parameter_value('counter_base_angle', qubits,
+                                                                 schedule='cr')
 
     return ExperimentConfig(
         SiZZle,
-        runner.program_data['qubits'][1:],
+        qubits,
         args={
             'frequency': None,
             'amplitudes': None,
@@ -421,7 +421,7 @@ def c2t_rcr_rotary(runner):
             'rcr_type': runner.program_data['rcr_type']
         },
         analysis_options={
-            'data_processor': DataProcessor('counts', [])
+            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
         }
     )
 
@@ -447,7 +447,7 @@ def c2t_crcr_cr_width(runner):
             'widths': widths,
         },
         analysis_options={
-            'data_processor': DataProcessor('counts', [])
+            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
         }
     )
 
@@ -462,6 +462,6 @@ def c2t_crcr_rx_amp(runner):
             'rcr_type': runner.program_data['rcr_type']
         },
         analysis_options={
-            'data_processor': DataProcessor('counts', [])
+            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
         }
     )

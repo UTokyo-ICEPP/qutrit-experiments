@@ -1,10 +1,9 @@
 """Functions for fitting a unitary to observation."""
 from collections.abc import Sequence
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional, Union
 import jax
 import jax.numpy as jnp
 import jaxopt
-import matplotlib.pyplot as plt
 import numpy as np
 from uncertainties import unumpy as unp
 from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
@@ -13,16 +12,6 @@ from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 from .bloch import rescale_axis, so3_cartesian
 
 axes = ['x', 'y', 'z']
-qpt_prep_states = [('z', 1), ('z', -1), ('x', 1), ('y', 1)]
-qpt_meas_bases = ['z', 'x', 'y']
-hilbert_states = np.array([
-    np.array([1., 1.]) / np.sqrt(2.),
-    np.array([1., -1.]) / np.sqrt(2.),
-    np.array([1., 1.j]) / np.sqrt(2.),
-    np.array([1.j, 1.]) / np.sqrt(2.),
-    np.array([1., 0.]),
-    np.array([0., 1.])
-], dtype=complex)
 
 
 def fit_unitary(
@@ -30,7 +19,7 @@ def fit_unitary(
     p0: Optional[Sequence[float]] = None,
     data_processor: Optional[DataProcessor] = None,
     plot: bool = True
-):
+) -> tuple[np.ndarray, NamedTuple, np.ndarray, np.ndarray, Union['matplotlib.figure.Figure', None]]:
     if data_processor is None:
         data_processor = DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
 
@@ -40,18 +29,9 @@ def fit_unitary(
     meas_bases = []
     for datum in data:
         metadata = datum['metadata']
-        if (p_idx := metadata.get('p_idx')) is not None:
-            state, sign = qpt_prep_states[p_idx[0]]
-        else:
-            state = metadata['initial_state']
-            sign = metadata.get('initial_state_sign', 1)
-        if (m_idx := metadata.get('m_idx')) is not None:
-            basis = qpt_meas_bases[m_idx[0]]
-        else:
-            basis = metadata['meas_basis']
-        initial_states.append(axes.index(state))
-        signs.append(sign)
-        meas_bases.append(axes.index(basis))
+        initial_states.append(axes.index(metadata['initial_state']))
+        signs.append(metadata.get('initial_state_sign', 1))
+        meas_bases.append(axes.index(metadata['meas_basis']))
     initial_states = np.array(initial_states, dtype=int)
     signs = np.array(signs, dtype=int)
     meas_bases = np.array(meas_bases, dtype=int)
@@ -91,4 +71,4 @@ def fit_unitary(
     else:
         figure = None
 
-    return params, res.state, expvals_pred, figure
+    return params, res.state, expvals, expvals_pred, figure

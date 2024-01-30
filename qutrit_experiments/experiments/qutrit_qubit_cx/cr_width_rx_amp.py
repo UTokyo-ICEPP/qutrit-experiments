@@ -14,7 +14,7 @@ from qiskit_experiments.framework import (AnalysisResultData, BackendData, Backe
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ...gates import X12Gate
-from ..qutrit_qubit_qpt import QutritQubitQPTScan, QutritQubitQPTScanAnalysis
+from ..qutrit_qubit_tomography import QutritQubitTomographyScan, QutritQubitTomographyScanAnalysis
 
 twopi = 2. * np.pi
 
@@ -94,7 +94,7 @@ def get_margin(
         return margins
 
 
-class CycledRepeatedCRWidth(QutritQubitQPTScan):
+class CycledRepeatedCRWidth(QutritQubitTomographyScan):
     """Experiment to simultaneously scan the CR width."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
@@ -136,7 +136,7 @@ class CycledRepeatedCRWidth(QutritQubitQPTScan):
         self.analysis = CycledRepeatedCRWidthAnalysis([exp.analysis for exp in self._experiments])
 
 
-class CycledRepeatedCRWidthAnalysis(QutritQubitQPTScanAnalysis):
+class CycledRepeatedCRWidthAnalysis(QutritQubitTomographyScanAnalysis):
     """Analysis for CycledRepeatedCRWidth."""
     def _run_additional_analysis(
         self,
@@ -234,9 +234,9 @@ class CycledRepeatedCRWidthCal(BaseCalibrationExperiment, CycledRepeatedCRWidth)
         )
         # Need to have circuits() return decomposed circuits because of how _transpiled_circuits
         # work in calibration experiments
-        for qutrit_qpt in self.component_experiment():
-            for qpt in qutrit_qpt.component_experiment():
-                qpt.set_experiment_options(decompose_circuits=True)
+        for qutrit_tomography in self.component_experiment():
+            for tomography in qutrit_tomography.component_experiment():
+                tomography.set_experiment_options(decompose_circuits=True)
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         pass
@@ -256,7 +256,7 @@ class CycledRepeatedCRWidthCal(BaseCalibrationExperiment, CycledRepeatedCRWidth)
             )
 
 
-class CycledRepeatedCRRxAmplitude(QutritQubitQPTScan):
+class CycledRepeatedCRRxAmplitude(QutritQubitTomographyScan):
     """Experiment to simultaneously scan the Rx amplitude."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
@@ -286,7 +286,7 @@ class CycledRepeatedCRRxAmplitude(QutritQubitQPTScan):
         self.analysis = CycledRepeatedCRRxAmplitudeAnalysis(analyses)
 
 
-class CycledRepeatedCRRxAmplitudeAnalysis(QutritQubitQPTScanAnalysis):
+class CycledRepeatedCRRxAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
     """Analysis for CycledRepeatedCRRxAmplitude."""
     def _run_additional_analysis(
         self,
@@ -369,11 +369,6 @@ class CycledRepeatedCRRxAmplitudeCal(BaseCalibrationExperiment, CycledRepeatedCR
             angle_param_name=cal_parameter_name[1],
             amplitudes=amplitudes
         )
-        # Need to have circuits() return decomposed circuits because of how _transpiled_circuits
-        # work in calibration experiments
-        for qutrit_qpt in self.component_experiment():
-            for qpt in qutrit_qpt.component_experiment():
-                qpt.set_experiment_options(decompose_circuits=True)
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         pass
