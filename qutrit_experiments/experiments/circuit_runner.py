@@ -28,18 +28,10 @@ class CircuitRunner(BaseExperiment):
         backend: Optional[Backend] = None,
         analysis: Optional[BaseAnalysis] = None
     ):
-        series_names = []
-        for circuit in circuits:
-            try:
-                if circuit.metadata['series'] not in series_names:
-                    series_names.append(circuit.metadata['series'])
-            except KeyError:
-                pass
-
-        if not series_names:
-            series_names = None
-
         if not analysis:
+            series_names = set(c.metadata.get('series') for c in circuits)
+            if series_names == set([None]):
+                series_names = None
             analysis = DataExtraction(series_names)
 
         super().__init__(physical_qubits, analysis=analysis, backend=backend)
@@ -82,17 +74,22 @@ class CircuitRunner(BaseExperiment):
 
 class DataExtraction(curve.CurveAnalysis):
     """Extract xy data from ExperimentData."""
+    @classmethod
+    def _default_options(cls) -> Options:
+        options = super()._default_options()
+        options.composite_index = None
+        return options
+
     def __init__(
         self,
         series_names: Optional[list[str]] = None,
         series_key: str = 'series',
-        outcome: Optional[str] = None,
-        composite_index: Optional[Union[int, Sequence[int]]] = None
+        outcome: Optional[str] = None
     ):
-        if series_names is None:
-            series_names = ['circuits']
+        if (model_names := series_names) is None:
+            model_names = ['circuits']
 
-        super().__init__(models=[lmfit.models.ConstantModel(name=name) for name in series_names])
+        super().__init__(models=[lmfit.models.ConstantModel(name=name) for name in model_names])
 
         self.set_options(
             return_data_points=True,
@@ -107,22 +104,20 @@ class DataExtraction(curve.CurveAnalysis):
                 data_subfit_map={name: {series_key: name} for name in series_names}
             )
 
-        self.composite_index = composite_index
-
     def _initialize(
         self,
         experiment_data: ExperimentData,
     ):
         super()._initialize(experiment_data)
 
-        if self.composite_index is None:
+        if self.options.composite_index is None:
             return
 
         # "Flatten" the metadata if the experiment is composite
         # (CurveAnalysis assumes x values and data filter keys to be in the top-level metadata)
         for datum in experiment_data.data():
             metadata = datum['metadata']
-            child_metadata = get_metadata(metadata, self.composite_index)
+            child_metadata = get_metadata(metadata, self.options.composite_index)
             for key, value in child_metadata.items():
                 if key not in metadata:
                     metadata[key] = value
