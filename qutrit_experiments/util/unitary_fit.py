@@ -50,7 +50,7 @@ def fit_unitary(
             p0[iax] = np.pi * sign / 2.
             fit_results.append(solver.run(p0))
 
-    res = min(fit_results, key=lambda r: r.state.error)
+    res = min(fit_results, key=lambda r: objective(r.params))
     params = rescale_axis(np.array(res.params))
     expvals_pred = so3_cartesian(params)[..., meas_bases, initial_states] * signs
 
@@ -59,10 +59,10 @@ def fit_unitary(
         xvalues = np.arange(len(initial_states))
         ax.set_ylim(-1.05, 1.05)
         ax.set_ylabel('Pauli expectation')
-        ax.errorbar(xvalues, unp.nominal_values(expvals), unp.std_devs(expvals), fmt='o',
-                    label='observed')
+        ec = ax.errorbar(xvalues, unp.nominal_values(expvals), unp.std_devs(expvals), fmt='o',
+                         label='observed')
         ax.bar(xvalues, np.zeros_like(xvalues), 1., bottom=expvals_pred, fill=False,
-               label='fit result')
+               edgecolor=ec.lines[0].get_markerfacecolor(), label='fit result')
         xticks = [f'{axes[basis]}|{axes[init]}{"+" if sign > 0 else "-"}'
                   for init, sign, basis in zip(initial_states, signs, meas_bases)]
         ax.set_xticks(xvalues, labels=xticks)
