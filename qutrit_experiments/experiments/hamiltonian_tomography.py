@@ -20,7 +20,7 @@ from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ..framework.compound_analysis import CompoundAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
-from ..util.bloch import rotation_matrix, unit_bound, pos_unit_bound
+from ..util.bloch import so3_polar, unit_bound, pos_unit_bound
 from ..util.polynomial import sparse_poly_fitfunc, PolynomialOrder
 from .gs_rabi import GSRabi, GSRabiAnalysis
 
@@ -282,9 +282,9 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
             xdims = tuple(range(np.asarray(x).ndim))
             theta = np.expand_dims(theta, xdims)
             return np.einsum('...i,...ij,...j->...',
-                             rotation_matrix(theta, chi, -kappa)[..., i_meas, :],
-                             rotation_matrix(omega * x, psi, phi),
-                             rotation_matrix(theta, chi, kappa)[..., i_init])
+                             so3_polar(theta, chi, -kappa)[..., i_meas, :],
+                             so3_polar(omega * x, psi, phi),
+                             so3_polar(theta, chi, kappa)[..., i_init])
         return evolution
 
     @classmethod

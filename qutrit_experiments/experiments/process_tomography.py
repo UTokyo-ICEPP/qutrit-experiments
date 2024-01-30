@@ -2,9 +2,6 @@
 from collections.abc import Iterable, Sequence
 import logging
 from typing import Any, Optional
-import jax
-import jax.numpy as jnp
-import jaxopt
 import numpy as np
 from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit, ClassicalRegister
@@ -17,11 +14,10 @@ from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Opt
 from qiskit_experiments.library.tomography import basis, ProcessTomographyAnalysis
 from qiskit_experiments.library.tomography.fitters.cvxpy_utils import cvxpy
 from qiskit_experiments.library.tomography.tomography_experiment import TomographyExperiment
-from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ..constants import DEFAULT_SHOTS
-from ..transpilation import map_and_translate, map_to_physical_qubits, translate_to_basis
-from ..util.bloch import paulis, rotation_matrix_xyz
+from ..transpilation import map_to_physical_qubits, translate_to_basis
+from ..util.unitary_fit import fit_unitary
 
 logger = logging.getLogger(__name__)
 twopi = 2. * np.pi
@@ -232,81 +228,23 @@ class CircuitTomographyAnalysis(ProcessTomographyAnalysis):
                 self._restore_data(experiment_data, original_counts)
             return analysis_results, figures
 
-        choi = next(res for res in analysis_results if res.name == 'state').value
-        channel = _to_superop("Choi", choi, 2, 2)
-
-        @jax.jit
-        def infidelity(params):
-            unitary = jax.lax.cond(
-                jnp.allclose(params, 0.),
-                lambda params: jnp.eye(2, dtype='complex128'),
-                lambda params: rotation_matrix_xyz(params, npmod=jnp),
-                params
-            )
-            target = jnp.kron(jnp.conj(unitary), unitary)
-            return 1. - jnp.trace(target.T.conjugate() @ channel).real / 4
-
-        solver = jaxopt.GradientDescent(fun=infidelity)
-
-        if (init := self.options.unitary_parameters_p0) is None:
-            init = np.array([np.pi, 0., 0.])
-
-        res = solver.run(init)
-        params = np.array(res.params)
-        while (pnorm := np.sqrt(np.sum(np.square(params)))) > twopi:
-            params *= (1. - twopi / pnorm)
-        if (pnorm := np.sqrt(np.sum(np.square(params)))) > np.pi:
-            params *= -(twopi - pnorm) / pnorm
-
-        data_processor = DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
-        expval_obs = data_processor(experiment_data.data())
-
-        # assuming Pauli bases
-        # Zp, Zm, Xp, Yp
-        initial_states = np.array([
-            [1., 0.],
-            [0., 1.],
-            [1. / np.sqrt(2.), 1. / np.sqrt(2.)],
-            [1. / np.sqrt(2.), 1.j / np.sqrt(2.)]
-        ])
-        # Z, X, Y
-        meas_bases = paulis[[2, 0, 1]]
-        unitary = rotation_matrix_xyz(params)
-        evolved = np.einsum('ij,sj->si', unitary, initial_states)
-        expval_pred = np.einsum('si,mik,sk->sm', evolved.conjugate(), meas_bases, evolved).real
-        expval_pred = expval_pred.reshape(-1)
+        data = experiment_data.data()
+        popt, state, predicted, figure = fit_unitary(data, p0=self.options.unitary_parameters_p0,
+                                                     plot=self.options.plot)
+        observed = DataProcessor('counts', [Probability('1'), BasisExpectationValue()])(data)
 
         analysis_results.extend([
-            AnalysisResultData(name='unitary_fit_state', value=res.state),
-            AnalysisResultData(name='unitary_fit_params', value=params),
-            AnalysisResultData(name='expvals_observed', value=expval_obs),
-            AnalysisResultData(name='expvals_predicted', value=expval_pred)
+            AnalysisResultData(name='unitary_fit_state', value=state),
+            AnalysisResultData(name='unitary_fit_params', value=popt),
+            AnalysisResultData(name='expvals_observed', value=observed),
+            AnalysisResultData(name='expvals_predicted', value=predicted)
         ])
-
-        if self.options.plot:
-            plotter = CurvePlotter(MplDrawer())
-            plotter.set_figure_options(
-                xlabel='Circuit',
-                ylabel='Pauli expectation'
-            )
-
-            plotter.set_series_data(
-                'qpt',
-                x_formatted=np.arange(12),
-                y_formatted=unp.nominal_values(expval_obs),
-                y_formatted_err=unp.std_devs(expval_obs)
-            )
-            figure = plotter.figure()
-            ax = figure.axes[0]
-            ax.bar(np.arange(12), np.zeros(12), 1., bottom=expval_pred.reshape(-1), fill=False,
-                   label='fit result')
-            ax.set_ylim(-1.05, 1.05)
-            ax.legend()
-
+        if figure is not None:
             figures.append(figure)
 
         if self.options.data_processor:
             self._restore_data(experiment_data, original_counts)
+
         return analysis_results, figures
 
     def _update_data(self, experiment_data: ExperimentData):

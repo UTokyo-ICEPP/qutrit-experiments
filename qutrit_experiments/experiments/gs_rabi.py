@@ -1,6 +1,6 @@
 """Rabi experiment with fixed amplitude and varied tone length."""
 from collections.abc import Iterable, Sequence
-from typing import Optional, Union
+from typing import Any, Optional, Union
 import numpy as np
 import scipy
 import lmfit
@@ -165,7 +165,7 @@ class GSRabi(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
 
         return circuits
 
-    def _metadata(self):
+    def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
         # Store measurement level and meas return if they have been
         # set for the experiment

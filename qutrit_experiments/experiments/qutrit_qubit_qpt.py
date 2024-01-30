@@ -4,7 +4,6 @@ import numpy as np
 from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.providers import Backend, Options
-from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
@@ -13,7 +12,6 @@ from ..framework_overrides.composite_analysis import CompositeAnalysis
 from ..framework.compound_analysis import CompoundAnalysis
 from ..gates import X12Gate
 from ..transpilation import map_to_physical_qubits
-from ..util.bloch import paulis, rotation_matrix_xyz
 from .process_tomography import CircuitTomography
 
 
