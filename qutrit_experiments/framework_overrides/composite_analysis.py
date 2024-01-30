@@ -1,6 +1,7 @@
 """Override of qiskit_experiments.framework.composite.composite_analysis."""
 
 import logging
+import sys
 import time
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -68,7 +69,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                                          list(experiment_data._figures.values()))
 
         except Exception as ex:  # pylint: disable=broad-except
-            return AnalysisStatus.ERROR, ex
+            return AnalysisStatus.ERROR, (ex, traceback.format_exc())
 
     @staticmethod
     def _run_sub_composite_postanalysis(
@@ -265,19 +266,22 @@ class CompositeAnalysis(CompositeAnalysisOrig):
 
         for (status, retval), (_, sub_expdata, task_id) in zip(all_results, task_list):
             if status == AnalysisStatus.ERROR:
+                exc, stacktrace = retval
+                sys.stderr.write(stacktrace)
+                sys.stderr.flush()
                 if self.options.ignore_failed:
                     logger.warning('Ignoring analysis failure for analysis %s:', task_id)
-                    traceback.print_exception(retval)
                 else:
-                    raise AnalysisError(f'Analysis failed for analysis {task_id}') from retval
+                    raise AnalysisError(f'Analysis failed for analysis {task_id}') from exc
             elif max_procs != 0:
                 # Multiprocess -> need to insert results to the experiment data in this process
                 sub_expdata._clear_results()
-                if retval[0]:
-                    sub_expdata.add_analysis_results(retval[0])
-                if retval[1]:
-                    sub_expdata.add_figures([f.figure for f in retval[1]],
-                                             figure_names=[f.name for f in retval[1]])
+                analysis_results, figures = retval
+                if analysis_results:
+                    sub_expdata.add_analysis_results(analysis_results)
+                if figures:
+                    sub_expdata.add_figures([f.figure for f in figures],
+                                             figure_names=[f.name for f in figures])
 
         # Combine the child data if the analysis requires flattening
         # Entries in subdata_map is innermost-first
