@@ -60,22 +60,22 @@ qutrit_functions = [
 for func in qutrit_functions:
     register_single_qutrit_exp(func)
 
-def add_readout_mitigation(gen=None, *, logical_qubits=None):
+def add_readout_mitigation(gen=None, *, logical_qubits=None, expval=False):
     """Decorator to add a readout error mitigation node to the DataProcessor."""
     if gen is None:
         def wrapper(gen):
-            return add_readout_mitigation(gen, logical_qubits=logical_qubits)
+            return add_readout_mitigation(gen, logical_qubits=logical_qubits, expval=expval)
         return wrapper
 
     @wraps(gen)
     def converted_gen(runner):
         config = gen(runner)
-        configure_readout_mitigation(runner, config, logical_qubits=logical_qubits)
+        configure_readout_mitigation(runner, config, logical_qubits=logical_qubits, expval=expval)
         return config
 
     return converted_gen
 
-def configure_readout_mitigation(runner, config, logical_qubits=None):
+def configure_readout_mitigation(runner, config, logical_qubits=None, expval=False):
     if config.run_options.get('meas_level', MeasLevel.CLASSIFIED) != MeasLevel.CLASSIFIED:
         logger.warning('MeasLevel is not CLASSIFIED; no readout mitigation for %s',
                        config.exp_type)
@@ -92,10 +92,13 @@ def configure_readout_mitigation(runner, config, logical_qubits=None):
         return
 
     if (processor := config.analysis_options.get('data_processor')) is None:
-        config.analysis_options['data_processor'] = DataProcessor('counts', [
+        nodes = [
             ReadoutMitigation(matrix),
             Probability(config.analysis_options.get('outcome', '1' * len(qubits)))
-        ])
+        ]
+        if expval:
+            nodes.append(BasisExpectationValue())
+        config.analysis_options['data_processor'] = DataProcessor('counts', nodes)
     else:
         processor._nodes.insert(0, ReadoutMitigation(matrix))
 
@@ -116,58 +119,16 @@ def qubits_assignment_error(runner, experiment_data):
         prog_data[combination] = mitigator.assignment_matrix(combination)
 
 @register_exp
-@add_readout_mitigation(logical_qubits=[1])
+@add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_cr_rough_width(runner):
     """Few-sample CR HT just to measure ωx to find a rough estimate for the CR width in CRCR."""
-    from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianTomography
-
-    qubits = runner.program_data['qubits'][1:]
-    assign_params = {
-        'width': Parameter('width'),
-        'margin': 0.,
-        'stark_frequency': runner.backend.qubit_properties(qubits[1]).frequency,
-        'cr_amp': runner.program_data.get('initial_cr_amp', 0.8),
-        'cr_sign_angle': 0.,
-        'cr_stark_amp': 0.,
-        'counter_amp': 0.,
-        'counter_stark_amp': 0.
-    }
-    schedule = runner.calibrations.get_schedule('cr', qubits, assign_params=assign_params)
-
+    from ..experiments.qutrit_qubit_cx.cr_rough_width import CycledRepeatedCRRoughWidthCal
     return ExperimentConfig(
-        QutritCRHamiltonianTomography,
-        qubits,
+        CycledRepeatedCRRoughWidthCal,
+        runner.program_data['qubits'][1:],
         args={
-            'schedule': schedule,
             'widths': np.linspace(0., 4096., 9)
-        },
-        analysis_options={
-            # Need to set this manually to avoid being overwritten by add_readout_mitigation
-            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
         }
-    )
-
-@register_post
-def c2t_cr_rough_width(runner, experiment_data):
-    omegas = unp.nominal_values(
-        experiment_data.analysis_results('hamiltonian_components', block=False).value
-    )
-    # Control-basis omega x
-    omega_x = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) @ omegas[:, 0]
-
-    # Approximate angular rate at which the Rabi phase difference accummulates between 0/2 and 1 blocks
-    crcr_omega_0 = 2. * np.array([omega_x[2], omega_x[0]])
-    crcr_omega_1 = 2. * np.sum(omega_x[None, :] * np.array([[1., 1., -1.], [-1., 1., 1.]]), axis=1)
-    crcr_rel_freqs = np.abs(crcr_omega_1 - crcr_omega_0)
-    rcr_type_index = np.argmax(crcr_rel_freqs)
-    runner.program_data['rcr_type'] = ['x', 'x12'][rcr_type_index]
-
-    qubits = runner.program_data['qubits'][1:]
-    sigma = runner.calibrations.get_parameter_value('sigma', qubits, 'cr')
-    rsr = runner.calibrations.get_parameter_value('rsr', qubits, 'cr')
-    flank = grounded_gauss_area(sigma, rsr, True)
-    runner.program_data['crcr_pi_width'] = BackendTiming(runner.backend).round_pulse(
-        samples=np.pi / crcr_rel_freqs[rcr_type_index] / runner.backend.dt - flank
     )
 
 @add_readout_mitigation(logical_qubits=[1])
@@ -253,28 +214,7 @@ def c2t_sizzle_frequency_scan(runner):
         experiment_options={'frequencies_of_interest': resonances}
     )
 
-@add_readout_mitigation(logical_qubits=[1])
-def c2t_sizzle_amplitude_scan_template(runner):
-    from ..experiments.sizzle import SiZZleAmplitudeScan
-
-    control2, target = runner.program_data['qubits'][1:]
-    cr_base_angle = runner.calibrations.get_parameter_value('cr_base_angle', [control2, target],
-                                                            schedule='cr')
-    counter_base_angle = runner.calibrations.get_parameter_value('counter_base_angle',
-                                                                 [control2, target], schedule='cr')
-    return ExperimentConfig(
-        SiZZleAmplitudeScan,
-        [control2, target],
-        args={
-            'frequency': None,
-            'amplitudes': None,
-            'delays': np.linspace(0., 4.e-7, 16),
-            'osc_freq': 5.e+6,
-            'angles': (cr_base_angle, counter_base_angle)
-        }
-    )
-
-@add_readout_mitigation(logical_qubits=[1])
+@add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_hcr_template(runner):
     """CR HT with undefined amplitude."""
     from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianTomography
@@ -297,15 +237,11 @@ def c2t_hcr_template(runner):
         [control2, target],
         args={
             'schedule': schedule
-        },
-        analysis_options={
-            # Need to set this manually to avoid being overwritten by add_readout_mitigation
-            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
         }
     )
 
 @register_exp
-@add_readout_mitigation
+@add_readout_mitigation(expval=True)
 def t_hx(runner):
     """Target qubit Rx tone Hamiltonian with amplitude set for two cycles in 2048 dt."""
     from ..experiments.hamiltonian_tomography import HamiltonianTomography
@@ -331,10 +267,6 @@ def t_hx(runner):
         args={
             'schedule': sched,
             'widths': np.linspace(0., 2048., 17)
-        },
-        analysis_options={
-            # Need to set this manually to avoid being overwritten by add_readout_mitigation
-            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
         }
     )
 
@@ -343,7 +275,7 @@ def t_hx(runner, data):
     components = data.analysis_results('hamiltonian_components', block=False).value
     runner.program_data['target_rxtone_hamiltonian'] = components
 
-@add_readout_mitigation(logical_qubits=[1])
+@add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_hcr_singlestate_template(runner):
     """CR Hamiltonian tomography with a single control state and an offset Rx tone.
 
@@ -375,15 +307,11 @@ def c2t_hcr_singlestate_template(runner):
             'schedule': schedule,
             'rabi_init': None,
             'measured_logical_qubit': 1
-        },
-        analysis_options={
-            # Need to set this manually to avoid being overwritten by add_readout_mitigation
-            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
         }
     )
 
 @register_exp
-@add_readout_mitigation(logical_qubits=[1])
+@add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_hcr_amplitude_scan(runner):
     from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianTomographyScan
 
@@ -413,13 +341,11 @@ def c2t_hcr_amplitude_scan(runner):
             'values': amplitudes
         },
         analysis_options={
-            # Need to set this manually to avoid being overwritten by add_readout_mitigation
-            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()]),
             'poly_orders': poly_orders
         }
     )
 
-@add_readout_mitigation(logical_qubits=[1])
+@add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_ucr_tomography_template(runner):
     from qutrit_experiments.experiments.qutrit_qubit_tomography import QutritQubitTomography
 
@@ -446,105 +372,38 @@ def c2t_ucr_tomography_template(runner):
         qubits,
         args={
             'circuit': circuit
-        },
-        analysis_options={
-            # Need to set this manually to avoid being overwritten by add_readout_mitigation
-            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
-        }
-    )
-
-@add_readout_mitigation(logical_qubits=[1])
-def c2t_sizzle_t_amp_scan_template(runner):
-    from ..experiments.qutrit_qubit_tomography import QutritQubitTomographyScan
-
-    qubits = runner.program_data['qubits'][1:]
-    counter_stark_amp = Parameter('counter_stark_amp')
-    assign_params = {
-        'width': Parameter('width'),
-        'margin': 0.,
-        'stark_frequency': Parameter('stark_frequency'),
-        'cr_amp': Parameter('cr_amp'),
-        'cr_sign_angle': 0.,
-        'cr_stark_amp': 0.,
-        'counter_amp': 0.,
-        'counter_stark_amp': counter_stark_amp
-    }
-    schedule = runner.calibrations.get_schedule('cr', qubits, assign_params=assign_params)
-
-    circuit = QuantumCircuit(2)
-    circuit.append(Gate('cr', 2, [counter_stark_amp]), [0, 1])
-    circuit.add_calibration('cr', qubits, schedule, [counter_stark_amp])
-
-    return ExperimentConfig(
-        QutritQubitTomographyScan,
-        qubits,
-        args={
-            'circuit': circuit,
-            'param_name': 'counter_stark_amp',
-            'values': None
-        },
-        analysis_options={
-            # Need to set this manually to avoid being overwritten by add_readout_mitigation
-            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
-        }
-    )
-
-@add_readout_mitigation(logical_qubits=[1])
-def c2t_sizzle_c2_amp_scan_template(runner):
-    from ..experiments.qutrit_qubit_tomography import QutritQubitTomographyScan
-
-    qubits = runner.program_data['qubits'][1:]
-    cr_stark_amp = Parameter('cr_stark_amp')
-    cr_stark_sign_phase = Parameter('cr_stark_sign_phase')
-    assign_params = {
-        'width': Parameter('width'),
-        'margin': 0.,
-        'stark_frequency': Parameter('stark_frequency'),
-        'cr_amp': Parameter('cr_amp'),
-        'cr_sign_angle': 0.,
-        'cr_stark_amp': cr_stark_amp,
-        'cr_stark_sign_phase': cr_stark_sign_phase,
-        'counter_amp': 0.,
-        'counter_stark_amp': Parameter('counter_stark_amp')
-    }
-    schedule = runner.calibrations.get_schedule('cr', qubits, assign_params=assign_params)
-
-    circuit = QuantumCircuit(2)
-    circuit.append(Gate('cr', 2, [cr_stark_amp, cr_stark_sign_phase]), [0, 1])
-    circuit.add_calibration('cr', qubits, schedule, [cr_stark_amp, cr_stark_sign_phase])
-
-    return ExperimentConfig(
-        QutritQubitTomographyScan,
-        qubits,
-        args={
-            'circuit': circuit,
-            'param_name': 'cr_stark_amp',
-            'angle_param_name': 'cr_stark_sign_phase',
-            'values': None
-        },
-        analysis_options={
-            # Need to set this manually to avoid being overwritten by add_readout_mitigation
-            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
         }
     )
 
 @register_exp
-@add_readout_mitigation(logical_qubits=[1])
+@add_readout_mitigation(logical_qubits=[1], expval=True)
+def c2t_sizzle_t_amp_scan(runner):
+    from ..experiments.qutrit_cr_sizzle import QutritCRTargetStarkCal
+    return ExperimentConfig(
+        QutritCRTargetStarkCal,
+        runner.program_data['qubits'][1:]
+    )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1], expval=True)
+def c2t_sizzle_c2_amp_scan(runner):
+    from ..experiments.qutrit_cr_sizzle import QutritCRControlStarkCal
+    return ExperimentConfig(
+        QutritCRControlStarkCal,
+        runner.program_data['qubits'][1:]
+    )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_rcr_rotary(runner):
     from ..experiments.qutrit_qubit_cx.repeated_cr_rotary import RepeatedCRRotaryAmplitudeCal
     return ExperimentConfig(
         RepeatedCRRotaryAmplitudeCal,
-        runner.program_data['qubits'][1:],
-        args={
-            'rcr_type': runner.program_data['rcr_type']
-        },
-        analysis_options={
-            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
-        }
+        runner.program_data['qubits'][1:]
     )
 
 @register_exp
-@add_readout_mitigation(logical_qubits=[1])
+@add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_crcr_cr_width(runner):
     from ..experiments.qutrit_qubit_cx.cr_width_rx_amp import CycledRepeatedCRWidthCal
     qubits = runner.program_data['qubits'][1:]
@@ -561,25 +420,15 @@ def c2t_crcr_cr_width(runner):
         CycledRepeatedCRWidthCal,
         runner.program_data['qubits'][1:],
         args={
-            'rcr_type': runner.program_data['rcr_type'],
             'widths': widths,
-        },
-        analysis_options={
-            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
         }
     )
 
 @register_exp
-@add_readout_mitigation(logical_qubits=[1])
+@add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_crcr_rx_amp(runner):
     from ..experiments.qutrit_qubit_cx.cr_width_rx_amp import CycledRepeatedCRRxAmplitudeCal
     return ExperimentConfig(
         CycledRepeatedCRRxAmplitudeCal,
-        runner.program_data['qubits'][1:],
-        args={
-            'rcr_type': runner.program_data['rcr_type']
-        },
-        analysis_options={
-            'data_processor': DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
-        }
+        runner.program_data['qubits'][1:]
     )

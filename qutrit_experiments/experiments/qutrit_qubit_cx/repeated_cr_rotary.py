@@ -1,40 +1,16 @@
 from collections.abc import Sequence
-from typing import Any, Optional
+from typing import Optional
 import numpy as np
 from qiskit import QuantumCircuit
-from qiskit.circuit import Gate, Parameter
+from qiskit.circuit import Parameter
 from qiskit.pulse import ScheduleBlock
 from qiskit.providers import Backend, Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 
-from ...gates import X12Gate
 from ..qutrit_qubit_tomography import QutritQubitTomographyScan, QutritQubitTomographyScanAnalysis
-
-
-def make_rcr_circuit(
-    physical_qubits: Sequence[int],
-    cr_schedule: ScheduleBlock,
-    rcr_type: str
-) -> QuantumCircuit:
-    params = cr_schedule.parameters
-
-    rcr_circuit = QuantumCircuit(2)
-    if rcr_type == 'x':
-        rcr_circuit.x(0)
-        rcr_circuit.append(Gate('cr', 2, params), [0, 1])
-        rcr_circuit.x(0)
-        rcr_circuit.append(Gate('cr', 2, params), [0, 1])
-    else:
-        rcr_circuit.append(Gate('cr', 2, params), [0, 1])
-        rcr_circuit.append(X12Gate(), [0])
-        rcr_circuit.append(Gate('cr', 2, params), [0, 1])
-        rcr_circuit.append(X12Gate(), [0])
-
-    rcr_circuit.add_calibration('cr', physical_qubits, cr_schedule, params)
-
-    return rcr_circuit
+from .util import RCRType, make_rcr_circuit
 
 
 class RepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
@@ -49,7 +25,7 @@ class RepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
         self,
         physical_qubits: Sequence[int],
         cr_schedule: ScheduleBlock,
-        rcr_type: str,
+        rcr_type: RCRType,
         amp_param_name: str = 'counter_amp',
         angle_param_name: str = 'counter_sign_angle',
         amplitudes: Optional[Sequence[float]] = None,
@@ -98,7 +74,6 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, RepeatedCRRotaryAm
         self,
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
-        rcr_type: str,
         backend: Optional[Backend] = None,
         cal_parameter_name: list[str] = ['counter_amp', 'counter_sign_angle'],
         schedule_name: str = 'cr',
@@ -115,7 +90,7 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, RepeatedCRRotaryAm
             calibrations,
             physical_qubits,
             cr_schedule,
-            rcr_type,
+            RCRType(calibrations.get_parameter_value('rcr_type', physical_qubits)),
             backend=backend,
             schedule_name=schedule_name,
             cal_parameter_name=cal_parameter_name,

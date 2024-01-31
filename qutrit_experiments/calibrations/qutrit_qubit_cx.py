@@ -23,7 +23,7 @@ def make_qutrit_qubit_cx_calibrations(
         calibrations = Calibrations.from_backend(backend)
 
     add_qutrit_qubit_cr(backend, calibrations)
-    add_offset_rx(backend, calibrations)
+    add_crcr_elements(backend, calibrations)
 
     return calibrations
 
@@ -120,11 +120,13 @@ def add_qutrit_qubit_cr(
             calibrations.add_parameter_value(ParameterValue(value), pname, qubits=qubits,
                                              schedule='cr')
 
-def add_offset_rx(
+def add_crcr_elements(
     backend: Backend,
     calibrations: Calibrations
 ) -> None:
-    """Add the schedule for offset Rx on the target qubit."""
+    """Add the parameter for rcr type and the schedule for offset Rx on the target qubit."""
+    calibrations._register_parameter(Parameter('rcr_type'), ())
+
     duration = Parameter('duration')
     amp = Parameter('amp')
     sigma = Parameter('sigma')
