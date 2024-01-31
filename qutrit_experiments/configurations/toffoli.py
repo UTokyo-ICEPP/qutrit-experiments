@@ -405,7 +405,7 @@ def c2t_rcr_rotary(runner):
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_crcr_cr_width(runner):
-    from ..experiments.qutrit_qubit_cx.cr_width_rx_amp import CycledRepeatedCRWidthCal
+    from ..experiments.qutrit_qubit_cx.cr_fine_width import CycledRepeatedCRWidthCal
     qubits = runner.program_data['qubits'][1:]
 
     current_width = runner.calibrations.get_parameter_value('width', qubits, schedule='cr')
@@ -427,7 +427,7 @@ def c2t_crcr_cr_width(runner):
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_crcr_rx_amp(runner):
-    from ..experiments.qutrit_qubit_cx.cr_width_rx_amp import CycledRepeatedCRRxAmplitudeCal
+    from ..experiments.qutrit_qubit_cx.rx_amp import CycledRepeatedCRRxAmplitudeCal
     return ExperimentConfig(
         CycledRepeatedCRRxAmplitudeCal,
         runner.program_data['qubits'][1:]

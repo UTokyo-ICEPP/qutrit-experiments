@@ -26,11 +26,12 @@ class QutritCRTargetStarkCal(BaseCalibrationExperiment, QutritQubitTomographySca
     ):
         counter_stark_amp = Parameter(cal_parameter_name)
         assign_params = {cal_parameter_name: counter_stark_amp}
-        schedule = runner.calibrations.get_schedule('cr', qubits, assign_params=assign_params)
+        schedule = calibrations.get_schedule(schedule_name, physical_qubits,
+                                             assign_params=assign_params)
 
         circuit = QuantumCircuit(2)
         circuit.append(Gate('cr', 2, [counter_stark_amp]), [0, 1])
-        circuit.add_calibration('cr', qubits, schedule, [counter_stark_amp])
+        circuit.add_calibration('cr', physical_qubits, schedule, [counter_stark_amp])
 
         if amplitudes is None:
             amplitudes = np.linspace(0.005, 0.16, 10)
@@ -72,15 +73,15 @@ class QutritCRControlStarkCal(BaseCalibrationExperiment, QutritQubitTomographySc
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['cr_stark_amp', 'counter_stark_sign_phase'],
+        cal_parameter_name: list[str] = ['cr_stark_amp', 'cr_stark_sign_phase'],
         schedule_name: str = 'cr',
         amplitudes: Optional[Sequence[float]] = None,
         auto_update: bool = True
     ):
         parameters = [Parameter(pname) for pname in cal_parameter_name]
         assign_params = {p.name: p for p in parameters}
-        schedule = runner.calibrations.get_schedule(schedule_name, physical_qubits,
-                                                    assign_params=assign_params)
+        schedule = calibrations.get_schedule(schedule_name, physical_qubits,
+                                             assign_params=assign_params)
 
         circuit = QuantumCircuit(2)
         circuit.append(Gate('cr', 2, parameters), [0, 1])

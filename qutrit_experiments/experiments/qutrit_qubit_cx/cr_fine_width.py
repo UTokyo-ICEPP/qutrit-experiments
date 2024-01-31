@@ -71,21 +71,17 @@ class CycledRepeatedCRWidthAnalysis(QutritQubitTomographyScanAnalysis):
                                                                      analysis_results, figures)
 
         def curve(w, a, b):
-            return (np.asarray(w) * a + b + np.pi) % twopi - np.pi
+            return (np.asarray(w) * a + b) % twopi
 
         widths = next(res.value for res in analysis_results if res.name == 'crp_width')
         unitaries = next(res.value for res in analysis_results if res.name == 'unitary_parameters')
-        popts = []
-        for control_state in range(2):
-            xs = unitaries[:, control_state, 0]
-            x_steps = np.diff(xs)
-            imin = np.argmin(np.abs(x_steps))
-            p0_a = x_steps[imin] / np.diff(widths)[0]
-            p0_b = xs[0] - p0_a * widths[0]
-            popt, _ = sciopt.curve_fit(curve, widths, xs, p0=(p0_a, p0_b))
-            popts.append(popt)
-        slope = popts[1][0] - popts[0][0]
-        intercept = popts[1][1] - popts[0][1]
+        xdiffs = (unitaries[:, 1, 0] - unitaries[:, 0, 0]) % twopi
+        xdiff_steps = np.diff(xdiffs)
+        imin = np.argmin(np.abs(xdiff_steps))
+        p0_a = xdiff_steps[imin] / np.diff(widths)[0]
+        p0_b = xdiffs[0] - p0_a * widths[0]
+        popt, _ = sciopt.curve_fit(curve, widths, xdiffs, p0=(p0_a, p0_b))
+        slope, intercept = popt
         # Find the minimum w>0 that satisfies a*w + b = (2n+1)*π  (n ∈ Z)
         wmin = (np.pi - intercept) / slope
         while wmin < 0.:
@@ -107,13 +103,14 @@ class CycledRepeatedCRWidthAnalysis(QutritQubitTomographyScanAnalysis):
                 ylim=(-twopi - 0.1, twopi + 0.1)
             )
             x_interp = np.linspace(widths[0], widths[-1], 100)
+            y_interp = (curve(x_interp, slope, intercept) + np.pi) % twopi - np.pi
             plotter.set_series_data(
                 'angle_diff',
                 x_formatted=widths,
                 y_formatted=(unitaries[:, 1, 0] - unitaries[:, 0, 0] + twopi) % (2. * twopi) - twopi,
                 y_formatted_err=np.zeros_like(widths),
                 x_interp=x_interp,
-                y_interp=curve(x_interp, slope, intercept)
+                y_interp=y_interp
             )
             figures.append(plotter.figure())
 

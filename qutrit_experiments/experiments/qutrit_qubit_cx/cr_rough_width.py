@@ -31,13 +31,12 @@ class CycledRepeatedCRRoughWidthCal(BaseCalibrationExperiment, QutritCRHamiltoni
         time_unit: Optional[float] = None,
     ):
         assign_params = {cal_parameter_name[0]: Parameter('width'), 'margin': 0}
-        schedule = calibrations.get_schedule(schedule_name, physical_qubits,
+        schedule = calibrations.get_schedule(schedule_name[0], physical_qubits,
                                              assign_params=assign_params)
         super().__init__(
             calibrations,
             physical_qubits,
             schedule,
-            param_name=cal_parameter_name,
             backend=backend,
             schedule_name=schedule_name,
             cal_parameter_name=cal_parameter_name,
@@ -66,7 +65,7 @@ class CycledRepeatedCRRoughWidthCal(BaseCalibrationExperiment, QutritCRHamiltoni
             [-np.sin(angle), np.cos(angle), 0.],
             [0., 0., 1.]
         ])
-        omegas = rot_matrix @ omegas
+        omegas = np.einsum('ij,oj->oi', rot_matrix, omegas)
         # Control-basis omega
         omegas_cb = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) @ omegas
 
