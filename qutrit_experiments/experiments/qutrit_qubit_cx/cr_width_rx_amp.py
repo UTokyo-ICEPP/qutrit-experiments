@@ -308,22 +308,11 @@ class CycledRepeatedCRRxAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
         analysis_results.append(AnalysisResultData(name='rx_amp', value=rx_amp))
 
         if self.options.plot:
-            plotter = CurvePlotter(MplDrawer())
-            plotter.set_figure_options(
-                xlabel='Rx amplitude',
-                ylabel=r'$\theta_0$',
-                ylim=(-np.pi - 0.1, np.pi + 0.1)
-            )
+            ax = figures[0].axes[0]
             x_interp = np.linspace(amplitudes[0], amplitudes[-1], 100)
-            plotter.set_series_data(
-                'angle_diff',
-                x_formatted=amplitudes,
-                y_formatted=x0,
-                y_formatted_err=np.zeros_like(amplitudes),
-                x_interp=x_interp,
-                y_interp=curve(x_interp, *popt)
-            )
-            figures.append(plotter.figure())
+            ax.plot(x_interp, curve(x_interp, *popt), color=MplDrawer.DefaultColors[0],
+                    label='fit')
+            ax.legend()
 
         return analysis_results, figures
 
