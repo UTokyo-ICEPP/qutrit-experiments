@@ -281,7 +281,7 @@ class AddQutritCalibrations(TransformationPass):
                 logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[0], offset)
                 if 'ge_rz' in self.resolve_rz:
                     self.substitute_node_with_paramgate(dag, node, qubits, node_start_time[node],
-                                                        (cumul_phase_ge[qubit[0]],),
+                                                        (cumul_phase_ge[qubits[0]],),
                                                         parametrized_schedules)
 
             elif isinstance(node.op, QutritGate):
