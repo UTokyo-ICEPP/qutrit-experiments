@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from typing import Optional
 import numpy as np
 import scipy.optimize as sciopt
+from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
 from qiskit.pulse import ScheduleBlock
@@ -61,9 +62,9 @@ class CycledRepeatedCRRxAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
         def curve(w, a, b):
             return (np.asarray(w) * a + b + np.pi) % twopi - np.pi
 
-        amplitudes = next(res.value for res in analysis_results if res.name == 'amp')
+        amplitudes = np.array(experiment_data.metadata['scan_values'][0])
         unitaries = next(res.value for res in analysis_results if res.name == 'unitary_parameters')
-        x0 = unitaries[:, 0, 0]
+        x0 = unp.nominal_values(unitaries[:, 0, 0])
         x0_steps = np.diff(x0)
         imin = np.argmin(np.abs(x0_steps))
         p0_a = x0_steps[imin] / np.diff(amplitudes)[0]

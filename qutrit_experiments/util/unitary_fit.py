@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 import jaxopt
 import numpy as np
-from uncertainties import unumpy as unp
+from uncertainties import correlated_values, unumpy as unp
 from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 
@@ -16,7 +16,6 @@ axes = ['x', 'y', 'z']
 
 def fit_unitary(
     data: list[dict[str, Any]],
-    p0: Optional[Sequence[float]] = None,
     data_processor: Optional[DataProcessor] = None,
     plot: bool = True
 ) -> tuple[np.ndarray, NamedTuple, np.ndarray, np.ndarray, Union['matplotlib.figure.Figure', None]]:
@@ -36,10 +35,27 @@ def fit_unitary(
     signs = np.array(signs, dtype=int)
     meas_bases = np.array(meas_bases, dtype=int)
 
+    fit_result = fit_unitary_to_expval(expvals, initial_states, meas_bases, signs=signs, plot=plot)
+    return fit_result[:2] + (expvals,) + fit_result[2:]
+
+
+def fit_unitary_to_expval(
+    expvals: np.ndarray,
+    initial_states: np.ndarray,
+    meas_bases: np.ndarray,
+    signs: Optional[np.ndarray] = None,
+    plot: bool = True
+) -> tuple[np.ndarray, NamedTuple, np.ndarray, Union['matplotlib.figure.Figure', None]]:
+    if signs is None:
+        signs = np.ones_like(initial_states)
+
     @jax.jit
     def objective(params):
         r_elements = so3_cartesian(params, npmod=jnp)[..., meas_bases, initial_states] * signs
-        return jnp.sum(jnp.square(r_elements - unp.nominal_values(expvals)), axis=-1)
+        return jnp.sum(
+            jnp.square((r_elements - unp.nominal_values(expvals)) / unp.std_devs(expvals)),
+            axis=-1
+        )
 
     solver = jaxopt.GradientDescent(fun=objective)
 
@@ -51,8 +67,11 @@ def fit_unitary(
             fit_results.append(solver.run(p0))
 
     res = min(fit_results, key=lambda r: objective(r.params))
-    params = rescale_axis(np.array(res.params))
-    expvals_pred = so3_cartesian(params)[..., meas_bases, initial_states] * signs
+    popt = rescale_axis(np.array(res.params))
+    expvals_pred = so3_cartesian(popt)[..., meas_bases, initial_states] * signs
+
+    pcov = np.linalg.inv(jax.hessian(objective)(popt) * 0.5)
+    popt_ufloats = correlated_values(nom_values=popt, covariance_mat=pcov, tags=['x', 'y', 'z'])
 
     if plot:
         ax = get_non_gui_ax()
@@ -71,4 +90,4 @@ def fit_unitary(
     else:
         figure = None
 
-    return params, res.state, expvals, expvals_pred, figure
+    return popt_ufloats, res.state, expvals_pred, figure

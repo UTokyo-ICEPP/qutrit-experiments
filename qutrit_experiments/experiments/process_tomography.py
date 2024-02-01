@@ -219,7 +219,6 @@ class CircuitTomographyAnalysis(ProcessTomographyAnalysis):
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
-        options.unitary_parameters_p0 = None
         options.data_processor = None
         options.plot = True
         return options
@@ -243,7 +242,6 @@ class CircuitTomographyAnalysis(ProcessTomographyAnalysis):
         # Not passing the custom data processor as counts have been updated
         popt, state, observed, predicted, figure = fit_unitary(
             experiment_data.data(),
-            p0=self.options.unitary_parameters_p0,
             plot=self.options.plot
         )
 

@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from typing import Optional
 import numpy as np
+from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
 from qiskit.pulse import ScheduleBlock
@@ -53,8 +54,9 @@ class RepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
         analysis_results, figures = super()._run_additional_analysis(experiment_data,
                                                                     analysis_results, figures)
 
-        amplitudes = next(res.value for res in analysis_results if res.name == 'counter_amp')
+        amplitudes = np.array(experiment_data.metadata['scan_values'][0])
         unitaries = next(res.value for res in analysis_results if res.name == 'unitary_parameters')
+        unitaries = unp.nominal_values(unitaries)
         # Sort the amplitudes by max of |Y| over control states, then find the first local minimum
         # of max |Z|
         max_y = np.max(np.abs(unitaries[:, :, 1]), axis=1)

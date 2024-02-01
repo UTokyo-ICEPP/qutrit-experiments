@@ -2,6 +2,7 @@
 from collections.abc import Sequence
 from typing import Optional
 import numpy as np
+from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.circuit import Gate, Parameter
 from qiskit.providers import Backend
@@ -56,6 +57,7 @@ class QutritCRTargetStarkCal(BaseCalibrationExperiment, QutritQubitTomographySca
         amplitudes = [experiment_data.child_data(idx).metadata[self._param_name]
                       for idx in component_index]
         unitaries = experiment_data.analysis_results('unitary_parameters', block=False).value
+        unitaries = unp.nominal_values(unitaries)
         theta_iz = np.einsum('oc,sck->sok',
                              np.linalg.inv([[1, 1, 0], [1, -1, 1], [1, 0, -1]]),
                              unitaries)[:, 0, 2]
@@ -113,6 +115,7 @@ class QutritCRControlStarkCal(BaseCalibrationExperiment, QutritQubitTomographySc
         amplitudes = [experiment_data.child_data(idx).metadata[self._param_name[0]]
                       for idx in component_index]
         unitaries = experiment_data.analysis_results('unitary_parameters', block=False).value
+        unitaries = unp.nominal_values(unitaries)
         theta_zs = np.einsum('oc,sck->sok',
                              np.linalg.inv([[1, 1, 0], [1, -1, 1], [1, 0, -1]]),
                              unitaries)[:, 1:, 2]

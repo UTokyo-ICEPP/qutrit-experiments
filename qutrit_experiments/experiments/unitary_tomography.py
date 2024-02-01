@@ -91,7 +91,6 @@ class UnitaryTomographyAnalysis(BaseAnalysis):
         options = super()._default_options()
         options.data_processor = None
         options.plot = True
-        options.parameters_p0 = None
         return options
 
     def _run_analysis(
@@ -100,7 +99,6 @@ class UnitaryTomographyAnalysis(BaseAnalysis):
     ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
         popt, state, observed, predicted, figure = fit_unitary(
             experiment_data.data(),
-            p0=self.options.parameters_p0,
             data_processor=self.options.data_processor,
             plot=self.options.plot
         )

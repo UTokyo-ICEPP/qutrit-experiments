@@ -265,6 +265,7 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         options = super()._default_options()
         options.data_processor = None # Needed to have DP propagated to tomography analysis
         options.plot = True
+        options.return_expvals = False
         return options
 
     def _run_additional_analysis(
@@ -290,14 +291,14 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         observeds = np.array(observeds)
         predicteds = np.array(predicteds)
 
-        analysis_results.extend([
-            AnalysisResultData(name=p, value=v) for p, v in zip(parameters, scan_values)
-        ])
-        analysis_results.extend([
-            AnalysisResultData(name='unitary_parameters', value=unitaries),
-            AnalysisResultData(name='expvals_observed', value=observeds),
-            AnalysisResultData(name='expvals_predicted', value=predicteds)
-        ])
+        analysis_results.append(
+            AnalysisResultData(name='unitary_parameters', value=unitaries)
+        )
+        if self.options.return_expvals:
+            analysis_options.extend([
+                AnalysisResultData(name='expvals_observed', value=observeds),
+                AnalysisResultData(name='expvals_predicted', value=predicteds)
+            ])
 
         if self.options.plot:
             for iop, op in enumerate(['X', 'Y', 'Z']):
@@ -311,8 +312,8 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
                     plotter.set_series_data(
                         f'c{control_state}',
                         x_formatted=scan_values[0],
-                        y_formatted=unitaries[:, control_state, iop],
-                        y_formatted_err=np.zeros_like(scan_values[0])
+                        y_formatted=unp.nominal_values(unitaries[:, control_state, iop]),
+                        y_formatted_err=unp.std_devs(unitaries[:, control_state, iop])
                     )
                 figures.append(plotter.figure())
 
