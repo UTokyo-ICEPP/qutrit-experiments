@@ -105,7 +105,7 @@ def get_margin(
     backend_timing = BackendTiming(backend)
     granularity = BackendData(backend).granularity
     supports = np.asarray(widths) + risefall_duration
-    if (is_scalar := (widths.ndim == 0)):
+    if (is_scalar := (supports.ndim == 0)):
         supports = [supports]
 
     margins = np.array([backend_timing.round_pulse(samples=support) - support

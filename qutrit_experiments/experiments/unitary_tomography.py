@@ -1,6 +1,8 @@
 """Tomography of a unitary through measurements of the upper triangle of the rotation matrix."""
 from collections.abc import Sequence
+from itertools import product
 from typing import Any, Optional
+import matplotlib
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit import Gate
@@ -15,13 +17,14 @@ twopi = 2. * np.pi
 
 
 class UnitaryTomography(MapToPhysicalQubits, BaseExperiment):
-    """Tomography of a unitary through measurements of the upper triangle of the rotation matrix."""
+    """Tomography of a unitary through measurements of the rotation matrix."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
         options.circuit = None
         options.pre_circuit = None
         options.measured_logical_qubit = 0
+        options.prep_meas_bases = None
         return options
 
     def __init__(
@@ -39,35 +42,36 @@ class UnitaryTomography(MapToPhysicalQubits, BaseExperiment):
     def circuits(self) -> list[QuantumCircuit]:
         num_qubits = len(self.physical_qubits)
         meas_qubit = self.experiment_options.measured_logical_qubit
-        axes = ['x', 'y', 'z']
         circuits = []
-        for idx_i, initial_state in enumerate(axes):
-            template = QuantumCircuit(num_qubits, 1)
-            if (pre_circuit := self.experiment_options.pre_circuit) is not None:
-                template.compose(pre_circuit, inplace=True)
-                template.barrier()
+        if (setups := self.experiment_options.prep_meas_bases) is None:
+            setups = product(['x', 'y', 'z'], ['x', 'y', 'z'])
+
+        template = QuantumCircuit(num_qubits, 1)
+        if (pre_circuit := self.experiment_options.pre_circuit) is not None:
+            template.compose(pre_circuit, inplace=True)
+            template.barrier()
+
+        for initial_state, meas_basis in setups:
+            circuit = template.copy()
             if initial_state != 'z':
-                template.sx(meas_qubit)
+                circuit.sx(meas_qubit)
             if initial_state == 'x':
-                template.rz(np.pi / 2., meas_qubit)
+                circuit.rz(np.pi / 2., meas_qubit)
             elif initial_state == 'y':
-                template.rz(-np.pi, meas_qubit)
-            template.barrier()
-            template.compose(self.experiment_options.circuit, inplace=True)
-            template.barrier()
-            for idx_m in range(idx_i + 1):
-                meas_basis = axes[idx_m]
-                circuit = template.copy()
-                if meas_basis == 'x':
-                    circuit.rz(np.pi / 2., meas_qubit)
-                if meas_basis != 'z':
-                    circuit.sx(meas_qubit)
-                circuit.measure(meas_qubit, 0)
-                circuit.metadata = {
-                    'initial_state': initial_state,
-                    'meas_basis': meas_basis
-                }
-                circuits.append(circuit)
+                circuit.rz(-np.pi, meas_qubit)
+            circuit.barrier()
+            circuit.compose(self.experiment_options.circuit, inplace=True)
+            circuit.barrier()
+            if meas_basis == 'x':
+                circuit.rz(np.pi / 2., meas_qubit)
+            if meas_basis != 'z':
+                circuit.sx(meas_qubit)
+            circuit.measure(meas_qubit, 0)
+            circuit.metadata = {
+                'initial_state': initial_state,
+                'meas_basis': meas_basis
+            }
+            circuits.append(circuit)
 
         return circuits
 
@@ -96,7 +100,7 @@ class UnitaryTomographyAnalysis(BaseAnalysis):
     def _run_analysis(
         self,
         experiment_data: ExperimentData,
-    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
+    ) -> tuple[list[AnalysisResultData], list[matplotlib.figure.Figure]]:
         popt, state, observed, predicted, figure = fit_unitary(
             experiment_data.data(),
             data_processor=self.options.data_processor,

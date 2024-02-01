@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from typing import Any, Optional, Union
+import matplotlib
 import numpy as np
 from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
@@ -98,8 +99,8 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
-        figures: list["matplotlib.figure.Figure"]
-    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
+        figures: list[matplotlib.figure.Figure]
+    ) -> tuple[list[AnalysisResultData], list[matplotlib.figure.Figure]]:
         component_index = experiment_data.metadata['component_child_index']
 
         unitary_parameters = []
@@ -272,8 +273,8 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
-        figures: list["matplotlib.figure.Figure"]
-    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
+        figures: list[matplotlib.figure.Figure]
+    ) -> tuple[list[AnalysisResultData], list[matplotlib.figure.Figure]]:
         component_index = experiment_data.metadata['component_child_index']
         parameters = experiment_data.metadata['scan_parameters']
         scan_values = [np.array(v) for v in experiment_data.metadata['scan_values']]
@@ -295,7 +296,7 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
             AnalysisResultData(name='unitary_parameters', value=unitaries)
         )
         if self.options.return_expvals:
-            analysis_options.extend([
+            analysis_results.extend([
                 AnalysisResultData(name='expvals_observed', value=observeds),
                 AnalysisResultData(name='expvals_predicted', value=predicteds)
             ])
