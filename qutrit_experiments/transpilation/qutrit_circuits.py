@@ -2,14 +2,16 @@
 
 from collections import defaultdict
 from collections.abc import Sequence
+import copy
 import logging
 from typing import Optional, Union
 import numpy as np
-from qiskit import QuantumCircuit, QuantumRegister
-from qiskit.circuit import Gate
+from qiskit import QuantumCircuit, QuantumRegister, pulse
+from qiskit.circuit import Gate, Parameter
 from qiskit.circuit.library import RZGate, SXGate, XGate
 from qiskit.dagcircuit import DAGCircuit, DAGOpNode
 from qiskit.providers import Backend
+from qiskit.pulse import Schedule, ScheduleBlock
 from qiskit.transpiler import (AnalysisPass, InstructionDurations, PassManager, Target,
                                TransformationPass, TranspilerError)
 
@@ -23,6 +25,7 @@ from ..gates import (QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES, QutritGate, RZ12G
 
 logger = logging.getLogger(__name__)
 twopi = 2. * np.pi
+
 
 def make_instruction_durations(
     backend: Backend,
@@ -62,7 +65,7 @@ def transpile_qutrit_circuits(
     pm.append(InvertRZSign())
     pm.append(ContainsQutritInstruction())
     scheduling = ALAPScheduleAnalysis(instruction_durations)
-    add_cal = AddQutritCalibrations(backend.target)
+    add_cal = AddQutritCalibrations(backend.target, backend.configuration().channels)
     add_cal.calibrations = calibrations # See the comment in the class for why we do this
     pm.append([scheduling, add_cal], condition=contains_qutrit_gate)
     pm.append(ConsolidateRZAngle())
@@ -126,7 +129,9 @@ class AddQutritCalibrations(TransformationPass):
     """Transpiler pass to give physical implementations to qutrit gates."""
     def __init__(
         self,
-        target: Target
+        target: Target,
+        channel_map: dict[str, dict],
+        resolve_rz: Optional[Union[str, list[str]]] = None
     ):
         super().__init__()
         # The metaclass of BasePass performs _freeze_init_parameters in which each init argument
@@ -134,6 +139,13 @@ class AddQutritCalibrations(TransformationPass):
         # with this functionality, so we need to set self.calibrations post-init.
         self.calibrations: Calibrations = None
         self.target = target
+        self.channel_map = channel_map
+        if resolve_rz is None:
+            self.resolve_rz = set(['ef_lo'])
+        elif resolve_rz == 'all':
+            self.resolve_rz = set(['ef_lo', 'ef_rz', 'ge_rz'])
+        else:
+            self.resolve_rz = set(resolve_rz)
 
     def run(self, dag: DAGCircuit) -> DAGCircuit:
         """Assign pulse implementations of qutrit gates.
@@ -188,20 +200,29 @@ class AddQutritCalibrations(TransformationPass):
         cumul_phase_ge = defaultdict(float) # Phase of g-e (|0>-|1>) drive
         cumul_phase_ef = defaultdict(float) # Phase of e-f (|1>-|2>) drive
         ef_lo_phase = defaultdict(float) # EF LO phase tracker
-        current_space = defaultdict(int)
+        parametrized_schedules = {} # For Rz resolution
 
-        def switch_space(node, switch_to, iq=0):
-            qubit = dag.find_bit(node.qargs[iq]).index
-            angle = cumul_phase_ef[qubit] - cumul_phase_ge[qubit] + ef_lo_phase[qubit]
-            if switch_to == 1:
-                logger.debug('%s[%d] GE->EF control switching phase %f', node.op.name, qubit,
-                             angle)
-            else:
-                angle *= -1.
-                logger.debug('%s[%d] EF->GE control switching phase %f', node.op.name, qubit,
-                             angle)
-            replace_op_with_rz_op(dag, node, angle, node_start_time, iq=iq)
-            current_space[qubit] = switch_to
+        def insert_rz(node, pre_angle=0., post_angle=0., op_duration=0):
+            subdag = DAGCircuit()
+            logger.debug('op = %s qargs = %s', node.op, node.qargs)
+            subdag.add_qreg((qreg := QuantumRegister(len(node.qargs))))
+            qargs = [qreg[0]]
+            if pre_angle:
+                subdag.apply_operation_back(RZGate(pre_angle), qargs)
+            subdag.apply_operation_back(node.op, tuple(qreg))
+            if post_angle:
+                subdag.apply_operation_back(RZGate(post_angle), qargs)
+            subst_map = dag.substitute_node_with_dag(node, subdag)
+            # Update the node_start_time map
+            start_time = node_start_time.pop(node)
+            op_nodes = iter(subdag.topological_op_nodes())
+            if pre_angle:
+                node_start_time[subst_map[next(op_nodes)._node_id]] = start_time
+            new_node = subst_map[next(op_nodes)._node_id]
+            node_start_time[new_node] = start_time
+            if post_angle:
+                node_start_time[subst_map[next(op_nodes)._node_id]] = start_time + op_duration
+            return new_node
 
         for node in list(dag.topological_op_nodes()):
             if node not in node_start_time:
@@ -210,15 +231,15 @@ class AddQutritCalibrations(TransformationPass):
                     "Schedule the circuit again if you transformed it."
                 )
 
-            qubit = dag.find_bit(node.qargs[0]).index
-            logger.debug('%s[%d]', node.op.name, qubit)
+            qubits = tuple(dag.find_bit(q).index for q in node.qargs)
+            logger.debug('%s[%d]', node.op.name, qubits[0])
 
             if isinstance(node.op, SetF12Gate):
-                if qubit in modulation_frequencies:
+                if qubits[0] in modulation_frequencies:
                     raise TranspilerError('Operation set_f12 must appear before any x12, sx12, and'
                                           ' set_f12 gates in the circuit.')
-                modulation_frequencies[qubit] = (
-                    node.op.params[0] - self.target.qubit_properties[qubit].frequency
+                modulation_frequencies[qubits[0]] = (
+                    node.op.params[0] - self.target.qubit_properties[qubits[0]].frequency
                 ) * self.target.dt
                 dag.remove_op_node(node)
 
@@ -226,100 +247,196 @@ class AddQutritCalibrations(TransformationPass):
                 phi = node.op.params[0]
                 # Rz(phi) = ShiftPhase[ge](-phi).
                 # To cancel the geometric phase, we must apply ShiftPhase[ef](phi/2)
-                cumul_phase_ge[qubit] -= phi
-                cumul_phase_ef[qubit] += phi / 2.
-                logger.debug('%s[%d] Phase[ge] -= %f', node.op.name, qubit, phi)
-                logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubit, phi / 2.)
-                if current_space[qubit] == 1:
-                    dag.substitute_node(node, RZGate(-phi / 2.), inplace=True)
+                cumul_phase_ge[qubits[0]] -= phi
+                cumul_phase_ef[qubits[0]] += phi / 2.
+                logger.debug('%s[%d] Phase[ge] -= %f', node.op.name, qubits[0], phi)
+                logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[0], phi / 2.)
+                if 'ge_rz' in self.resolve_rz:
+                    dag.remove_op_node(node)
 
             elif isinstance(node.op, RZ12Gate):
                 phi = node.op.params[0]
                 # Rz12(phi) = ShiftPhase[ef](-phi)
                 # Then the geometric phase cancellation is ShiftPhase[ge](phi/2, qubit)]
-                cumul_phase_ge[qubit] += phi / 2.
-                cumul_phase_ef[qubit] -= phi
-                logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qubit, phi / 2.)
-                logger.debug('%s[%d] Phase[ef] -= %f', node.op.name, qubit, phi)
-                if current_space[qubit] == 0:
-                    dag.substitute_node(node, RZGate(-phi / 2.), inplace=True)
+                cumul_phase_ge[qubits[0]] += phi / 2.
+                cumul_phase_ef[qubits[0]] -= phi
+                logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qubits[0], phi / 2.)
+                logger.debug('%s[%d] Phase[ef] -= %f', node.op.name, qubits[0], phi)
+                if 'ge_rz' in self.resolve_rz:
+                    dag.remove_op_node(node)
                 else:
-                    dag.substitute_node(node, RZGate(phi), inplace=True)
+                    dag.substitute_node(node, RZGate(-phi / 2.), inplace=True)
 
             elif isinstance(node.op, (XGate, SXGate)):
-                if current_space[qubit] == 1:
-                    switch_space(node, 0)
-
                 # X = P2(delta/2 - pi/2) U_x(pi)
                 # SX = P2(delta/2 - pi/4) U_x(pi/2)
                 # See the docstring of add_x12_sx12()
                 # P2(phi) is effected by ShiftPhase[ef](LO_SIGN * phi)
                 geom_phase = np.pi / 2. if isinstance(node.op, XGate) else np.pi / 4.
-                delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubit)
+                delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubits)
                 logger.debug('%s[%d] Geometric phase %f, AC Stark correction %f',
-                             node.op.name, qubit, geom_phase, delta / 2.)
+                             node.op.name, qubits[0], geom_phase, delta / 2.)
                 offset = LO_SIGN * (delta / 2. - geom_phase)
-                cumul_phase_ef[qubit] += offset
-                logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubit, offset)
+                cumul_phase_ef[qubits[0]] += offset
+                logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[0], offset)
+                if 'ge_rz' in self.resolve_rz:
+                    self.substitute_node_with_paramgate(dag, node, qubits, node_start_time[node],
+                                                        (cumul_phase_ge[qubit[0]],),
+                                                        parametrized_schedules)
 
             elif isinstance(node.op, QutritGate):
-                if (mod_freq := modulation_frequencies.get(qubit)) is None:
-                    mod_freq = (self.calibrations.get_parameter_value('f12', qubit)
-                                - self.target.qubit_properties[qubit].frequency) * self.target.dt
-                    modulation_frequencies[qubit] = mod_freq
-                    logger.debug('%s[%d] EF modulation frequency %f', node.op.name, qubit, mod_freq)
+                if (mod_freq := modulation_frequencies.get(qubits[0])) is None:
+                    mod_freq = (self.calibrations.get_parameter_value('f12', qubits)
+                                - self.target.qubit_properties[qubits[0]].frequency) * self.target.dt
+                    modulation_frequencies[qubits[0]] = mod_freq
+                    logger.debug('%s[%d] EF modulation frequency %f', node.op.name, qubits[0], mod_freq)
 
-                current_ef_lo_phase = LO_SIGN * node_start_time[node] * twopi * mod_freq
+                ef_lo_phase[qubits[0]] = LO_SIGN * node_start_time[node] * twopi * mod_freq
+                resolve_rz = {'ef_rz', 'ef_lo'} & self.resolve_rz
 
-                if current_space[qubit] == 0:
-                    ef_lo_phase[qubit] = current_ef_lo_phase
-                    switch_space(node, 1)
+                if (isinstance(node.op, (X12Gate, SX12Gate)) and not resolve_rz
+                    and (qubits, ()) not in dag.calibrations.get(node.op.name, {})):
+                    assign_params = {'freq': mod_freq}
+                    sched = self.calibrations.get_schedule(node.op.name, qubits,
+                                                            assign_params=assign_params)
+                    dag.add_calibration(node.op.name, qubits, sched)
+                    logger.debug('%s[%d] Adding calibration', node.op.name, qubits[0])
+
+                if resolve_rz:
+                    lo_angle = ef_lo_phase[qubits[0]] - cumul_phase_ge[qubits[0]]
+                    rz_angle = cumul_phase_ef[qubits[0]]
+                    sched_angle = 0.
+                    gate_angle = 0.
+                    if 'ef_rz' in resolve_rz:
+                        sched_angle += rz_angle
+                    else:
+                        gate_angle += rz_angle
+                    if 'ef_lo' in resolve_rz:
+                        sched_angle += lo_angle
+                    else:
+                        gate_angle += lo_angle
+
+                    nst = node_start_time[node]
+                    self.substitute_node_with_paramgate(dag, node, qubits, nst, (sched_angle,),
+                                                        parametrized_schedules,
+                                                        modulation_frequency=mod_freq)
+                    op_duration = dag.calibrations[node.op.name][(qubits, (nst,))].duration
                 else:
-                    angle = current_ef_lo_phase - ef_lo_phase[qubit]
-                    logger.debug('%s[%d] EF LO fast-forward phase %f', node.op.name, qubit, angle)
-                    replace_op_with_rz_op(dag, node, angle, node_start_time)
-                    ef_lo_phase[qubit] = current_ef_lo_phase
+                    gate_angle = (cumul_phase_ef[qubits[0]] - cumul_phase_ge[qubits[0]]
+                                  + ef_lo_phase[qubits[0]])
+                    op_duration = next(s for k, s in dag.calibrations[node.op.name].values()
+                                       if k[0] == qubits).duration
+
+                if gate_angle != 0.:
+                    node = insert_rz(node, pre_angle=-gate_angle, post_angle=gate_angle,
+                                     op_duration=op_duration)
 
                 if isinstance(node.op, (X12Gate, SX12Gate)):
-                    if ((qubit,), ()) not in dag.calibrations.get(node.op.name, {}):
-                        assign_params = {'freq': mod_freq}
-                        sched = self.calibrations.get_schedule(node.op.name, qubit,
-                                                               assign_params=assign_params)
-                        dag.add_calibration(node.op.name, (qubit,), sched)
-                        logger.debug('%s[%d] Adding calibration', node.op.name, qubit)
-
                     # X12 = P0(delta/2 - pi/2) U_xi(pi)
                     # SX12 = P0(delta/2 - pi/4) U_xi(pi/2)
                     # P0(phi) is effected by ShiftPhase[ge](-LO_SIGN * phi)
                     geom_phase = np.pi / 2. if isinstance(node.op, X12Gate) else np.pi / 4.
-                    delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubit)
+                    delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubits)
                     logger.debug('%s[%d] Geometric phase %f, AC Stark correction %f',
-                                 node.op.name, qubit, geom_phase, delta / 2.)
+                                 node.op.name, qubits[0], geom_phase, delta / 2.)
                     offset = -LO_SIGN * (delta / 2. - geom_phase)
-                    cumul_phase_ge[qubit] += offset
-                    logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qubit, offset)
+                    cumul_phase_ge[qubits[0]] += offset
+                    logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qubits[0], offset)
+                    if 'ge_rz' not in self.resolve_rz:
+                        insert_rz(node, post_angle=-offset, op_duration=op_duration)
 
-            elif isinstance(node.op, Gate) and current_space.get(qubit, 0) == 1:
-                switch_space(node, 0)
-
-            # Two-qubit gate target (currently we have only qubit controlled gates)
-            if (isinstance(node.op, Gate) and len(node.qargs) == 2
-                and current_space.get(node.qargs[1], 0)) == 1:
-                switch_space(node, 0, iq=1)
+            elif isinstance(node.op, Gate) and 'ge_rz' in self.resolve_rz:
+                phases = tuple(cumul_phase_ge[q] for q in qubits)
+                self.substitute_node_with_paramgate(dag, node, qubits, node_start_time[node],
+                                                    phases, parametrized_schedules)
 
         return dag
 
+    def substitute_node_with_paramgate(
+        self,
+        dag: DAGCircuit,
+        node: DAGOpNode,
+        qubits: tuple[int, ...],
+        start_time: int,
+        phases: tuple[float, ...],
+        parametrized_schedules: dict[tuple[str, tuple[int, ...]], tuple[ScheduleBlock, list[Parameter]]],
+        modulation_frequency: Optional[float] = None
+    ):
+        key = (node.op.name, qubits)
+        if (psched := parametrized_schedules.get(key)) is None:
+            psched = self.make_parametrized_schedule(dag, node.op, qubits,
+                                                     modulation_frequency=modulation_frequency)
+            parametrized_schedules[key] = psched
 
-def replace_op_with_rz_op(dag, node, angle, node_start_time, iq=0):
-    subdag = DAGCircuit()
-    logger.debug('op = %s qargs = %s', node.op, node.qargs)
-    subdag.add_qreg((qreg := QuantumRegister(len(node.qargs))))
-    # Qiskit convention: this is ShiftPhase(angle)
-    subdag.apply_operation_back(RZGate(-angle), [qreg[iq]])
-    subdag.apply_operation_back(node.op, tuple(qreg))
-    subst_map = dag.substitute_node_with_dag(node, subdag)
-    # Update the node_start_time map
-    start_time = node_start_time.pop(node)
-    op_nodes = tuple(subdag.topological_op_nodes())
-    node_start_time[subst_map[op_nodes[0]._node_id]] = start_time
-    node_start_time[subst_map[op_nodes[1]._node_id]] = start_time
+        sched, params = psched
+        dag.substitute_node(node, Gate(sched.name, len(qubits), [start_time]), inplace=True)
+        dag.add_calibration(sched.name, qubits,
+                            sched.assign_parameters(dict(zip(params, phases)), inplace=False),
+                            [start_time])
+
+    def make_parametrized_schedule(
+        self,
+        dag: DAGCircuit,
+        gate: Gate,
+        qubits: tuple[int, ...],
+        modulation_frequency: Optional[float] = None
+    ) -> ScheduleBlock:
+        if gate.__class__ in QUTRIT_PULSE_GATES:
+            # There are only single-qutrit gates at the moment
+            angle = Parameter('angle')
+            base_angle = self.calibrations.get_parameter_value('angle', qubits, gate.name)
+            assign_params = {'angle': angle + base_angle, 'freq': modulation_frequency}
+            return (self.calibrations.get_schedule(gate.name, qubits, assign_params=assign_params),
+                    [angle])
+        try:
+            schedule = next(s for k, s in dag.calibrations.get(gate.name, {}).values()
+                            if k[0] == qubits)
+        except StopIteration:
+            schedule = self.target.instruction_schedule_map().get(gate.name, qubits)
+
+        if isinstance(schedule, Schedule):
+            # Convert to ScheduleBlock
+            with pulse.build(name=schedule.name) as schedule_block:
+                pulse.call(schedule)
+            schedule = schedule_block
+
+        angles = self.parametrize_instructions(schedule, qubits)
+        return (schedule, angles)
+
+    def parametrize_instructions(
+        self,
+        schedule_block: ScheduleBlock,
+        qubits: Sequence[int],
+        angles: Union[Sequence[Parameter], None] = None
+    ):
+        if angles is None:
+            angles = [Parameter(f'angle{i}') for i in range(len(qubits))]
+
+        replacements = []
+        for block in schedule_block.blocks:
+            if not isinstance(block, pulse.Play):
+                if isinstance(block, ScheduleBlock):
+                    self.parametrize_instructions(block, qubits, angles)
+                continue
+
+            if (base_angle := block.pulse._params.get('angle')) is None:
+                continue
+
+            channel_spec = self.channel_map[block.channel.name]
+            if isinstance(block.channel, pulse.DriveChannel):
+                iq = qubits.index(channel_spec['operates']['qubits'][0])
+            elif isinstance(block.channel, pulse.ControlChannel):
+                iq = qubits.index(channel_spec['operates']['qubits'][1])
+            else:
+                raise RuntimeError(f'Unhandled instruction channel: {block}')
+
+            new_inst = pulse.Play(copy.deepcopy(block.pulse), block.channel, name=block.name)
+            new_inst.pulse._params['angle'] = base_angle + angles[iq]
+            replacements.append((block, new_inst))
+
+        for old, new in replacements:
+            schedule_block.replace(old, new)
+
+        # Not all parameters may have been used
+        return list(set(angles) & set(schedule_block.parameters))
+
