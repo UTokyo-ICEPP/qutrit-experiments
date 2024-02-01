@@ -90,7 +90,7 @@ def normalized_rotation_axis(xyz: array_like, npmod=np):
     if npmod is np:
         xyz = np.asarray(xyz)
     norm = npmod.sqrt(npmod.sum(npmod.square(xyz), axis=-1))
-    # This procedure and another where below cures the gradient becoming nan at the origin but
+    # This procedure and another "where" below cures the gradient becoming nan at the origin but
     # at the cost of it becoming zero (where the true limit is nonzero but depends on the direction
     # of approach)
     norm = npmod.where(npmod.isclose(norm, 0.), 0., norm)
@@ -100,8 +100,18 @@ def normalized_rotation_axis(xyz: array_like, npmod=np):
 
 def rescale_axis(xyz: array_like):
     """Rescale the axis vector so its norm is less than pi."""
-    while np.any((norm := np.sqrt(np.sum(np.square(xyz), axis=-1))) > twopi):
-        xyz = np.where(norm > twopi, xyz * (1. - twopi / norm), xyz)
+    xyz = np.array(xyz)
+    if (ndim := xyz.ndim) == 1:
+        xyz = xyz[None, :]
 
     norm = np.sqrt(np.sum(np.square(xyz), axis=-1))
-    return np.where(norm > np.pi, xyz * (1. - twopi / norm), xyz)
+    large_norm = norm > twopi
+    xyz[large_norm] *= 1. % (twopi / norm[large_norm][..., None])
+
+    norm = np.sqrt(np.sum(np.square(xyz), axis=-1))
+    large_norm = norm > np.pi
+    xyz[large_norm] *= (1. - twopi / norm[large_norm][..., None])
+    if ndim == 1:
+        return xyz[0]
+    return xyz
+
