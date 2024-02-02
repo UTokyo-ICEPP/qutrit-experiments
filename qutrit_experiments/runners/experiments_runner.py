@@ -88,6 +88,9 @@ class ExperimentsRunner:
         self.data_taking_only = False
         self.code_test = False
 
+        # resolve_rz option passed to the qutrit transpiler
+        self.transpile_resolve_rz = None
+
         self.program_data = {}
 
     @property
@@ -315,7 +318,8 @@ class ExperimentsRunner:
         start = time.time()
         transpiled_circuits = transpile_qutrit_circuits(transpiled_circuits,
                                                         self._backend, self._calibrations,
-                                                        instruction_durations=instruction_durations)
+                                                        instruction_durations=instruction_durations,
+                                                        resolve_rz=self.transpile_resolve_rz)
         end = time.time()
         logger.debug('Qutrit-specific transpilation took %.1f seconds.', end - start)
         return transpiled_circuits
