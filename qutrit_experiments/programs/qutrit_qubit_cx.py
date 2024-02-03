@@ -135,12 +135,19 @@ def get_sizzle_params(z_comps, runner):
 
 
 def frequency_intervals(runner):
-    control2, target = runner.program_data['qubits'][1:]
-    c2_props = runner.backend.qubit_properties(control2)
-    t_props = runner.backend.qubit_properties(target)
-    resonances = np.array([c2_props.frequency, t_props.frequency])
-    anharmonicities = np.array([c2_props.anharmonicity, t_props.anharmonicity])
-    resonances = np.sort(np.concatenate([resonances, resonances + anharmonicities]))
+    """Return disjoint frequency intervals around GE and EF resonances of qubits connected to c2."""
+    control2 = runner.program_data['qubits'][1]
+    edges = [edge for edge in runner.backend.coupling_map.get_edges() if control2 in edge]
+    qubit_props = [runner.backend.qubit_properties(control2)]
+    for edge in edges:
+        if edge[0] == control2:
+            qubit_props.append(runner.backend.qubit_properties(edge[1]))
+        else:
+            qubit_props.append(runner.backend.qubit_properties(edge[0]))
+
+    qubit_frequencies = np.array([p.frequency for p in qubit_props])
+    anharmonicities = np.array([p.anharmonicity for p in qubit_props])
+    resonances = np.sort(np.concatenate([qubit_frequencies, qubit_frequencies + anharmonicities]))
     intervals = [(resonances[0] - 50.e+6, resonances[0] - 15.e+6)]
     intervals += [(left + 15.e+6, right - 15.e+6)
                   for left, right in zip(resonances[:-1], resonances[1:])]
