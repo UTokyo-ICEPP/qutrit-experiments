@@ -68,8 +68,8 @@ def add_readout_mitigation(gen=None, *, logical_qubits=None, expval=False):
         return wrapper
 
     @wraps(gen)
-    def converted_gen(runner):
-        config = gen(runner)
+    def converted_gen(runner, *args, **kwargs):
+        config = gen(runner, *args, **kwargs)
         configure_readout_mitigation(runner, config, logical_qubits=logical_qubits, expval=expval)
         return config
 
@@ -118,8 +118,8 @@ def qubits_assignment_error(runner, experiment_data):
     for combination in [qubits[0:1], qubits[1:2], qubits[2:3], qubits[:2], qubits[1:3], qubits]:
         prog_data[combination] = mitigator.assignment_matrix(combination)
 
-@register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
+@register_exp
 def c2t_cr_rough_width(runner):
     """Few-sample CR HT just to measure ωx to find a rough estimate for the CR width in CRCR."""
     from ..experiments.qutrit_qubit_cx.cr_rough_width import CycledRepeatedCRRoughWidthCal
@@ -132,7 +132,7 @@ def c2t_cr_rough_width(runner):
     )
 
 @add_readout_mitigation(logical_qubits=[1])
-def c2t_sizzle_template(runner):
+def c2t_sizzle_template(runner, exp_type):
     """Template for SiZZle measurement at a single frequency and amplitude combination.
 
     Frequency, amplitudes should be set in args.
@@ -153,11 +153,12 @@ def c2t_sizzle_template(runner):
             'delays': np.linspace(0., 4.e-7, 16),
             'osc_freq': 5.e+6,
             'angles': (cr_base_angle, counter_base_angle)
-        }
+        },
+        exp_type=exp_type
     )
 
-@register_exp
 @add_readout_mitigation(logical_qubits=[1])
+@register_exp
 def c2t_zzramsey(runner):
     from ..experiments.zzramsey import QutritZZRamsey
     return ExperimentConfig(
@@ -175,8 +176,8 @@ def c2t_zzramsey(runner, experiment_data):
     omega_zs = experiment_data.analysis_results('omega_zs', block=False).value
     runner.program_data['c2t_static_omega_zs'] = omega_zs
 
-@register_exp
 @add_readout_mitigation(logical_qubits=[1])
+@register_exp
 def c2t_sizzle_frequency_scan(runner):
     from ..experiments.sizzle import SiZZleFrequencyScan
 
@@ -215,7 +216,7 @@ def c2t_sizzle_frequency_scan(runner):
     )
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)
-def c2t_hcr_template(runner):
+def c2t_hcr_template(runner, exp_type):
     """CR HT with undefined amplitude."""
     from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianTomography
 
@@ -237,11 +238,12 @@ def c2t_hcr_template(runner):
         [control2, target],
         args={
             'schedule': schedule
-        }
+        },
+        exp_type=exp_type
     )
 
-@register_exp
 @add_readout_mitigation(expval=True)
+@register_exp
 def t_hx(runner):
     """Target qubit Rx tone Hamiltonian with amplitude set for two cycles in 2048 dt."""
     from ..experiments.hamiltonian_tomography import HamiltonianTomography
@@ -276,7 +278,7 @@ def t_hx(runner, data):
     runner.program_data['target_rxtone_hamiltonian'] = components
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)
-def c2t_hcr_singlestate_template(runner):
+def c2t_hcr_singlestate_template(runner, exp_type):
     """CR Hamiltonian tomography with a single control state and an offset Rx tone.
 
     Control state and cr_amp should be set through cr_rabi_init(state) and
@@ -307,7 +309,8 @@ def c2t_hcr_singlestate_template(runner):
             'schedule': schedule,
             'rabi_init': None,
             'measured_logical_qubit': 1
-        }
+        },
+        exp_type=exp_type
     )
 
 @register_exp
@@ -346,7 +349,7 @@ def c2t_hcr_amplitude_scan(runner):
     )
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)
-def c2t_ucr_tomography_template(runner):
+def c2t_ucr_tomography_template(runner, exp_type):
     from qutrit_experiments.experiments.qutrit_qubit_tomography import QutritQubitTomography
 
     qubits = runner.program_data['qubits'][1:]
@@ -372,11 +375,12 @@ def c2t_ucr_tomography_template(runner):
         qubits,
         args={
             'circuit': circuit
-        }
+        },
+        exp_type=exp_type
     )
 
-@register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
+@register_exp
 def c2t_sizzle_t_amp_scan(runner):
     from ..experiments.qutrit_cr_sizzle import QutritCRTargetStarkCal
     return ExperimentConfig(
@@ -384,8 +388,8 @@ def c2t_sizzle_t_amp_scan(runner):
         runner.program_data['qubits'][1:]
     )
 
-@register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
+@register_exp
 def c2t_sizzle_c2_amp_scan(runner):
     from ..experiments.qutrit_cr_sizzle import QutritCRControlStarkCal
     return ExperimentConfig(
@@ -393,8 +397,8 @@ def c2t_sizzle_c2_amp_scan(runner):
         runner.program_data['qubits'][1:]
     )
 
-@register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
+@register_exp
 def c2t_rcr_rotary(runner):
     from ..experiments.qutrit_qubit_cx.repeated_cr_rotary import RepeatedCRRotaryAmplitudeCal
     return ExperimentConfig(
@@ -402,8 +406,8 @@ def c2t_rcr_rotary(runner):
         runner.program_data['qubits'][1:]
     )
 
-@register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
+@register_exp
 def c2t_crcr_cr_width(runner):
     from ..experiments.qutrit_qubit_cx.cr_fine_width import CycledRepeatedCRWidthCal
     qubits = runner.program_data['qubits'][1:]
@@ -424,8 +428,8 @@ def c2t_crcr_cr_width(runner):
         }
     )
 
-@register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
+@register_exp
 def c2t_crcr_rx_amp(runner):
     from ..experiments.qutrit_qubit_cx.rx_amp import CycledRepeatedCRRxAmplitudeCal
     return ExperimentConfig(
