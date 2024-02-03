@@ -142,7 +142,7 @@ class SiZZleRamseyShiftAnalysis(CompoundAnalysis):
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
         figures: list[Figure]
-    ) -> tuple[list[AnalysisResultData], list['mpl.figure.Figure']]:
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata["component_child_index"]
         sizzle_data = experiment_data.child_data(component_index[0])
         shifted_omega = sizzle_data.analysis_results('freq').value * twopi
@@ -216,7 +216,7 @@ class SiZZleShiftAnalysis(CompoundAnalysis):
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
         figures: list[Figure]
-    ) -> tuple[list[AnalysisResultData], list['mpl.figure.Figure']]:
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata["component_child_index"]
         sizzle_data = experiment_data.child_data(component_index[0])
         shifted_omegas = sizzle_data.analysis_results('omega_zs').value
@@ -290,7 +290,7 @@ class SiZZleFrequencyScanAnalysis(CompoundAnalysis):
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
         figures: list[Figure]
-    ) -> tuple[list[AnalysisResultData], list['mpl.figure.Figure']]:
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         """Plot Iz, zz, and ζz components as functions of siZZle frequency."""
         component_index = experiment_data.metadata["component_child_index"]
         if experiment_data.metadata['measure_shift']:
@@ -433,7 +433,7 @@ class SiZZlePhaseScanAnalysis(CompoundAnalysis):
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
         figures: list[Figure]
-    ) -> tuple[list[AnalysisResultData], list['mpl.figure.Figure']]:
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         """Plot Iz, zz, and ζz components as functions of siZZle phase offset."""
         component_index = experiment_data.metadata["component_child_index"]
         if experiment_data.metadata['measure_shift']:
@@ -622,7 +622,7 @@ class SiZZleAmplitudeScanAnalysis(CompoundAnalysis):
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
         figures: list[Figure]
-    ) -> tuple[list[AnalysisResultData], list['mpl.figure.Figure']]:
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         """Plot Iz, zz, and ζz components as functions of siZZle amplitude."""
         component_index = experiment_data.metadata["component_child_index"]
         if experiment_data.metadata['measure_shift']:
