@@ -138,22 +138,26 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
             observeds.append(child_data.analysis_results('expvals_observed').value)
             predicteds.append(child_data.analysis_results('expvals_predicted').value)
 
+        unitary_parameters = np.array(unitary_parameters)
+        observeds = np.array(observeds)
+        predicteds = np.array(predicteds)
+
         if (prep_unitaries := self.options.prep_unitaries) is None and len(self._analyses) > 3:
             prep_unitaries = unitary_parameters[3:]
         if prep_unitaries:
-            corrected = []
+            analysis_results.append(
+                AnalysisResultData(name='raw_parameters', value=unitary_parameters)
+            )
+            unitary_parameters = unitary_parameters[:3].copy()
             for control_state in range(1, 3):
                 inv_prep = su2_cartesian(-prep_unitaries[control_state - 1])
                 unitary = inv_prep @ su2_cartesian(unitary_parameters[control_state])
-                corrected.append(su2_cartesian_params(unitary))
-            analysis_results.append(
-                AnalysisResultData(name='corrected_unitary_parameters', value=np.array(corrected))
-            )
+                unitary_parameters[control_state] = su2_cartesian_params(unitary)
 
         analysis_results.extend([
-            AnalysisResultData(name='unitary_parameters', value=np.array(unitary_parameters)),
-            AnalysisResultData(name='expvals_observed', value=np.array(observeds)),
-            AnalysisResultData(name='expvals_predicted', value=np.array(predicteds))
+            AnalysisResultData(name='unitary_parameters', value=unitary_parameters),
+            AnalysisResultData(name='expvals_observed', value=observeds),
+            AnalysisResultData(name='expvals_predicted', value=predicteds)
         ])
 
         if self.options.plot:
@@ -325,24 +329,11 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         unitaries = []
         observeds = []
         predicteds = []
-        prep_unitaries = None
-        corrected = None
         for child_index in component_index:
             child_data = experiment_data.child_data(child_index)
-            unitary_parameters = child_data.analysis_results('unitary_parameters').value
-            unitaries.append(unitary_parameters)
+            unitaries.append(child_data.analysis_results('unitary_parameters').value)
             observeds.append(child_data.analysis_results('expvals_observed').value)
             predicteds.append(child_data.analysis_results('expvals_predicted').value)
-            if len(unitary_parameters) > 3:
-                prep_unitaries = unitary_parameters[3:]
-                corrected = [child_data.analysis_results('corrected_unitary_parameters').value]
-            elif corrected:
-                corrected_unitary_parameters = []
-                for control_state in range(1, 3):
-                    inv_prep = su2_cartesian(-prep_unitaries[control_state - 1])
-                    unitary = inv_prep @ su2_cartesian(unitary_parameters[control_state])
-                    corrected_unitary_parameters.append(su2_cartesian_params(unitary))
-                corrected.append(np.array(corrected_unitary_parameters))
 
         unitaries = np.array(unitaries)
         observeds = np.array(observeds)
@@ -351,11 +342,6 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         analysis_results.append(
             AnalysisResultData(name='unitary_parameters', value=unitaries)
         )
-        if corrected:
-            corrected = np.array(corrected)
-            analysis_results.append(
-                AnalysisResultData(name='corrected_unitary_parameters', value=corrected)
-            )
         if self.options.return_expvals:
             analysis_results.extend([
                 AnalysisResultData(name='expvals_observed', value=observeds),
@@ -363,9 +349,6 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
             ])
 
         if self.options.plot:
-            plot_unitaries = unitaries.copy()
-            if corrected is not None:
-                plot_unitaries[:, 1:] = np.array(corrected)
             for iop, op in enumerate(['X', 'Y', 'Z']):
                 plotter = CurvePlotter(MplDrawer())
                 plotter.set_figure_options(
@@ -377,8 +360,8 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
                     plotter.set_series_data(
                         f'c{control_state}',
                         x_formatted=scan_values[0],
-                        y_formatted=unp.nominal_values(plot_unitaries[:, control_state, iop]),
-                        y_formatted_err=unp.std_devs(plot_unitaries[:, control_state, iop])
+                        y_formatted=unp.nominal_values(unitaries[:, control_state, iop]),
+                        y_formatted_err=unp.std_devs(unitaries[:, control_state, iop])
                     )
                 figures.append(plotter.figure())
 
