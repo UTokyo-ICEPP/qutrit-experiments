@@ -27,6 +27,8 @@ class CircuitTomography(TomographyExperiment):
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
         options.decompose_circuits = False
+        options.pre_circuit = None
+        options.post_circuit = None
         return options
 
     def __init__(
@@ -69,17 +71,33 @@ class CircuitTomography(TomographyExperiment):
     def circuits(self) -> list[QuantumCircuit]:
         if self.experiment_options.decompose_circuits:
             return self._decomposed_circuits(apply_layout=False)
-
-        circs = super().circuits()
-        for circuit in circs:
+        
+        circuits = super().circuits()
+        for circuit in circuits:
             for inst in list(circuit.data):
                 if inst.operation.name == 'reset':
                     circuit.data.remove(inst)
 
-        if len(self._prep_physical_qubits) * len(self._meas_physical_qubits) == 1:
-            self._add_basis_metadata(circs)
+        if (pre_circuit := self.experiment_options.pre_circuit) is not None:
+            new_circuits = []
+            for original in circuits:
+                circuit = original.copy_empty_like()
+                circuit.compose(pre_circuit, inplace=True)
+                circuit.compose(original, inplace=True)
+                new_circuits.append(circuit)
+            circuits = new_circuits
 
-        return circs
+        if (post_circuit := self.experiment_options.post_circuit) is not None:
+            for circuit in circuits:
+                circuit.remove_final_measurements()
+                circuit.compose(post_circuit, inplace=True)
+                circuit.barrier()
+                circuit.measure(self._meas_indices, len(self._meas_indices))
+
+        if len(self._prep_physical_qubits) * len(self._meas_physical_qubits) == 1:
+            self._add_basis_metadata(circuits)
+
+        return circuits
 
     def _transpiled_circuits(self) -> list[QuantumCircuit]:
         return self._decomposed_circuits(apply_layout=True)
@@ -133,11 +151,16 @@ class CircuitTomography(TomographyExperiment):
         pqubits = self._prep_physical_qubits
         mqubits = self._meas_physical_qubits
         circuits = super().circuits()
+        pre_circuit = self.experiment_options.pre_circuit
+        post_circuit = self.experiment_options.post_circuit
         qpt_circuits = []
         for circuit, (prep_element, meas_element) in zip(circuits, self._basis_indices()):
             qpt_circuit = channel.copy_empty_like(name=circuit.name)
             qpt_circuit.metadata = circuit.metadata
             qpt_circuit.add_register(ClassicalRegister(len(mqubits)))
+
+            if pre_circuit:
+                qpt_circuit.compose(pre_circuit, inplace=True)
 
             for iq, idx in enumerate(prep_element):
                 if apply_layout:
@@ -157,6 +180,9 @@ class CircuitTomography(TomographyExperiment):
                     qubit = self._meas_indices[iq]
 
                 qpt_circuit.compose(meas_circuits[iq][idx], qubits=[qubit], inplace=True)
+
+            if post_circuit:
+                qpt_circuit.compose(post_circuit, inplace=True)
 
             qpt_circuit.barrier()
             if apply_layout:
