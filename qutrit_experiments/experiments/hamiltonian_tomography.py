@@ -3,6 +3,7 @@ from collections.abc import Callable, Iterable, Sequence
 from itertools import product
 import logging
 from typing import Any, Optional, Union
+from matplotlib.figure import Figure
 import lmfit
 import numpy as np
 import scipy.optimize as sciopt
@@ -15,6 +16,7 @@ from qiskit.result import Counts
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.curve_analysis.base_curve_analysis import PARAMS_ENTRY_PREFIX
 from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
+from qiskit_experiments.exceptions import AnalysisError
 from qiskit_experiments.framework import Options, ExperimentData, AnalysisResultData
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
@@ -320,8 +322,8 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
-        figures: list["matplotlib.figure.Figure"]
-    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
+        figures: list[Figure]
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         analysis_results, figures = curve.CurveAnalysis._run_analysis(self, experiment_data)
 
         fit_result = next(res.value for res in analysis_results
@@ -551,8 +553,8 @@ class HamiltonianTomographyScanAnalysis(CompoundAnalysis):
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
-        figures: list["matplotlib.figure.Figure"]
-    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
+        figures: list[Figure]
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         """Fit the components as functions of the scan parameter."""
         component_index = experiment_data.metadata["component_child_index"]
 
