@@ -2,6 +2,7 @@
 from collections.abc import Iterable, Sequence
 import logging
 from typing import Any, Optional
+from matplotlib.figure import Figure
 import numpy as np
 from qiskit import QuantumCircuit, ClassicalRegister
 from qiskit.providers import Backend
@@ -226,7 +227,7 @@ class CircuitTomographyAnalysis(ProcessTomographyAnalysis):
     def _run_analysis(
         self,
         experiment_data: ExperimentData
-    ) -> tuple[list[AnalysisResultData, list['matplotlib.figure.Figure']]]:
+    ) -> tuple[list[AnalysisResultData, list[Figure]]]:
         if self.options.data_processor:
             original_counts = self._update_data(experiment_data)
 

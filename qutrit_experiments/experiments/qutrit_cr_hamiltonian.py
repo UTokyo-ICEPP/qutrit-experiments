@@ -104,6 +104,7 @@ and
 """
 from collections.abc import Iterable, Sequence
 from typing import Optional, Union
+from matplotlib.figure import Figure
 import numpy as np
 import numpy.polynomial as poly
 import scipy.optimize as sciopt
@@ -213,8 +214,8 @@ class QutritCRHamiltonianTomographyAnalysis(CompoundAnalysis):
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
-        figures: list["matplotlib.figure.Figure"]
-    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
+        figures: list[Figure]
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         """Compute the Hamiltonian components (coefficients of [Izζ][XYZ]/2) from fit results."""
         control_basis_components = np.empty((3, 3), dtype=object)
 
@@ -318,8 +319,8 @@ class QutritCRHamiltonianTomographyScanAnalysis(CompoundAnalysis):
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
-        figures: list["matplotlib.figure.Figure"]
-    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
+        figures: list[Figure]
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         """Linearly transform the c=0, 1, 2 scan results to c=I, z, ζ."""
         xvar = ''
         xval = None

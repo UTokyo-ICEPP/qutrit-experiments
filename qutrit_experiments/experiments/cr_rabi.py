@@ -51,6 +51,12 @@ class CRRabi(GSRabi):
         if self.experiment_options.control_state == 2:
             circuit.append(X12Gate(), [0])
         return circuit
+    
+    def _post_circuit(self) -> QuantumCircuit:
+        circuit = super()._post_circuit()
+        if self.experiment_options.control_state == 2:
+            circuit.append(X12Gate(), [0])
+        return circuit
 
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()

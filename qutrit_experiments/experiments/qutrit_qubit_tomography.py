@@ -30,20 +30,26 @@ class QutritQubitTomography(BatchExperiment):
     ):
         experiments = []
         for control_state in range(3):
-            channel = QuantumCircuit(2)
+            pre_circuit = QuantumCircuit(2)
+            post_circuit = None
             if control_state >= 1:
-                channel.x(0)
+                pre_circuit.x(0)
             if control_state == 2:
-                channel.append(X12Gate(), [0])
-            channel.barrier()
-            channel.compose(circuit, inplace=True)
+                pre_circuit.append(X12Gate(), [0])
+                post_circuit = QuantumCircuit(2)
+                post_circuit.append(X12Gate(), [0])
 
             if tomography_type == 'unitary':
-                exp = UnitaryTomography(physical_qubits, channel, backend=backend,
+                exp = UnitaryTomography(physical_qubits, circuit, backend=backend,
                                         extra_metadata={'control_state': control_state})
-                exp.set_experiment_options(measured_logical_qubit=1)
+                exp.set_experiment_options(
+                    measured_logical_qubit=1,
+                    pre_circuit=pre_circuit,
+                    post_circuit=post_circuit
+                )
             else:
-                exp = CircuitTomography(channel, physical_qubits=physical_qubits,
+                pre_circuit.compose(circuit, inplace=True)
+                exp = CircuitTomography(pre_circuit, physical_qubits=physical_qubits,
                                         measurement_indices=[1], preparation_indices=[1],
                                         backend=backend,
                                         extra_metadata={'control_state': control_state})

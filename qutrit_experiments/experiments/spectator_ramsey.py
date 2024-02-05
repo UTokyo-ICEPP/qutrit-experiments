@@ -1,6 +1,7 @@
 """RamseyXY experiment to measure the frequency shift in a qubit coupled to a qutrit."""
 from collections.abc import Sequence
 from typing import Any, Optional
+from matplotlib.figure import Figure
 import numpy as np
 from qiskit import QuantumCircuit, ClassicalRegister
 from qiskit.circuit import Delay, Gate
@@ -77,6 +78,8 @@ class SpectatorRamseyXY(RamseyXY):
         for original in super().circuits():
             circuit = original.copy_empty_like()
             circuit.compose(original, qubits=[1, 0], inplace=True)
+            if self.experiment_options.control_state == 2:
+                circuit.append(X12Gate(), [1])
             circuit.remove_final_measurements()
             creg = ClassicalRegister(1)
             circuit.add_register(creg)
@@ -127,7 +130,7 @@ class RamseyXYAnalysisOffset(RamseyXYAnalysis):
     def _run_analysis(
         self,
         experiment_data: ExperimentData
-    ) -> tuple[list[AnalysisResultData], list['Figure']]:
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         analysis_results, figures = super()._run_analysis(experiment_data)
         freq = next(res.value for res in analysis_results if res.name == 'freq')
         freq_offset = experiment_data.data(0)['metadata']['osc_freq']
