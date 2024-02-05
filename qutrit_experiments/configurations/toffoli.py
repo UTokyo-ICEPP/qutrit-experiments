@@ -383,18 +383,33 @@ def c2t_ucr_tomography_template(runner, exp_type):
 @register_exp
 def c2t_sizzle_t_amp_scan(runner):
     from ..experiments.qutrit_cr_sizzle import QutritCRTargetStarkCal
+    if (amp_pred := runner.program_data.get('sizzle_t_amp_pred')) is not None:
+        amplitudes = np.linspace(0.5 * amp_pred, min(0.1, 1.5 * amp_pred), 10)
+    else:
+        amplitudes = None
+
     return ExperimentConfig(
         QutritCRTargetStarkCal,
-        runner.program_data['qubits'][1:]
+        runner.program_data['qubits'][1:],
+        args={'amplitudes': amplitudes}
     )
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 @register_exp
 def c2t_sizzle_c2_amp_scan(runner):
     from ..experiments.qutrit_cr_sizzle import QutritCRControlStarkCal
+    qubits = runner.program_data['qubits'][1:]
+    if (amp_pred := runner.program_data.get('sizzle_c_amp_pred')) is not None:
+        max_amp = 0.99 - runner.calibrations.get_parameter_value('cr_amp', qubits, 'cr')
+        amplitudes = np.linspace(max(-max_amp, -1.5 * abs(amp_pred)),
+                                 min(max_amp, 1.5 * abs(amp_pred)), 10)
+    else:
+        amplitudes = None
+
     return ExperimentConfig(
         QutritCRControlStarkCal,
-        runner.program_data['qubits'][1:]
+        qubits,
+        args={'amplitudes': amplitudes}
     )
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)
