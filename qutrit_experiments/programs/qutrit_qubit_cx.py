@@ -27,12 +27,16 @@ def calibrate_qutrit_qubit_cx(
 
     # Check the Z components of the CR Hamiltonian and decide whether to tune down the amplitude or
     # introduce siZZle
-    sizzle_frequency = fine_tune_cr(runner)
+    sizzle_params = fine_tune_cr(runner)
 
-    if sizzle_frequency is not None:
-        runner.calibrations.add_parameter_value(sizzle_frequency, 'stark_frequency', qubits, 'cr')
-        for exp_type in ['c2t_sizzle_t_amp_scan', 'c2t_sizzle_c2_amp_scan']:
-            exp_data[exp_type] = runner.run_experiment(exp_type)
+    if sizzle_params is not None:
+        runner.program_data['sizzle_t_amp_pred'] = sizzle_params['t_amp']
+        runner.program_data['sizzle_c_amp_pred'] = sizzle_params['c_amp']
+        runner.calibrations.add_parameter_value(sizzle_params['frequency'], 'stark_frequency',
+                                                qubits, 'cr')
+        exp_data['c2t_sizzle_t_amp_scan'] = runner.run_experiment('c2t_sizzle_t_amp_scan')
+        if runner.calibrations.get_parameter_value('counter_stark_amp', qubits, 'cr') > 0.1:
+            exp_data['c2t_sizzle_c2_amp_scan'] = runner.run_experiment('c2t_sizzle_c2_amp_scan')
 
     for exp_type in ['c2t_rcr_rotary', 'c2t_crcr_cr_width', 'c2t_crcr_rx_amp']:
         exp_data[exp_type] = runner.run_experiment(exp_type)
@@ -64,7 +68,7 @@ def fine_tune_cr(runner: ExperimentsRunner) -> Union[float, None]:
 
     # Try siZZle to cancel the Z components
     sizzle_params = get_sizzle_params(omega_z, runner)
-    return sizzle_params['frequency']
+    return sizzle_params
 
 
 def gauss_flank_area(runner):
