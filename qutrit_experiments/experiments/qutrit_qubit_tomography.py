@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from typing import Any, Optional, Union
-import matplotlib
+from matplotlib.figure import Figure
 import numpy as np
 from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
@@ -14,45 +14,62 @@ from ..framework_overrides.composite_analysis import CompositeAnalysis
 from ..framework.compound_analysis import CompoundAnalysis
 from ..gates import X12Gate
 from ..transpilation import map_to_physical_qubits
+from ..util.bloch import su2_cartesian, su2_cartesian_params
 from .process_tomography import CircuitTomography
 from .unitary_tomography import UnitaryTomography
 
 
 class QutritQubitTomography(BatchExperiment):
-    """Target-qubit Tomography for three initial states of the control qubit."""
+    """Target-qubit Tomography for three initial states of the control qubit.
+    
+    To properly characterize the input circuit, tomography must be performed on the combination
+    of initial state preparation plus the circuit. We therefore perform tomographies of initial
+    state preparation circuits independently to cancel its effect.
+    """
     def __init__(
         self,
         physical_qubits: Sequence[int],
         circuit: QuantumCircuit,
         tomography_type: str = 'unitary',
+        measure_preparations: bool = True,
         backend: Optional[Backend] = None,
         extra_metadata: Optional[dict[str, Any]] = None
     ):
         experiments = []
-        for control_state in range(3):
-            pre_circuit = QuantumCircuit(2)
+        for iexp in range(5 if measure_preparations else 3):
+            control_state = iexp if iexp < 3 else iexp - 2
+
+            channel = QuantumCircuit(2)
             post_circuit = None
             if control_state >= 1:
-                pre_circuit.x(0)
+                channel.x(0)
             if control_state == 2:
-                pre_circuit.append(X12Gate(), [0])
+                channel.append(X12Gate(), [0])
                 post_circuit = QuantumCircuit(2)
+                post_circuit.barrier()
                 post_circuit.append(X12Gate(), [0])
 
+            if iexp < 3:
+                channel.compose(circuit, inplace=True)
+
             if tomography_type == 'unitary':
-                exp = UnitaryTomography(physical_qubits, circuit, backend=backend,
+                exp = UnitaryTomography(physical_qubits, channel, backend=backend,
                                         extra_metadata={'control_state': control_state})
                 exp.set_experiment_options(
                     measured_logical_qubit=1,
-                    pre_circuit=pre_circuit,
                     post_circuit=post_circuit
                 )
             else:
-                pre_circuit.compose(circuit, inplace=True)
-                exp = CircuitTomography(pre_circuit, physical_qubits=physical_qubits,
+                exp = CircuitTomography(channel, physical_qubits=physical_qubits,
                                         measurement_indices=[1], preparation_indices=[1],
                                         backend=backend,
                                         extra_metadata={'control_state': control_state})
+                exp.set_experiment_options(
+                    post_circuit=post_circuit
+                )
+            if iexp >= 3:
+                exp.extra_metadata['state_preparation'] = True
+
             experiments.append(exp)
 
         analyses = [exp.analysis for exp in experiments]
@@ -77,9 +94,9 @@ class QutritQubitTomography(BatchExperiment):
                 channel = exp._circuit
                 if to_transpile:
                     channel = map_to_physical_qubits(channel, self.physical_qubits,
-                                                    self._backend.coupling_map)
-                expr_circuits = exp._compose_tomography_circuits(channel, prep_circuits, meas_circuits,
-                                                                to_transpile)
+                                                     self._backend.coupling_map)
+                expr_circuits = exp._compose_tomography_circuits(channel, prep_circuits,
+                                                                 meas_circuits, to_transpile)
                 for circuit in expr_circuits:
                     # Update metadata
                     circuit.metadata = {
@@ -99,26 +116,39 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
         options = super()._default_options()
         options.data_processor = None # Needed to have DP propagated to tomography analysis
         options.plot = True
+        options.prep_unitaries = None
         return options
 
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
-        figures: list[matplotlib.figure.Figure]
-    ) -> tuple[list[AnalysisResultData], list[matplotlib.figure.Figure]]:
+        figures: list[Figure]
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata['component_child_index']
 
         unitary_parameters = []
         observeds = []
         predicteds = []
 
-        for control_state in range(3):
-            child_data = experiment_data.child_data(component_index[control_state])
+        for iexp in range(len(self._analyses)):
+            child_data = experiment_data.child_data(component_index[iexp])
             popt = child_data.analysis_results('unitary_fit_params').value
             unitary_parameters.append(popt)
             observeds.append(child_data.analysis_results('expvals_observed').value)
             predicteds.append(child_data.analysis_results('expvals_predicted').value)
+
+        if (prep_unitaries := self.options.prep_unitaries) is None and len(self._analyses) > 3:
+            prep_unitaries = unitary_parameters[3:]
+        if prep_unitaries:
+            corrected = []
+            for control_state in range(1, 3):
+                inv_prep = su2_cartesian(-prep_unitaries[control_state - 1])
+                unitary = inv_prep @ su2_cartesian(unitary_parameters[control_state])
+                corrected.append(su2_cartesian_params(unitary))
+            analysis_results.append(
+                AnalysisResultData(name='corrected_unitary_parameters', value=np.array(corrected))
+            )
 
         analysis_results.extend([
             AnalysisResultData(name='unitary_parameters', value=np.array(unitary_parameters)),
@@ -140,11 +170,15 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
             ax.set_xticks(xvalues, labels=labels)
             ax.set_ylim(-1.05, 1.05)
             ax.set_ylabel('Pauli expectation')
-            for control_state in range(3):
-                ec = ax.errorbar(xvalues, unp.nominal_values(observeds[control_state]),
-                                 unp.std_devs(observeds[control_state]), fmt='o',
-                                 label=f'c={control_state}')
-                ax.bar(xvalues, np.zeros_like(xvalues), 1., bottom=predicteds[control_state],
+            for iexp in range(len(self._analyses)):
+                if iexp < 3:
+                    label = f'c={iexp}'
+                else:
+                    label = f'c={iexp - 2} prep'
+                ec = ax.errorbar(xvalues, unp.nominal_values(observeds[iexp]),
+                                 unp.std_devs(observeds[iexp]), fmt='o',
+                                 label=label)
+                ax.bar(xvalues, np.zeros_like(xvalues), 1., bottom=predicteds[iexp],
                        fill=False, edgecolor=ec.lines[0].get_markerfacecolor())
 
             ax.legend()
@@ -172,6 +206,7 @@ class QutritQubitTomographyScan(BatchExperiment):
         values: Union[Sequence[float], Sequence[Sequence[float]]],
         angle_param_name: Optional[Union[str, dict[str, str]]] = None,
         tomography_type: str = 'unitary',
+        measure_preparations: bool = True,
         backend: Optional[Backend] = None,
         analysis: Optional[CompositeAnalysis] = None
     ):
@@ -197,15 +232,17 @@ class QutritQubitTomographyScan(BatchExperiment):
                         for key, value in angle_param_name.items()}
 
         experiments = []
-        for exp_values in zip(*values):
+        for iexp, exp_values in enumerate(zip(*values)):
             assign_params = self._make_assign_map(exp_values, params, angle_params)
             extra_metadata = {p.name: v for p, v in zip(params, exp_values)}
             experiments.append(
                 QutritQubitTomography(physical_qubits,
                                       circuit.assign_parameters(assign_params, inplace=False),
                                       tomography_type=tomography_type,
+                                      measure_preparations=(measure_preparations and iexp == 0),
                                       backend=backend,
-                                      extra_metadata=extra_metadata))
+                                      extra_metadata=extra_metadata)
+            )
 
         if analysis is None:
             analysis = QutritQubitTomographyScanAnalysis([exp.analysis for exp in experiments])
@@ -279,8 +316,8 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
-        figures: list[matplotlib.figure.Figure]
-    ) -> tuple[list[AnalysisResultData], list[matplotlib.figure.Figure]]:
+        figures: list[Figure]
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata['component_child_index']
         parameters = experiment_data.metadata['scan_parameters']
         scan_values = [np.array(v) for v in experiment_data.metadata['scan_values']]
@@ -288,11 +325,24 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         unitaries = []
         observeds = []
         predicteds = []
+        prep_unitaries = None
+        corrected = None
         for child_index in component_index:
             child_data = experiment_data.child_data(child_index)
-            unitaries.append(child_data.analysis_results('unitary_parameters').value)
+            unitary_parameters = child_data.analysis_results('unitary_parameters').value
+            unitaries.append(unitary_parameters)
             observeds.append(child_data.analysis_results('expvals_observed').value)
             predicteds.append(child_data.analysis_results('expvals_predicted').value)
+            if len(unitary_parameters) > 3:
+                prep_unitaries = unitary_parameters[3:]
+                corrected = [child_data.analysis_results('corrected_unitary_parameters').value]
+            elif corrected:
+                corrected_unitary_parameters = []
+                for control_state in range(1, 3):
+                    inv_prep = su2_cartesian(-prep_unitaries[control_state - 1])
+                    unitary = inv_prep @ su2_cartesian(unitary_parameters[control_state])
+                    corrected_unitary_parameters.append(su2_cartesian_params(unitary))
+                corrected.append(np.array(corrected_unitary_parameters))
 
         unitaries = np.array(unitaries)
         observeds = np.array(observeds)
@@ -301,6 +351,11 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         analysis_results.append(
             AnalysisResultData(name='unitary_parameters', value=unitaries)
         )
+        if corrected:
+            corrected = np.array(corrected)
+            analysis_results.append(
+                AnalysisResultData(name='corrected_unitary_parameters', value=corrected)
+            )
         if self.options.return_expvals:
             analysis_results.extend([
                 AnalysisResultData(name='expvals_observed', value=observeds),
@@ -308,6 +363,9 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
             ])
 
         if self.options.plot:
+            plot_unitaries = unitaries.copy()
+            if corrected is not None:
+                plot_unitaries[:, 1:] = np.array(corrected)
             for iop, op in enumerate(['X', 'Y', 'Z']):
                 plotter = CurvePlotter(MplDrawer())
                 plotter.set_figure_options(
@@ -319,8 +377,8 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
                     plotter.set_series_data(
                         f'c{control_state}',
                         x_formatted=scan_values[0],
-                        y_formatted=unp.nominal_values(unitaries[:, control_state, iop]),
-                        y_formatted_err=unp.std_devs(unitaries[:, control_state, iop])
+                        y_formatted=unp.nominal_values(plot_unitaries[:, control_state, iop]),
+                        y_formatted_err=unp.std_devs(plot_unitaries[:, control_state, iop])
                     )
                 figures.append(plotter.figure())
 
