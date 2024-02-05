@@ -78,9 +78,10 @@ class SpectatorRamseyXY(RamseyXY):
         for original in super().circuits():
             circuit = original.copy_empty_like()
             circuit.compose(original, qubits=[1, 0], inplace=True)
-            if self.experiment_options.control_state == 2:
-                circuit.append(X12Gate(), [1])
             circuit.remove_final_measurements()
+            circuit.barrier()
+            if self.experiment_options.control_state == 2:
+                circuit.append(X12Gate(), [0])
             creg = ClassicalRegister(1)
             circuit.add_register(creg)
             circuit.measure(1, creg[0])
