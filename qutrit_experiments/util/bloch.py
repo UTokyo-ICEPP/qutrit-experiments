@@ -72,6 +72,14 @@ def su2_cartesian(xyz: array_like, npmod=np):
     return unitary
 
 
+def su2_cartesian_params(unitary: array_like, npmod=np):
+    if npmod is np:
+        unitary = np.asarray(unitary)
+    sin_axis = -0.5 * npmod.einsum('...ij,kji->...k', unitary, paulis).imag
+    half_theta = npmod.arccos(npmod.trace(unitary, axis1=-2, axis2=-1).real / 2.)
+    return sin_axis / npmod.sin(half_theta)
+
+
 def so3_cartesian(xyz: array_like, npmod=np):
     rot_axis, norm = normalized_rotation_axis(xyz, npmod=npmod)
     ctheta = npmod.cos(norm)
