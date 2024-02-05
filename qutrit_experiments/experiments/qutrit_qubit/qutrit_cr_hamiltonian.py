@@ -117,12 +117,12 @@ from qiskit.result import Counts
 from qiskit_experiments.framework import Options, ExperimentData, AnalysisResultData
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ..framework.compound_analysis import CompoundAnalysis
-from ..framework_overrides.batch_experiment import BatchExperiment
-from ..util.matplotlib import make_list_plot
-from ..util.polynomial import PolynomialOrder, sparse_poly_fitfunc
+from ...framework.compound_analysis import CompoundAnalysis
+from ...framework_overrides.batch_experiment import BatchExperiment
+from ...util.matplotlib import make_list_plot
+from ...util.polynomial import PolynomialOrder, sparse_poly_fitfunc
 from .cr_rabi import cr_rabi_init
-from .hamiltonian_tomography import HamiltonianTomography, HamiltonianTomographyScan
+from ..hamiltonian_tomography import HamiltonianTomography, HamiltonianTomographyScan
 
 twopi = 2. * np.pi
 

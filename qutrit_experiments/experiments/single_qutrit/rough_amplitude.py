@@ -10,7 +10,7 @@ from qiskit_experiments.library import RoughAmplitudeCal
 from qiskit_experiments.library.calibration.rough_amplitude_cal import AnglesSchedules
 
 from .rabi import EFRabi
-from ..calibrations import get_qutrit_pulse_gate
+from ...calibrations import get_qutrit_pulse_gate
 
 
 class EFRoughXSXAmplitudeCal(RoughAmplitudeCal, EFRabi):

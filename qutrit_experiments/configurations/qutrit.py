@@ -70,7 +70,7 @@ def add_readout_mitigation(gen):
 
 def qutrit_rough_frequency(runner, qubit):
     """EF frequency measurement based on spectroscopy."""
-    from ..experiments.rough_frequency import EFRoughFrequencyCal
+    from ..experiments.single_qutrit.rough_frequency import EFRoughFrequencyCal
     sx_sched = runner.backend.defaults().instruction_schedule_map.get('sx', qubit)
     sx_pulse = next(inst.pulse for _, inst in sx_sched.instructions if isinstance(inst, pulse.Play))
     sx_amp = sx_pulse.amp
@@ -93,7 +93,7 @@ def qutrit_rough_frequency(runner, qubit):
 
 def qutrit_rough_amplitude(runner, qubit):
     """X12 and SX12 amplitude determination from Rabi oscillation."""
-    from ..experiments.rough_amplitude import EFRoughXSXAmplitudeCal
+    from ..experiments.single_qutrit.rough_amplitude import EFRoughXSXAmplitudeCal
     def calibration_criterion(data):
         return data.analysis_results('rabi_rate_12', block=False).value.n > 0.5
     return ExperimentConfig(
@@ -108,7 +108,7 @@ def qutrit_rough_amplitude(runner, qubit):
 
 def qutrit_discriminator(runner, qubit):
     """0-2 discriminator determination using results from a Rabi experiment."""
-    from ..experiments.rabi import EFRabi
+    from ..experiments.single_qutrit.rabi import EFRabi
     schedule = get_qutrit_pulse_gate('x12', qubit, runner.backend, runner.calibrations,
                                      assign_params={'amp': Parameter("amp")})
     return ExperimentConfig(
@@ -150,7 +150,7 @@ def qubit_assignment_error_post(runner, experiment_data):
 
 @add_readout_mitigation
 def qutrit_semifine_frequency(runner, qubit):
-    from ..experiments.delay_phase_offset import EFRamseyPhaseSweepFrequencyCal
+    from ..experiments.single_qutrit.delay_phase_offset import EFRamseyPhaseSweepFrequencyCal
     return ExperimentConfig(
         EFRamseyPhaseSweepFrequencyCal,
         [qubit],
@@ -159,7 +159,7 @@ def qutrit_semifine_frequency(runner, qubit):
 
 @add_readout_mitigation
 def qutrit_fine_frequency(runner, qubit):
-    from ..experiments.fine_frequency_phase import EFRamseyFrequencyScanCal
+    from ..experiments.single_qutrit.fine_frequency_phase import EFRamseyFrequencyScanCal
     return ExperimentConfig(
         EFRamseyFrequencyScanCal,
         [qubit],
@@ -168,7 +168,7 @@ def qutrit_fine_frequency(runner, qubit):
 
 @add_readout_mitigation
 def nocal_qutrit_fine_frequency(runner, qubit):
-    from ..experiments.fine_frequency_phase import EFRamseyFrequencyScan
+    from ..experiments.single_qutrit.fine_frequency_phase import EFRamseyFrequencyScan
     return ExperimentConfig(
         EFRamseyFrequencyScan,
         [qubit],
@@ -180,7 +180,7 @@ def nocal_qutrit_fine_frequency(runner, qubit):
 
 @add_readout_mitigation
 def qutrit_rough_x_drag(runner, qubit):
-    from ..experiments.rough_drag import EFRoughDragCal
+    from ..experiments.single_qutrit.rough_drag import EFRoughDragCal
     return ExperimentConfig(
         EFRoughDragCal,
         [qubit],
@@ -192,7 +192,7 @@ def qutrit_rough_x_drag(runner, qubit):
 
 @add_readout_mitigation
 def qutrit_rough_sx_drag(runner, qubit):
-    from ..experiments.rough_drag import EFRoughDragCal
+    from ..experiments.single_qutrit.rough_drag import EFRoughDragCal
     return ExperimentConfig(
         EFRoughDragCal,
         [qubit],
@@ -204,7 +204,7 @@ def qutrit_rough_sx_drag(runner, qubit):
 
 @add_readout_mitigation
 def qutrit_fine_sx_amplitude(runner, qubit):
-    from ..experiments.fine_amplitude import EFFineSXAmplitudeCal
+    from ..experiments.single_qutrit.fine_amplitude import EFFineSXAmplitudeCal
 
     def calibration_criterion(data):
         target_angle = data.metadata["target_angle"]
@@ -227,7 +227,7 @@ def qutrit_fine_sx_amplitude(runner, qubit):
 
 @add_readout_mitigation
 def qutrit_fine_sx_drag(runner, qubit):
-    from ..experiments.fine_drag import EFFineSXDragCal
+    from ..experiments.single_qutrit.fine_drag import EFFineSXDragCal
     return ExperimentConfig(
         EFFineSXDragCal,
         [qubit],
@@ -238,7 +238,7 @@ def qutrit_fine_sx_drag(runner, qubit):
 
 @add_readout_mitigation
 def qutrit_fine_x_amplitude(runner, qubit):
-    from ..experiments.fine_amplitude import EFFineXAmplitudeCal
+    from ..experiments.single_qutrit.fine_amplitude import EFFineXAmplitudeCal
 
     def calibration_criterion(data):
         target_angle = data.metadata["target_angle"]
@@ -260,7 +260,7 @@ def qutrit_fine_x_amplitude(runner, qubit):
 
 @add_readout_mitigation
 def qutrit_fine_x_drag(runner, qubit):
-    from ..experiments.fine_drag import EFFineXDragCal
+    from ..experiments.single_qutrit.fine_drag import EFFineXDragCal
     return ExperimentConfig(
         EFFineXDragCal,
         [qubit],
@@ -271,7 +271,7 @@ def qutrit_fine_x_drag(runner, qubit):
 
 @add_readout_mitigation
 def qutrit_x12_stark_shift(runner, qubit):
-    from ..experiments.stark_shift_phase import X12StarkShiftPhaseCal
+    from ..experiments.single_qutrit.stark_shift_phase import X12StarkShiftPhaseCal
     return ExperimentConfig(
         X12StarkShiftPhaseCal,
         [qubit]
@@ -279,14 +279,14 @@ def qutrit_x12_stark_shift(runner, qubit):
 
 @add_readout_mitigation
 def qutrit_sx12_stark_shift(runner, qubit):
-    from ..experiments.stark_shift_phase import SX12StarkShiftPhaseCal
+    from ..experiments.single_qutrit.stark_shift_phase import SX12StarkShiftPhaseCal
     return ExperimentConfig(
         SX12StarkShiftPhaseCal,
         [qubit]
     )
 
 def qutrit_x_stark_shift(runner, qubit):
-    from ..experiments.stark_shift_phase import XStarkShiftPhaseCal
+    from ..experiments.single_qutrit.stark_shift_phase import XStarkShiftPhaseCal
     return ExperimentConfig(
         XStarkShiftPhaseCal,
         [qubit]
@@ -294,7 +294,7 @@ def qutrit_x_stark_shift(runner, qubit):
 
 @add_readout_mitigation
 def qutrit_sx_stark_shift(runner, qubit):
-    from ..experiments.stark_shift_phase import SXStarkShiftPhaseCal
+    from ..experiments.single_qutrit.stark_shift_phase import SXStarkShiftPhaseCal
     return ExperimentConfig(
         SXStarkShiftPhaseCal,
         [qubit]
@@ -302,7 +302,7 @@ def qutrit_sx_stark_shift(runner, qubit):
 
 @add_readout_mitigation
 def qutrit_rotary_stark_shift(runner, qubit):
-    from ..experiments.stark_shift_phase import RotaryStarkShiftPhaseCal
+    from ..experiments.single_qutrit.stark_shift_phase import RotaryStarkShiftPhaseCal
     return ExperimentConfig(
         RotaryStarkShiftPhaseCal,
         [qubit]
@@ -322,7 +322,7 @@ def qutrit_assignment_error_post(runner, experiment_data):
     runner.program_data.setdefault('qutrit_assignment_matrix', {})[qubit] = matrix
 
 def qutrit_t1(runner, qubit):
-    from ..experiments.ef_t1 import EFT1
+    from ..experiments.single_qutrit.ef_t1 import EFT1
     assignment_matrix = runner.program_data['qutrit_assignment_matrix'][qubit]
     return ExperimentConfig(
         EFT1,
@@ -333,7 +333,7 @@ def qutrit_t1(runner, qubit):
 
 @add_readout_mitigation
 def qutrit_x12_irb(runner, qubit):
-    from ..experiments.qutrit_rb import QutritInterleavedRB
+    from ..experiments.single_qutrit.qutrit_rb import QutritInterleavedRB
     from ..gates import X12Gate
     return ExperimentConfig(
         QutritInterleavedRB,

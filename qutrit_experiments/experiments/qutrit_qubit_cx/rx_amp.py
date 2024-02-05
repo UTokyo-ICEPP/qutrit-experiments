@@ -13,7 +13,8 @@ from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 from qiskit_experiments.visualization import MplDrawer
 
-from ..qutrit_qubit_tomography import QutritQubitTomographyScan, QutritQubitTomographyScanAnalysis
+from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
+                                                    QutritQubitTomographyScanAnalysis)
 from .util import RCRType, make_crcr_circuit
 
 twopi = 2. * np.pi

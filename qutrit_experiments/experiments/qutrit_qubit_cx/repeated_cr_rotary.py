@@ -10,7 +10,8 @@ from qiskit_experiments.calibration_management import BaseCalibrationExperiment,
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 
-from ..qutrit_qubit_tomography import QutritQubitTomographyScan, QutritQubitTomographyScanAnalysis
+from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
+                                                    QutritQubitTomographyScanAnalysis)
 from .util import RCRType, make_rcr_circuit
 
 

@@ -14,8 +14,8 @@ from qiskit_experiments.library.randomized_benchmarking import (InterleavedRB,
                                                                 InterleavedRBAnalysis, StandardRB,
                                                                 RBAnalysis)
 
-from ..experiment_mixins import EFSpaceExperiment, MapToPhysicalQubits
-from ..gates import RZ12Gate, SX12Gate, X12Gate
+from ...experiment_mixins import EFSpaceExperiment, MapToPhysicalQubits
+from ...gates import RZ12Gate, SX12Gate, X12Gate
 
 SeedType = Union[int, RandomState, Generator]
 

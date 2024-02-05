@@ -16,8 +16,8 @@ from qiskit_experiments.curve_analysis.base_curve_analysis import (DATA_ENTRY_PR
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData
 from qiskit_experiments.library import EFSpectroscopy
 
-from ..experiment_mixins import MapToPhysicalQubitsCommonCircuit
-from ..framework.calibration_updaters import EFFrequencyUpdater
+from ...experiment_mixins import MapToPhysicalQubitsCommonCircuit
+from ...framework.calibration_updaters import EFFrequencyUpdater
 
 
 class EFRoughFrequency(MapToPhysicalQubitsCommonCircuit, EFSpectroscopy):

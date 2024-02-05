@@ -137,7 +137,7 @@ def c2t_sizzle_template(runner, exp_type):
 
     Frequency, amplitudes should be set in args.
     """
-    from ..experiments.sizzle import SiZZle
+    from ..experiments.qutrit_qubit.sizzle import SiZZle
     qubits = runner.program_data['qubits'][1:]
 
     cr_base_angle = runner.calibrations.get_parameter_value('cr_base_angle', qubits, schedule='cr')
@@ -160,7 +160,7 @@ def c2t_sizzle_template(runner, exp_type):
 @add_readout_mitigation(logical_qubits=[1])
 @register_exp
 def c2t_zzramsey(runner):
-    from ..experiments.zzramsey import QutritZZRamsey
+    from ..experiments.qutrit_qubit.zzramsey import QutritZZRamsey
     return ExperimentConfig(
         QutritZZRamsey,
         runner.program_data['qubits'][1:],
@@ -179,7 +179,7 @@ def c2t_zzramsey(runner, experiment_data):
 @add_readout_mitigation(logical_qubits=[1])
 @register_exp
 def c2t_sizzle_frequency_scan(runner):
-    from ..experiments.sizzle import SiZZleFrequencyScan
+    from ..experiments.qutrit_qubit.sizzle import SiZZleFrequencyScan
 
     control2, target = runner.program_data['qubits'][1:]
     c2_props = runner.backend.qubit_properties(control2)
@@ -218,7 +218,7 @@ def c2t_sizzle_frequency_scan(runner):
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_hcr_template(runner, exp_type):
     """CR HT with undefined amplitude."""
-    from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianTomography
+    from ..experiments.qutrit_qubit.qutrit_cr_hamiltonian import QutritCRHamiltonianTomography
 
     control2, target = runner.program_data['qubits'][1:]
     assign_params = {
@@ -316,7 +316,7 @@ def c2t_hcr_singlestate_template(runner, exp_type):
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_hcr_amplitude_scan(runner):
-    from ..experiments.qutrit_cr_hamiltonian import QutritCRHamiltonianTomographyScan
+    from ..experiments.qutrit_qubit.qutrit_cr_hamiltonian import QutritCRHamiltonianTomographyScan
 
     control2, target = runner.program_data['qubits'][1:]
     assign_params = {
@@ -350,7 +350,7 @@ def c2t_hcr_amplitude_scan(runner):
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_ucr_tomography_template(runner, exp_type):
-    from qutrit_experiments.experiments.qutrit_qubit_tomography import QutritQubitTomography
+    from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
 
     qubits = runner.program_data['qubits'][1:]
     assign_params = {
@@ -382,7 +382,7 @@ def c2t_ucr_tomography_template(runner, exp_type):
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 @register_exp
 def c2t_sizzle_t_amp_scan(runner):
-    from ..experiments.qutrit_cr_sizzle import QutritCRTargetStarkCal
+    from ..experiments.qutrit_qubit.qutrit_cr_sizzle import QutritCRTargetStarkCal
     if (amp_pred := runner.program_data.get('sizzle_t_amp_pred')) is not None:
         amplitudes = np.linspace(0.5 * amp_pred, min(0.1, 1.5 * amp_pred), 10)
     else:
@@ -397,7 +397,7 @@ def c2t_sizzle_t_amp_scan(runner):
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 @register_exp
 def c2t_sizzle_c2_amp_scan(runner):
-    from ..experiments.qutrit_cr_sizzle import QutritCRControlStarkCal
+    from ..experiments.qutrit_qubit.qutrit_cr_sizzle import QutritCRControlStarkCal
     qubits = runner.program_data['qubits'][1:]
     if (amp_pred := runner.program_data.get('sizzle_c_amp_pred')) is not None:
         max_amp = 0.99 - runner.calibrations.get_parameter_value('cr_amp', qubits, 'cr')

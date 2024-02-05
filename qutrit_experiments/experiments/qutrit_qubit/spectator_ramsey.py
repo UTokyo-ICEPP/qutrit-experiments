@@ -10,9 +10,9 @@ from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 from qiskit_experiments.library.characterization import RamseyXY, RamseyXYAnalysis
 
-from ..constants import DEFAULT_SHOTS
-from ..gates import X12Gate
-from ..util.dummy_data import single_qubit_counts
+from ...constants import DEFAULT_SHOTS
+from ...gates import X12Gate
+from ...util.dummy_data import single_qubit_counts
 
 twopi = 2. * np.pi
 

@@ -5,10 +5,10 @@ from qiskit.circuit import Parameter
 from qiskit_experiments.framework import Options
 from qiskit_experiments.library import Rabi as RabiOrig
 
-from ..experiment_mixins.ef_space import EFSpaceExperiment
-from ..gates import QutritGate
-from ..transpilation import map_to_physical_qubits
-from ..util.dummy_data import from_one_probs
+from ...experiment_mixins.ef_space import EFSpaceExperiment
+from ...gates import QutritGate
+from ...transpilation import map_to_physical_qubits
+from ...util.dummy_data import from_one_probs
 
 
 class Rabi(RabiOrig):

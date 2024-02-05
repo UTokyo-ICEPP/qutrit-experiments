@@ -8,8 +8,8 @@ from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.framework import Options
 
-from ..gates import X12Gate
-from .gs_rabi import GSRabi
+from ...gates import X12Gate
+from ..gs_rabi import GSRabi
 
 
 class CRRabi(GSRabi):

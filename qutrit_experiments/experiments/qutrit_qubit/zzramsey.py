@@ -8,9 +8,9 @@ from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 
-from ..framework.compound_analysis import CompoundAnalysis
-from ..framework_overrides.batch_experiment import BatchExperiment
-from ..util.matplotlib import make_list_plot
+from ...framework.compound_analysis import CompoundAnalysis
+from ...framework_overrides.batch_experiment import BatchExperiment
+from ...util.matplotlib import make_list_plot
 from .spectator_ramsey import SpectatorRamseyXY
 
 twopi = 2. * np.pi

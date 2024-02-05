@@ -11,7 +11,7 @@ from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import BackendTiming, ExperimentData
 
 from ...util.pulse_area import grounded_gauss_area
-from ..qutrit_cr_hamiltonian import QutritCRHamiltonianTomography
+from ..qutrit_qubit.qutrit_cr_hamiltonian import QutritCRHamiltonianTomography
 from .util import RCRType
 
 twopi = 2. * np.pi

@@ -12,8 +12,8 @@ import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.framework import Options
 from qiskit_experiments.library import T2Ramsey
 
-from ..experiment_mixins.ef_space import EFSpaceExperiment
-from ..gates import SX12Gate
+from ...experiment_mixins.ef_space import EFSpaceExperiment
+from ...gates import SX12Gate
 
 twopi = 2. * np.pi
 
