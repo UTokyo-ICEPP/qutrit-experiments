@@ -64,10 +64,15 @@ paulis = np.array([
     [[1., 0.], [0., -1.]]
 ], dtype='complex128')
 
+
 def su2_cartesian(xyz: array_like, npmod=np):
-    rot_axis, norm = normalized_rotation_axis(xyz, npmod=npmod)
-    sigma = npmod.sum(rot_axis[..., None, None] * paulis, axis=-3)
-    unitary = npmod.cos(norm / 2.)[..., None, None] * npmod.eye(2, dtype='complex128')
+    axis, norm = normalized_rotation_axis(xyz, npmod=npmod)
+    return su2_cartesian_axnorm(axis, norm, npmod=npmod)
+
+
+def su2_cartesian_axnorm(axis: array_like, norm: array_like, npmod=np):
+    sigma = npmod.sum(axis[..., None, None] * paulis, axis=-3)
+    unitary = npmod.cos(norm / 2.)[..., None, None] * np.eye(2, dtype='complex128')
     unitary -= 1.j * npmod.sin(norm / 2.)[..., None, None] * sigma
     return unitary
 
@@ -77,7 +82,7 @@ def su2_cartesian_params(unitary: array_like, npmod=np):
         unitary = np.asarray(unitary)
     sin_axis = -0.5 * npmod.einsum('...ij,kji->...k', unitary, paulis).imag
     half_theta = npmod.arccos(npmod.trace(unitary, axis1=-2, axis2=-1).real / 2.)
-    return sin_axis / npmod.sin(half_theta)
+    return sin_axis / npmod.sin(half_theta) * half_theta * 2.
 
 
 def so3_cartesian(xyz: array_like, npmod=np):
