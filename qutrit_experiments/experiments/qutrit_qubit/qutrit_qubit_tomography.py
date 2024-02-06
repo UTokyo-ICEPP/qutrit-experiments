@@ -21,7 +21,7 @@ from ..unitary_tomography import UnitaryTomography
 
 class QutritQubitTomography(BatchExperiment):
     """Target-qubit Tomography for three initial states of the control qubit.
-    
+
     To properly characterize the input circuit, tomography must be performed on the combination
     of initial state preparation plus the circuit. We therefore perform tomographies of initial
     state preparation circuits independently to cancel its effect.
@@ -270,6 +270,7 @@ class QutritQubitTomographyScan(BatchExperiment):
         dummy_experiment = QutritQubitTomography(self.physical_qubits,
                                                  self.experiment_options.template_circuit,
                                                  tomography_type=self.tomography_type,
+                                                 measure_preparations=True,
                                                  backend=self._backend)
         try:
             # Can we transpile without assigning values?
@@ -278,17 +279,29 @@ class QutritQubitTomographyScan(BatchExperiment):
             # If not, just revert to BatchExperiment default behavior
             return super()._batch_circuits(to_transpile=to_transpile)
 
+        num_tomography_circuits = 3 * len(dummy_experiment.component_experiment(0).circuits())
         circuits = []
-        for index, exp_values in enumerate(zip(*self.experiment_options.parameter_values)):
+        for iexp, exp_values in enumerate(zip(*self.experiment_options.parameter_values)):
             assign_params = self._make_assign_map(exp_values)
-            for template_circuit in template_circuits:
+            for template_circuit in template_circuits[:num_tomography_circuits]:
                 circuit = template_circuit.assign_parameters(assign_params, inplace=False)
                 circuit.metadata = {
                     "experiment_type": self._type,
                     "composite_metadata": [template_circuit.metadata],
-                    "composite_index": [index],
+                    "composite_index": [iexp],
                 }
                 circuits.append(circuit)
+            
+            if self.component_experiment(iexp).num_experiments > 3:
+                for template_circuit in template_circuits[num_tomography_circuits:]:
+                    circuit = template_circuit.copy()
+                    circuit.metadata = {
+                        "experiment_type": self._type,
+                        "composite_metadata": [template_circuit.metadata],
+                        "composite_index": [iexp],
+                    }
+                    circuits.append(circuit)
+
         return circuits
 
     def _make_assign_map(self, exp_values: tuple[float, ...], params=None, angle_params=None):
