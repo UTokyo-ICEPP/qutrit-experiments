@@ -4,11 +4,11 @@ import logging
 import sys
 import time
 import traceback
-from concurrent.futures import Future, ThreadPoolExecutor
-from multiprocessing import Pipe, Pool, Process, cpu_count
+from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor
+from multiprocessing import Pipe, Process, cpu_count
 from multiprocessing.connection import Connection
 from threading import Lock
-from typing import Optional
+from typing import Optional, Union
 from qiskit_experiments.exceptions import AnalysisError
 from qiskit_experiments.framework import (AnalysisResult, AnalysisStatus, BaseAnalysis,
                                           CompositeAnalysis as CompositeAnalysisOrig,
@@ -39,7 +39,13 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         analysis: BaseAnalysis,
         experiment_data: ExperimentData,
         data_deserialized: bool = False
-    ) -> tuple[AnalysisStatus, list[AnalysisResult], list[FigureData]]:
+    ) -> tuple[
+        AnalysisStatus,
+        Union[
+            tuple[list[AnalysisResult], list[FigureData]],
+            tuple[Exception, str]
+        ]
+    ]:
         """Run a non-composite subanalysis on a component data."""
         # Bugfix
         if data_deserialized:
@@ -248,10 +254,11 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                 runfuncs.append(an.run)
                 an.run = None
             try:
-                with Pool(processes=max_procs) as pool:
-                    all_results = pool.starmap(CompositeAnalysis._run_sub_analysis,
-                                               [(an, sub_data, True)
-                                                for an, sub_data, _ in task_list])
+                with ProcessPoolExecutor(max_workers=max_procs) as executor:
+                    all_results = executor.map(CompositeAnalysis._run_sub_analysis,
+                                               [x[0] for x in task_list],
+                                               [x[1] for x in task_list],
+                                               [True] * len(task_list))
             finally:
                 # Restore the original states of the data and analyses
                 for (an, sub_data, _), backend, runfunc in zip(task_list, backends, runfuncs):
