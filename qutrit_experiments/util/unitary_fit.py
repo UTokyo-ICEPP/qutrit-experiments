@@ -10,7 +10,7 @@ from uncertainties import correlated_values, unumpy as unp
 from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 
-from .bloch import so3_cartesian, su2_cartesian, su2_cartesian_params
+from .bloch import rescale_axis, so3_cartesian
 
 axes = ['x', 'y', 'z']
 
@@ -71,7 +71,7 @@ def fit_unitary_to_expval(
     fvals = jax.vmap(objective)(fit_result.params)
     iopt = np.argmin(fvals)
     # Renormalize the rotation parameters so that the norm fits within [0, pi].
-    popt = su2_cartesian_params(su2_cartesian(np.array(fit_result.params[iopt])))
+    popt = rescale_axis(fit_result.params[iopt])
     expvals_pred = so3_cartesian(popt)[..., meas_bases, initial_states] * signs
 
     pcov = np.linalg.inv(jax.hessian(objective)(popt) * 0.5)
