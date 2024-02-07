@@ -37,6 +37,7 @@ class CycledRepeatedCRRxAmplitude(QutritQubitTomographyScan):
         param_name: str = 'amp',
         angle_param_name: str = 'sign_angle',
         amplitudes: Optional[Sequence[float]] = None,
+        measure_preparations: bool = True,
         backend: Optional[Backend] = None
     ):
         if amplitudes is None:
@@ -45,6 +46,7 @@ class CycledRepeatedCRRxAmplitude(QutritQubitTomographyScan):
         super().__init__(physical_qubits,
                          make_crcr_circuit(physical_qubits, cr_schedules, rx_schedule, rcr_type),
                          param_name, amplitudes, angle_param_name=angle_param_name,
+                         measure_preparations=measure_preparations,
                          backend=backend)
         analyses = [exp.analysis for exp in self._experiments]
         self.analysis = CycledRepeatedCRRxAmplitudeAnalysis(analyses)
@@ -96,6 +98,7 @@ class CycledRepeatedCRRxAmplitudeCal(BaseCalibrationExperiment, CycledRepeatedCR
         cal_parameter_name: list[str] = ['amp', 'sign_angle'],
         schedule_name: str = 'offset_rx',
         amplitudes: Optional[Sequence[float]] = None,
+        measure_preparations: bool = True,
         auto_update: bool = True
     ):
         cr_schedules = [calibrations.get_schedule('cr', physical_qubits)]
@@ -119,7 +122,8 @@ class CycledRepeatedCRRxAmplitudeCal(BaseCalibrationExperiment, CycledRepeatedCR
             auto_update=auto_update,
             param_name=cal_parameter_name[0],
             angle_param_name=cal_parameter_name[1],
-            amplitudes=amplitudes
+            amplitudes=amplitudes,
+            measure_preparations=measure_preparations
         )
 
     def _attach_calibrations(self, circuit: QuantumCircuit):

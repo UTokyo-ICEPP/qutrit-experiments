@@ -23,6 +23,7 @@ class QutritCRTargetStarkCal(BaseCalibrationExperiment, QutritQubitTomographySca
         cal_parameter_name: str = 'counter_stark_amp',
         schedule_name: str = 'cr',
         amplitudes: Optional[Sequence[float]] = None,
+        measure_preparations: bool = True,
         auto_update: bool = True
     ):
         counter_stark_amp = Parameter(cal_parameter_name)
@@ -43,6 +44,7 @@ class QutritCRTargetStarkCal(BaseCalibrationExperiment, QutritQubitTomographySca
             circuit,
             param_name=cal_parameter_name,
             values=amplitudes,
+            measure_preparations=measure_preparations,
             backend=backend,
             schedule_name=schedule_name,
             cal_parameter_name=cal_parameter_name,
@@ -78,6 +80,7 @@ class QutritCRControlStarkCal(BaseCalibrationExperiment, QutritQubitTomographySc
         cal_parameter_name: list[str] = ['cr_stark_amp', 'cr_stark_sign_phase'],
         schedule_name: str = 'cr',
         amplitudes: Optional[Sequence[float]] = None,
+        measure_preparations: bool = True,
         auto_update: bool = True
     ):
         parameters = [Parameter(pname) for pname in cal_parameter_name]
@@ -100,6 +103,7 @@ class QutritCRControlStarkCal(BaseCalibrationExperiment, QutritQubitTomographySc
             circuit,
             param_name=cal_parameter_name[0],
             values=amplitudes,
+            measure_preparations=measure_preparations,
             backend=backend,
             schedule_name=schedule_name,
             cal_parameter_name=cal_parameter_name,

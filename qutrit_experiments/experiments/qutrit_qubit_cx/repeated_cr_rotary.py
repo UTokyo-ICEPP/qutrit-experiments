@@ -31,6 +31,7 @@ class RepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
         amp_param_name: str = 'counter_amp',
         angle_param_name: str = 'counter_sign_angle',
         amplitudes: Optional[Sequence[float]] = None,
+        measure_preparations: bool = True,
         backend: Optional[Backend] = None
     ):
         if amplitudes is None:
@@ -38,6 +39,7 @@ class RepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
 
         super().__init__(physical_qubits, make_rcr_circuit(physical_qubits, cr_schedule, rcr_type),
                          amp_param_name, amplitudes, angle_param_name=angle_param_name,
+                         measure_preparations=measure_preparations,
                          backend=backend)
         self.analysis = RepeatedCRRotaryAmplitudeAnalysis(
             [exp.analysis for exp in self._experiments]
@@ -82,6 +84,7 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, RepeatedCRRotaryAm
         schedule_name: str = 'cr',
         amplitudes: Optional[Sequence[float]] = None,
         width: Optional[float] = None,
+        measure_preparations: bool = True,
         auto_update: bool = True
     ):
         assign_params = {pname: Parameter(pname) for pname in cal_parameter_name}
@@ -100,7 +103,8 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, RepeatedCRRotaryAm
             auto_update=auto_update,
             amp_param_name=cal_parameter_name[0],
             angle_param_name=cal_parameter_name[1],
-            amplitudes=amplitudes
+            amplitudes=amplitudes,
+            measure_preparations=measure_preparations
         )
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
