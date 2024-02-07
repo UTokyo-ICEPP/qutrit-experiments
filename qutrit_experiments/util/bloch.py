@@ -81,7 +81,7 @@ def su2_cartesian_params(unitary: array_like, npmod=np):
     if npmod is np:
         unitary = np.asarray(unitary)
     sin_axis = -0.5 * npmod.einsum('...ij,kji->...k', unitary, paulis).imag
-    half_theta = npmod.arccos(npmod.trace(unitary, axis1=-2, axis2=-1).real / 2.)
+    half_theta = npmod.arccos(npmod.einsum('...ii->...', unitary).real / 2.)[..., None]
     return sin_axis / npmod.sin(half_theta) * half_theta * 2.
 
 
@@ -109,22 +109,3 @@ def normalized_rotation_axis(xyz: array_like, npmod=np):
     norm = npmod.where(npmod.isclose(norm, 0.), 0., norm)
     rot_axis = xyz / npmod.where(norm == 0., 1., norm)[..., None]
     return rot_axis, norm
-
-
-def rescale_axis(xyz: array_like):
-    """Rescale the axis vector so its norm is less than pi."""
-    xyz = np.array(xyz)
-    if (ndim := xyz.ndim) == 1:
-        xyz = xyz[None, :]
-
-    norm = np.sqrt(np.sum(np.square(xyz), axis=-1))
-    large_norm = norm > twopi
-    xyz[large_norm] *= 1. % (twopi / norm[large_norm][..., None])
-
-    norm = np.sqrt(np.sum(np.square(xyz), axis=-1))
-    large_norm = norm > np.pi
-    xyz[large_norm] *= (1. - twopi / norm[large_norm][..., None])
-    if ndim == 1:
-        return xyz[0]
-    return xyz
-
