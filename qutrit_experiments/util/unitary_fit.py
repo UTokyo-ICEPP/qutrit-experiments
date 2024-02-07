@@ -1,6 +1,7 @@
 """Functions for fitting a unitary to observation."""
 from collections.abc import Sequence
 from typing import Any, NamedTuple, Optional, Union
+from matplotlib.figure import Figure
 import jax
 import jax.numpy as jnp
 import jaxopt
@@ -9,7 +10,7 @@ from uncertainties import correlated_values, unumpy as unp
 from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 
-from .bloch import rescale_axis, so3_cartesian
+from .bloch import so3_cartesian, su2_cartesian, su2_cartesian_params
 
 axes = ['x', 'y', 'z']
 
@@ -18,7 +19,7 @@ def fit_unitary(
     data: list[dict[str, Any]],
     data_processor: Optional[DataProcessor] = None,
     plot: bool = True
-) -> tuple[np.ndarray, NamedTuple, np.ndarray, np.ndarray, Union['matplotlib.figure.Figure', None]]:
+) -> tuple[np.ndarray, NamedTuple, np.ndarray, np.ndarray, Union[Figure, None]]:
     if data_processor is None:
         data_processor = DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
 
@@ -45,7 +46,7 @@ def fit_unitary_to_expval(
     meas_bases: np.ndarray,
     signs: Optional[np.ndarray] = None,
     plot: bool = True
-) -> tuple[np.ndarray, NamedTuple, np.ndarray, Union['matplotlib.figure.Figure', None]]:
+) -> tuple[np.ndarray, NamedTuple, np.ndarray, Union[Figure, None]]:
     if signs is None:
         signs = np.ones_like(initial_states)
 
@@ -59,15 +60,18 @@ def fit_unitary_to_expval(
 
     solver = jaxopt.GradientDescent(fun=objective)
 
-    fit_results = []
+    p0s = []
     for iax in range(3):
         for sign in [1., -1.]:
             p0 = np.zeros(3)
             p0[iax] = np.pi * sign / 2.
-            fit_results.append(solver.run(p0))
+            p0s.append(p0)
 
-    res = min(fit_results, key=lambda r: objective(r.params))
-    popt = rescale_axis(np.array(res.params))
+    fit_result = jax.vmap(solver.run)(jnp.array(p0s))
+    fvals = jax.vmap(objective)(fit_result.params)
+    iopt = np.argmin(fvals)
+    # Renormalize the rotation parameters so that the norm fits within [0, pi].
+    popt = su2_cartesian_params(su2_cartesian(np.array(fit_result.params[iopt])))
     expvals_pred = so3_cartesian(popt)[..., meas_bases, initial_states] * signs
 
     pcov = np.linalg.inv(jax.hessian(objective)(popt) * 0.5)
@@ -90,4 +94,4 @@ def fit_unitary_to_expval(
     else:
         figure = None
 
-    return popt_ufloats, res.state, expvals_pred, figure
+    return popt_ufloats, fit_result.state[iopt], expvals_pred, figure
