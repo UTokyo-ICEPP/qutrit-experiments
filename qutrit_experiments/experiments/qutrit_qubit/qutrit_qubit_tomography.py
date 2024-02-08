@@ -14,7 +14,7 @@ from ...framework_overrides.composite_analysis import CompositeAnalysis
 from ...framework.compound_analysis import CompoundAnalysis
 from ...gates import X12Gate
 from ...transpilation import map_to_physical_qubits
-from ...util.bloch import su2_cartesian, su2_cartesian_params
+from ...util.bloch import so3_cartesian, so3_cartesian_params
 from ..process_tomography import CircuitTomography
 from ..unitary_tomography import UnitaryTomography
 
@@ -157,9 +157,9 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
                 AnalysisResultData(name='raw_parameters', value=dict(unitary_parameters))
             )
             for control_state, prep_params in prep_unitary_parameters.items():
-                inv_prep = su2_cartesian(-prep_params)
-                unitary = inv_prep @ su2_cartesian(unitary_parameters[control_state])
-                unitary_parameters[control_state] = su2_cartesian_params(unitary)
+                unitary = (so3_cartesian(-prep_params, npmod=unp)
+                           @ so3_cartesian(unitary_parameters[control_state], npmod=unp))
+                unitary_parameters[control_state] = so3_cartesian_params(unitary, npmod=unp)
 
         analysis_results.extend([
             AnalysisResultData(name='unitary_parameters', value=unitary_parameters),

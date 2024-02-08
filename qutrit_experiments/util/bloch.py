@@ -4,9 +4,13 @@ from numbers import Number
 from typing import Union
 import jax.numpy as jnp
 import numpy as np
+from uncertainties import unumpy as unp
 
 array_like = Union[Number, np.ndarray, Sequence[Number]]
 twopi = 2. * np.pi
+# Define math functions not in unp
+for fname in ['array', 'square', 'sum', 'einsum', 'moveaxis']:
+    setattr(unp, fname, getattr(np, fname))
 
 
 def unit_bound(x: array_like) -> array_like:
@@ -99,15 +103,39 @@ def so3_cartesian(xyz: array_like, npmod=np):
     ])
 
 
+def so3_cartesian_params(matrix: array_like, npmod=np):
+    if npmod is np:
+        matrix = np.asarray(matrix)
+    sin_axis = np.moveaxis(
+        npmod.array([
+            matrix[..., 2, 1] - matrix[..., 1, 2],
+            matrix[..., 0, 2] - matrix[..., 2, 0],
+            matrix[..., 1, 0] - matrix[..., 0, 1]
+        ]) / 2.,
+        0, -1
+    )
+    abs_sin = npmod.sqrt(npmod.sum(npmod.square(sin_axis), axis=-1))
+    # Defining the axis to have the orientation where θ∊[0, π]
+    axis = sin_axis / abs_sin[..., None]
+    # Sum of offdiagonals = 2(uxuy+uyuz+uzux)(1-cosθ)
+    cos = 1. - (npmod.sum(matrix[..., [2, 1, 0, 2, 1, 0], [1, 2, 2, 0, 0, 1]], axis=-1)
+                / 2. / npmod.sum(axis[..., [0, 1, 2]] * axis[..., [1, 2, 0]], axis=-1))
+    theta = npmod.arccos(cos)
+    return axis * theta
+
+
 def normalized_rotation_axis(xyz: array_like, npmod=np):
     if npmod is np:
         xyz = np.asarray(xyz)
     norm = npmod.sqrt(npmod.sum(npmod.square(xyz), axis=-1))
-    # This procedure and another "where" below cures the gradient becoming nan at the origin but
-    # at the cost of it becoming zero (where the true limit is nonzero but depends on the direction
-    # of approach)
-    norm = npmod.where(npmod.isclose(norm, 0.), 0., norm)
-    rot_axis = xyz / npmod.where(norm == 0., 1., norm)[..., None]
+    if npmod is unp:
+        rot_axis = xyz / np.where(unp.nominal_values(norm) == 0., 1., norm)[..., None]
+    else:
+        # This procedure and another "where" below cures the gradient becoming nan at the origin but
+        # at the cost of it becoming zero (where the true limit is nonzero but depends on the direction
+        # of approach)
+        norm = npmod.where(npmod.isclose(norm, 0.), 0., norm)
+        rot_axis = xyz / npmod.where(norm == 0., 1., norm)[..., None]
     return rot_axis, norm
 
 
