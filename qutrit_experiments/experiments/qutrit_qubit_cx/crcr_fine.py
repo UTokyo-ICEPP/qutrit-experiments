@@ -169,7 +169,7 @@ class CycledRepeatedCRFineRxAmpCal(CycledRepeatedCRFineCal, CycledRepeatedCRFine
             current_amp *= -1.
         
         amp = current_amp - d_theta / self.angle_per_amp
-        sign_angle = 0. if new_amp > 0. else np.pi
+        sign_angle = 0. if amp > 0. else np.pi
         for pname, value in zip(self._param_name, [amp, sign_angle]):
             BaseUpdater.add_parameter_value(
                 self._cals, experiment_data, value, pname, schedule=self._sched_name,
