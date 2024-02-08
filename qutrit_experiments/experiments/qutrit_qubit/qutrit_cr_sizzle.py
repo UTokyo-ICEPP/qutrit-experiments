@@ -36,7 +36,7 @@ class QutritCRTargetStarkCal(BaseCalibrationExperiment, QutritQubitTomographySca
         circuit.add_calibration('cr', physical_qubits, schedule, [counter_stark_amp])
 
         if amplitudes is None:
-            amplitudes = np.linspace(0.005, 0.16, 10)
+            amplitudes = np.linspace(0.005, 0.16, 6)
 
         super().__init__(
             calibrations,
@@ -95,7 +95,7 @@ class QutritCRControlStarkCal(BaseCalibrationExperiment, QutritQubitTomographySc
         if amplitudes is None:
             max_amp = 0.99 - calibrations.get_parameter_value('cr_amp', physical_qubits,
                                                               schedule_name)
-            amplitudes = np.linspace(-max_amp, max_amp, 16)
+            amplitudes = np.linspace(-max_amp, max_amp, 8)
 
         super().__init__(
             calibrations,

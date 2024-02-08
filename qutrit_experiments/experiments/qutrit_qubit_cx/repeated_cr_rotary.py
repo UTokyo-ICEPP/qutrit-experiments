@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from typing import Optional
+from matplotlib.figure import Figure
 import numpy as np
 from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
@@ -52,8 +53,8 @@ class RepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
-        figures: list["matplotlib.figure.Figure"]
-    ) -> tuple[list[AnalysisResultData], list["matplotlib.figure.Figure"]]:
+        figures: list[Figure]
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         analysis_results, figures = super()._run_additional_analysis(experiment_data,
                                                                     analysis_results, figures)
 
