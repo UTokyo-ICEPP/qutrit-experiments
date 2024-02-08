@@ -48,7 +48,12 @@ class CycledRepeatedCRWidth(QutritQubitTomographyScan):
         if widths is None:
             widths = self._default_experiment_options().parameter_values[0]
 
-        margins = get_margin(cr_schedules[0], width_param_name, margin_param_name, widths, backend)
+        assignment = {
+            cr_schedules[0].get_parameters(width_param_name)[0]: 0.,
+            cr_schedules[0].get_parameters(margin_param_name)[0]: 0.
+        }
+        risefall_duration = cr_schedules[0].assign_parameters(assignment, inplace=False).duration
+        margins = get_margin(risefall_duration, widths, backend)
 
         # Rename the CR parameters to distinguish crp and crm
         for idx, (prefix, sched) in enumerate(zip(['crp', 'crm'], cr_schedules)):
@@ -226,7 +231,7 @@ class CycledRepeatedCRWidthAnalysis(QutritQubitTomographyScanAnalysis):
 
 
 class CycledRepeatedCRWidthCal(BaseCalibrationExperiment, CycledRepeatedCRWidth):
-    """Calibration experiment for CR width and Rx amplitude"""
+    """Calibration experiment for CR width."""
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -267,11 +272,9 @@ class CycledRepeatedCRWidthCal(BaseCalibrationExperiment, CycledRepeatedCRWidth)
 
     def update_calibrations(self, experiment_data: ExperimentData):
         width = experiment_data.analysis_results('cr_width', block=False).value.n
-        assign_params = {pname: Parameter(pname) for pname in self._param_name}
-        sched_template = self._cals.get_schedule(self._sched_name, self.physical_qubits,
-                                                 assign_params)
-        margin = get_margin(sched_template, self._param_name[0], self._param_name[1], width,
-                            self._backend)
+        null_sched = self._cals.get_schedule(self._sched_name, self.physical_qubits,
+                                             assign_params={p: 0. for p in self._param_name})
+        margin = get_margin(null_sched.duration, width, self._backend)
 
         for pname, value in zip(self._param_name, [width, margin]):
             BaseUpdater.add_parameter_value(

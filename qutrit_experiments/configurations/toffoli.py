@@ -273,8 +273,8 @@ def t_hx(runner):
     )
 
 @register_post
-def t_hx(runner, data):
-    components = data.analysis_results('hamiltonian_components', block=False).value
+def t_hx(runner, experiment_data):
+    components = experiment_data.analysis_results('hamiltonian_components', block=False).value
     runner.program_data['target_rxtone_hamiltonian'] = components
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)
@@ -423,6 +423,21 @@ def c2t_rcr_rotary(runner):
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 @register_exp
+def c2t_crcr_rx_amp(runner):
+    from ..experiments.qutrit_qubit_cx.rx_amp import CycledRepeatedCRRxAmplitudeCal
+    return ExperimentConfig(
+        CycledRepeatedCRRxAmplitudeCal,
+        runner.program_data['qubits'][1:]
+    )
+
+@register_post
+def c2t_crcr_rx_amp(runner, experiment_data):
+    params = unp.nominal_values(experiment_data.analysis_results('unitary_line_fit_params',
+                                                                 block=False).value)
+    runner.program_data['crcr_angle_per_rx_amp'] = params[0] * np.sin(params[2]) * np.cos(params[3])
+
+@add_readout_mitigation(logical_qubits=[1], expval=True)
+@register_exp
 def c2t_crcr_cr_width(runner):
     from ..experiments.qutrit_qubit_cx.cr_semifine_width import CycledRepeatedCRWidthCal
     qubits = runner.program_data['qubits'][1:]
@@ -443,11 +458,32 @@ def c2t_crcr_cr_width(runner):
         }
     )
 
+@register_post
+def c2t_crcr_cr_width(runner, experiment_data):
+    params = unp.nominal_values(experiment_data.analysis_results('unitary_line_fit_params',
+                                                                 block=False).value)
+    runner.program_data['crcr_angle_per_dt'] = params[0] * np.sin(params[2]) * np.cos(params[3])
+
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 @register_exp
-def c2t_crcr_rx_amp(runner):
-    from ..experiments.qutrit_qubit_cx.rx_amp import CycledRepeatedCRRxAmplitudeCal
+def c2t_crcr_fine_rx_amp(runner):
+    from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineRxAmpCal
     return ExperimentConfig(
-        CycledRepeatedCRRxAmplitudeCal,
-        runner.program_data['qubits'][1:]
+        CycledRepeatedCRFineRxAmpCal,
+        runner.program_data['qubits'][1:],
+        args={
+            'angle_per_amp': runner.program_data['crcr_angle_per_rx_amp']
+        }
+    )
+
+@add_readout_mitigation(logical_qubits=[1], expval=True)
+@register_exp
+def c2t_crcr_fine_cr_width(runner):
+    from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineCRWidthCal
+    return ExperimentConfig(
+        CycledRepeatedCRFineCRWidthCal,
+        runner.program_data['qubits'][1:],
+        args={
+            'angle_per_dt': runner.program_data['crcr_angle_per_dt']
+        }
     )

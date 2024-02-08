@@ -92,16 +92,10 @@ def make_crcr_circuit(
 
 
 def get_margin(
-    cr_schedule: ScheduleBlock,
-    width_param_name: str,
-    margin_param_name: str,
+    risefall_duration: float,
     widths: Union[float, Sequence[float]],
     backend: Backend
 ):
-    width_param = cr_schedule.get_parameters(width_param_name)[0]
-    margin_param = cr_schedule.get_parameters(margin_param_name)[0]
-    test_assign = {width_param: 0., margin_param: 0.}
-    risefall_duration = cr_schedule.assign_parameters(test_assign, inplace=False).duration
     backend_timing = BackendTiming(backend)
     granularity = BackendData(backend).granularity
     supports = np.asarray(widths) + risefall_duration
