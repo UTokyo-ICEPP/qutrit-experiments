@@ -47,7 +47,7 @@ class CycledRepeatedCRRxAmplitude(QutritQubitTomographyScan):
                          make_crcr_circuit(physical_qubits, cr_schedules, rx_schedule, rcr_type),
                          param_name, amplitudes, angle_param_name=angle_param_name,
                          measure_preparations=measure_preparations,
-                         backend=backend)
+                         control_states=(0,), backend=backend)
         analyses = [exp.analysis for exp in self._experiments]
         self.analysis = CycledRepeatedCRRxAmplitudeAnalysis(analyses)
 

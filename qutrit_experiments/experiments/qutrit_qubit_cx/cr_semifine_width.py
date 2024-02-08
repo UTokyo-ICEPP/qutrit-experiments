@@ -25,7 +25,7 @@ twopi = 2. * np.pi
 
 
 class CycledRepeatedCRWidth(QutritQubitTomographyScan):
-    """Experiment to simultaneously scan the CR width."""
+    """Experiment to simultaneously scan the CR width with control states 0 and 1."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
@@ -69,7 +69,7 @@ class CycledRepeatedCRWidth(QutritQubitTomographyScan):
         super().__init__(physical_qubits,
                          make_crcr_circuit(physical_qubits, cr_schedules, None, rcr_type),
                          param_names, param_values, measure_preparations=measure_preparations,
-                         backend=backend)
+                         control_states=(0, 1), backend=backend)
         self.analysis = CycledRepeatedCRWidthAnalysis([exp.analysis for exp in self._experiments])
 
 
@@ -85,7 +85,7 @@ class CycledRepeatedCRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         analysis_results, figures = super()._run_additional_analysis(experiment_data,
                                                                      analysis_results, figures)
 
-        # Shape [num_widths, num_control_states(=3), 3]
+        # Shape [num_widths, num_control_states(=2), 3]
         unitary_params = next(res.value for res in analysis_results
                               if res.name == 'unitary_parameters')
         unitary_params_n = unp.nominal_values(unitary_params)

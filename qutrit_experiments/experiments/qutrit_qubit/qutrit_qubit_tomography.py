@@ -32,12 +32,15 @@ class QutritQubitTomography(BatchExperiment):
         circuit: QuantumCircuit,
         tomography_type: str = 'unitary',
         measure_preparations: bool = True,
+        control_states: Sequence[int] = (0, 1, 2),
         backend: Optional[Backend] = None,
         extra_metadata: Optional[dict[str, Any]] = None
     ):
         experiments = []
         for iexp in range(5 if measure_preparations else 3):
             control_state = iexp if iexp < 3 else iexp - 2
+            if control_state not in control_states:
+                continue
 
             channel = QuantumCircuit(2)
             post_circuit = None
@@ -81,8 +84,10 @@ class QutritQubitTomography(BatchExperiment):
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
         metadata.update(self.extra_metadata)
+        metadata['control_states'] = sorted(set(exp.extra_metadata['control_state']
+                                                for exp in self._experiments))
         return metadata
-
+    
     def _batch_circuits(self, to_transpile=False) -> list[QuantumCircuit]:
         if self.tomography_type == 'unitary':
             return super()._batch_circuits(to_transpile)
@@ -116,7 +121,7 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
         options = super()._default_options()
         options.data_processor = None # Needed to have DP propagated to tomography analysis
         options.plot = True
-        options.prep_unitaries = None
+        options.prep_unitaries = {}
         return options
 
     def _run_additional_analysis(
@@ -127,30 +132,32 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata['component_child_index']
 
-        unitary_parameters = []
-        observeds = []
-        predicteds = []
+        unitary_parameters = {}
+        prep_unitary_parameters = {}
+        observeds = {}
+        predicteds = {}
 
         for iexp in range(len(self._analyses)):
             child_data = experiment_data.child_data(component_index[iexp])
+            control_state = child_data.metadata['control_state']
             popt = child_data.analysis_results('unitary_fit_params').value
-            unitary_parameters.append(popt)
-            observeds.append(child_data.analysis_results('expvals_observed').value)
-            predicteds.append(child_data.analysis_results('expvals_predicted').value)
+            if child_data.metadata.get('state_preparation', False):
+                prep_unitary_parameters[control_state] = popt
+                key = (control_state, 'prep')
+            else:
+                unitary_parameters[control_state] = popt
+                key = (control_state, '')
+            observeds[key] = child_data.analysis_results('expvals_observed').value
+            predicteds[key] = child_data.analysis_results('expvals_predicted').value
 
-        unitary_parameters = np.array(unitary_parameters)
-        observeds = np.array(observeds)
-        predicteds = np.array(predicteds)
-
-        if (prep_unitaries := self.options.prep_unitaries) is None and len(self._analyses) > 3:
-            prep_unitaries = unitary_parameters[3:]
-        if prep_unitaries:
+        if not prep_unitary_parameters:
+            prep_unitary_parameters = self.options.prep_unitaries
+        if prep_unitary_parameters:
             analysis_results.append(
-                AnalysisResultData(name='raw_parameters', value=unitary_parameters)
+                AnalysisResultData(name='raw_parameters', value=dict(unitary_parameters))
             )
-            unitary_parameters = unitary_parameters[:3].copy()
-            for control_state in range(1, 3):
-                inv_prep = su2_cartesian(-prep_unitaries[control_state - 1])
+            for control_state, prep_params in prep_unitary_parameters.items():
+                inv_prep = su2_cartesian(-prep_params)
                 unitary = inv_prep @ su2_cartesian(unitary_parameters[control_state])
                 unitary_parameters[control_state] = su2_cartesian_params(unitary)
 
@@ -170,19 +177,18 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
                 label += '+' if metadata.get('initial_state_sign', 1) > 0 else '-'
                 labels.append(label)
             ax = get_non_gui_ax()
-            xvalues = np.arange(observeds[0].shape[0])
+            xvalues = np.arange(list(observeds.values())[0].shape[0])
             ax.set_xticks(xvalues, labels=labels)
             ax.set_ylim(-1.05, 1.05)
             ax.set_ylabel('Pauli expectation')
-            for iexp in range(len(self._analyses)):
-                if iexp < 3:
-                    label = f'c={iexp}'
-                else:
-                    label = f'c={iexp - 2} prep'
-                ec = ax.errorbar(xvalues, unp.nominal_values(observeds[iexp]),
-                                 unp.std_devs(observeds[iexp]), fmt='o',
+            for key in sorted(observeds.keys()):
+                label = f'c={key[0]}'
+                if key[1]:
+                    label += ' prep'
+                ec = ax.errorbar(xvalues, unp.nominal_values(observeds[key]),
+                                 unp.std_devs(observeds[key]), fmt='o',
                                  label=label)
-                ax.bar(xvalues, np.zeros_like(xvalues), 1., bottom=predicteds[iexp],
+                ax.bar(xvalues, np.zeros_like(xvalues), 1., bottom=predicteds[key],
                        fill=False, edgecolor=ec.lines[0].get_markerfacecolor())
 
             ax.legend()
@@ -211,6 +217,7 @@ class QutritQubitTomographyScan(BatchExperiment):
         angle_param_name: Optional[Union[str, dict[str, str]]] = None,
         tomography_type: str = 'unitary',
         measure_preparations: bool = True,
+        control_states: Sequence[int] = (0, 1, 2),
         backend: Optional[Backend] = None,
         analysis: Optional[CompositeAnalysis] = None
     ):
@@ -244,7 +251,7 @@ class QutritQubitTomographyScan(BatchExperiment):
                                       circuit.assign_parameters(assign_params, inplace=False),
                                       tomography_type=tomography_type,
                                       measure_preparations=(measure_preparations and iexp == 0),
-                                      backend=backend,
+                                      control_states=control_states, backend=backend,
                                       extra_metadata=extra_metadata)
             )
 
@@ -252,6 +259,7 @@ class QutritQubitTomographyScan(BatchExperiment):
             analysis = QutritQubitTomographyScanAnalysis([exp.analysis for exp in experiments])
         super().__init__(experiments, backend=backend, analysis=analysis)
         self.tomography_type = tomography_type
+        self.control_states = tuple(control_states)
 
         self.set_experiment_options(
             template_circuit=circuit,
@@ -267,19 +275,21 @@ class QutritQubitTomographyScan(BatchExperiment):
         return metadata
 
     def _batch_circuits(self, to_transpile=False) -> list[QuantumCircuit]:
-        dummy_experiment = QutritQubitTomography(self.physical_qubits,
-                                                 self.experiment_options.template_circuit,
-                                                 tomography_type=self.tomography_type,
-                                                 measure_preparations=True,
-                                                 backend=self._backend)
+        dummy_exp = QutritQubitTomography(self.physical_qubits,
+                                          self.experiment_options.template_circuit,
+                                          tomography_type=self.tomography_type,
+                                          measure_preparations=True,
+                                          control_states=self.control_states,
+                                          backend=self._backend)
         try:
             # Can we transpile without assigning values?
-            template_circuits = dummy_experiment._batch_circuits(to_transpile)
+            template_circuits = dummy_exp._batch_circuits(to_transpile)
         except:
             # If not, just revert to BatchExperiment default behavior
             return super()._batch_circuits(to_transpile=to_transpile)
 
-        num_tomography_circuits = 3 * len(dummy_experiment.component_experiment(0).circuits())
+        num_tomography_circuits = (len(self.control_states)
+                                   * len(dummy_exp.component_experiment(0).circuits()))
         circuits = []
         for iexp, exp_values in enumerate(zip(*self.experiment_options.parameter_values)):
             assign_params = self._make_assign_map(exp_values)
@@ -292,7 +302,7 @@ class QutritQubitTomographyScan(BatchExperiment):
                 }
                 circuits.append(circuit)
             
-            if self.component_experiment(iexp).num_experiments > 3:
+            if self.component_experiment(iexp).num_experiments > len(self.control_states):
                 for template_circuit in template_circuits[num_tomography_circuits:]:
                     circuit = template_circuit.copy()
                     circuit.metadata = {
@@ -339,22 +349,26 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         parameters = experiment_data.metadata['scan_parameters']
         scan_values = [np.array(v) for v in experiment_data.metadata['scan_values']]
 
+        control_states = None
         unitaries = []
         observeds = []
         predicteds = []
         for child_index in component_index:
             child_data = experiment_data.child_data(child_index)
+            if not control_states:
+                control_states = child_data.metadata['control_states']
             unitaries.append(child_data.analysis_results('unitary_parameters').value)
             observeds.append(child_data.analysis_results('expvals_observed').value)
             predicteds.append(child_data.analysis_results('expvals_predicted').value)
 
-        unitaries = np.array(unitaries)
-        observeds = np.array(observeds)
-        predicteds = np.array(predicteds)
+        unitaries = np.array([[u[c] for c in control_states] for u in unitaries])
+        observeds = np.array([[o[(c, '')] for c in control_states] for o in observeds])
+        predicteds = np.array([[p[(c, '')] for c in control_states] for p in predicteds])
 
-        analysis_results.append(
+        analysis_results.extend([
+            AnalysisResultData(name='control_states', value=control_states),
             AnalysisResultData(name='unitary_parameters', value=unitaries)
-        )
+        ])
         if self.options.return_expvals:
             analysis_results.extend([
                 AnalysisResultData(name='expvals_observed', value=observeds),
@@ -369,12 +383,12 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
                     ylabel=f'Unitary {op} parameter',
                     ylim=(-np.pi - 0.1, np.pi + 0.1)
                 )
-                for control_state in range(3):
+                for ic, control_state in enumerate(control_states):
                     plotter.set_series_data(
                         f'c{control_state}',
                         x_formatted=scan_values[0],
-                        y_formatted=unp.nominal_values(unitaries[:, control_state, iop]),
-                        y_formatted_err=unp.std_devs(unitaries[:, control_state, iop])
+                        y_formatted=unp.nominal_values(unitaries[:, ic, iop]),
+                        y_formatted_err=unp.std_devs(unitaries[:, ic, iop])
                     )
                 figures.append(plotter.figure())
 
@@ -390,11 +404,11 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
                 xlabel='Circuit',
                 ylabel='chisq'
             )
-            for control_state in range(3):
+            for ic, control_state in enumerate(control_states):
                 plotter.set_series_data(
                     f'c{control_state}',
                     x_formatted=np.arange(len(scan_values[0])),
-                    y_formatted=chisq[:, control_state],
+                    y_formatted=chisq[:, ic],
                     y_formatted_err=np.zeros_like(scan_values[0])
                 )
             figures.append(plotter.figure())
