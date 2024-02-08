@@ -94,4 +94,4 @@ def fit_unitary_to_expval(
     else:
         figure = None
 
-    return popt_ufloats, fit_result.state[iopt], expvals_pred, figure
+    return np.array(popt_ufloats), fit_result.state[iopt], expvals_pred, figure

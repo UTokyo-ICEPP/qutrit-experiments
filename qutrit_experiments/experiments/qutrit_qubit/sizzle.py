@@ -642,11 +642,7 @@ class SiZZleAmplitudeScanAnalysis(CompoundAnalysis):
             child_data = experiment_data.child_data(idx)
             scan_qubit = child_data.metadata['scan_qubit']
             amplitudes[ichild] = child_data.metadata['sizzle_amplitudes'][scan_qubit]
-            try:
-                components[:, ichild] = child_data.analysis_results('omega_zs').value - base_omegas
-            except:
-                print(ichild)
-                raise
+            components[:, ichild] = child_data.analysis_results('omega_zs').value - base_omegas
             if ichild == 0:
                 fixed_amplitude = child_data.metadata['sizzle_amplitudes'][1 - scan_qubit]
 
