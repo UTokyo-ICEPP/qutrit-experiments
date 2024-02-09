@@ -30,8 +30,6 @@ def calibrate_qutrit_qubit_cx(
     sizzle_params = fine_tune_cr(runner)
 
     if sizzle_params is not None:
-        runner.program_data['sizzle_t_amp_pred'] = sizzle_params['t_amp']
-        runner.program_data['sizzle_c_amp_pred'] = sizzle_params['c_amp']
         runner.calibrations.add_parameter_value(sizzle_params['frequency'], 'stark_frequency',
                                                 qubits, 'cr')
         exp_data['c2t_sizzle_t_amp_scan'] = runner.run_experiment('c2t_sizzle_t_amp_scan')
@@ -63,12 +61,14 @@ def fine_tune_cr(runner: ExperimentsRunner) -> Union[float, None]:
     if (max_induced := np.max(np.abs(induced_theta_z))) > 0.05:
         scale_down_cr_amp(runner, omega_z, static_omega_z, 0.05 / max_induced)
         theta_z = omega_z * (cr_width + flank) * runner.backend.dt
-        if np.all(np.abs(theta_z) < 0.05):
-            return None
+
+    if np.all(np.abs(theta_z) < 0.05) or np.abs(theta_z[0]) < 0.02:
+        # If theta_Iz is too small, target Stark amplitude will be small too, leaving very little
+        # room to maneuver with siZZle.
+        return None
 
     # Try siZZle to cancel the Z components
-    sizzle_params = get_sizzle_params(omega_z, runner)
-    return sizzle_params
+    return get_sizzle_params(omega_z, runner)
 
 
 def gauss_flank_area(runner):

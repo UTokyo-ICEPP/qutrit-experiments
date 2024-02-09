@@ -21,7 +21,7 @@ class RepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
-        options.parameter_values = [np.linspace(-0.05, 0.05, 12)]
+        options.parameter_values = [np.linspace(-0.01, 0.01, 12)]
         return options
 
     def __init__(
@@ -56,7 +56,7 @@ class RepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
         figures: list[Figure]
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         analysis_results, figures = super()._run_additional_analysis(experiment_data,
-                                                                    analysis_results, figures)
+                                                                     analysis_results, figures)
 
         amplitudes = np.array(experiment_data.metadata['scan_values'][0])
         unitaries = next(res.value for res in analysis_results if res.name == 'unitary_parameters')

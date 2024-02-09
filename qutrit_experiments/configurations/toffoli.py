@@ -383,33 +383,18 @@ def c2t_ucr_tomography_template(runner, exp_type):
 @register_exp
 def c2t_sizzle_t_amp_scan(runner):
     from ..experiments.qutrit_qubit.qutrit_cr_sizzle import QutritCRTargetStarkCal
-    if (amp_pred := runner.program_data.get('sizzle_t_amp_pred')) is not None:
-        amplitudes = np.linspace(0.5 * amp_pred, min(0.1, 1.5 * amp_pred), 10)
-    else:
-        amplitudes = None
-
     return ExperimentConfig(
         QutritCRTargetStarkCal,
-        runner.program_data['qubits'][1:],
-        args={'amplitudes': amplitudes}
+        runner.program_data['qubits'][1:]
     )
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 @register_exp
 def c2t_sizzle_c2_amp_scan(runner):
     from ..experiments.qutrit_qubit.qutrit_cr_sizzle import QutritCRControlStarkCal
-    qubits = runner.program_data['qubits'][1:]
-    if (amp_pred := runner.program_data.get('sizzle_c_amp_pred')) is not None:
-        max_amp = 0.99 - runner.calibrations.get_parameter_value('cr_amp', qubits, 'cr')
-        amplitudes = np.linspace(max(-max_amp, -1.5 * abs(amp_pred)),
-                                 min(max_amp, 1.5 * abs(amp_pred)), 10)
-    else:
-        amplitudes = None
-
     return ExperimentConfig(
         QutritCRControlStarkCal,
-        qubits,
-        args={'amplitudes': amplitudes}
+        runner.program_data['qubits'][1:]
     )
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)
@@ -420,21 +405,6 @@ def c2t_rcr_rotary(runner):
         RepeatedCRRotaryAmplitudeCal,
         runner.program_data['qubits'][1:]
     )
-
-@add_readout_mitigation(logical_qubits=[1], expval=True)
-@register_exp
-def c2t_crcr_rx_amp(runner):
-    from ..experiments.qutrit_qubit_cx.rx_amp import CycledRepeatedCRRxAmplitudeCal
-    return ExperimentConfig(
-        CycledRepeatedCRRxAmplitudeCal,
-        runner.program_data['qubits'][1:]
-    )
-
-@register_post
-def c2t_crcr_rx_amp(runner, experiment_data):
-    params = unp.nominal_values(experiment_data.analysis_results('unitary_line_fit_params',
-                                                                 block=False).value)
-    runner.program_data['crcr_angle_per_rx_amp'] = params[0] * np.sin(params[2]) * np.cos(params[3])
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 @register_exp
@@ -462,7 +432,24 @@ def c2t_crcr_cr_width(runner):
 def c2t_crcr_cr_width(runner, experiment_data):
     params = unp.nominal_values(experiment_data.analysis_results('unitary_line_fit_params',
                                                                  block=False).value)
-    runner.program_data['crcr_angle_per_dt'] = params[0] * np.sin(params[2]) * np.cos(params[3])
+    runner.program_data['crcr_angle_per_dt'] = np.diff(params[:, 0] * np.sin(params[:, 2])
+                                                       * np.cos(params[:, 3]))
+
+@add_readout_mitigation(logical_qubits=[1], expval=True)
+@register_exp
+def c2t_crcr_rx_amp(runner):
+    from ..experiments.qutrit_qubit_cx.rx_amp import CycledRepeatedCRRxAmplitudeCal
+    return ExperimentConfig(
+        CycledRepeatedCRRxAmplitudeCal,
+        runner.program_data['qubits'][1:]
+    )
+
+@register_post
+def c2t_crcr_rx_amp(runner, experiment_data):
+    params = unp.nominal_values(experiment_data.analysis_results('unitary_line_fit_params',
+                                                                 block=False).value)
+    runner.program_data['crcr_angle_per_rx_amp'] = np.diff(params[:, 0] * np.sin(params[:, 2])
+                                                           * np.cos(params[: 3]))
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 @register_exp
