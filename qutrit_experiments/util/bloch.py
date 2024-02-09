@@ -97,15 +97,12 @@ def so3_cartesian_axnorm(axis: array_like, norm: array_like, npmod=np):
     ctheta = npmod.cos(norm)
     ictheta = 1. - ctheta
     matrix = npmod.einsum('...i,...j->...ij', axis, axis) * ictheta[..., None, None]
-    extra_dims = npmod.arange(matrix.ndim - 2)
+    extra_dims = tuple(range(matrix.ndim - 2))
     matrix += npmod.expand_dims(npmod.eye(3), extra_dims) * ctheta[..., None, None]
-
-    stheta = npmod.sin(norm)[..., None, None, None]
-    offdiagonals = np.zeros(tuple(extra_dims) + (3, 3, 3))
-    offdiagonals[..., [0, 1, 2], [2, 0, 1], [1, 2, 0]] = axis[..., None, None] * stheta
-    offdiagonals[..., [0, 1, 2], [1, 2, 0], [2, 0, 1]] = -axis[..., None, None] * stheta
-    matrix += offdiagonals
-
+    vdiagflat = npmod.vectorize(npmod.diagflat, signature='(n)->(n,n)')
+    stheta = npmod.sin(norm)[..., None, None]
+    matrix += npmod.roll(vdiagflat(npmod.roll(axis, -1, axis=-1)), -1, axis=-1) * stheta
+    matrix -= npmod.roll(vdiagflat(npmod.roll(axis, 1, axis=-1)), 1, axis=-1) * stheta
     return matrix
 
 
