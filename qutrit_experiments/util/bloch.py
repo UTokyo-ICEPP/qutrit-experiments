@@ -2,7 +2,6 @@
 from collections.abc import Sequence
 from numbers import Number
 from typing import Union
-import jax.numpy as jnp
 import numpy as np
 from uncertainties import unumpy as unp
 
@@ -90,17 +89,24 @@ def su2_cartesian_params(unitary: array_like, npmod=np):
 
 
 def so3_cartesian(xyz: array_like, npmod=np):
-    rot_axis, norm = normalized_rotation_axis(xyz, npmod=npmod)
+    axis, norm = normalized_rotation_axis(xyz, npmod=npmod)
+    return so3_cartesian_axnorm(axis, norm, npmod=npmod)
+
+
+def so3_cartesian_axnorm(axis: array_like, norm: array_like, npmod=np):
     ctheta = npmod.cos(norm)
     ictheta = 1. - ctheta
-    stheta = npmod.sin(norm)
-    x, y, z = npmod.moveaxis(rot_axis, -1, 0)
-    x2, y2, z2 = npmod.moveaxis(npmod.square(rot_axis), -1, 0)
-    return npmod.array([
-        [ctheta + x2 * ictheta, x * y * ictheta - z * stheta, x * z * ictheta + y * stheta],
-        [y * x * ictheta + z * stheta, ctheta + y2 * ictheta, y * z * ictheta - x * stheta],
-        [z * x * ictheta - y * stheta, z * y * ictheta + x * stheta, ctheta + z2 * ictheta]
-    ])
+    matrix = npmod.einsum('...i,...j->...ij', axis, axis) * ictheta[..., None, None]
+    extra_dims = npmod.arange(matrix.ndim - 2)
+    matrix += npmod.expand_dims(npmod.eye(3), extra_dims) * ctheta[..., None, None]
+
+    stheta = npmod.sin(norm)[..., None, None, None]
+    offdiagonals = np.zeros(tuple(extra_dims) + (3, 3, 3))
+    offdiagonals[..., [0, 1, 2], [2, 0, 1], [1, 2, 0]] = axis[..., None, None] * stheta
+    offdiagonals[..., [0, 1, 2], [1, 2, 0], [2, 0, 1]] = -axis[..., None, None] * stheta
+    matrix += offdiagonals
+
+    return matrix
 
 
 def so3_cartesian_params(matrix: array_like, npmod=np):
