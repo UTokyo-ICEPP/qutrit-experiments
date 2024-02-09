@@ -1,5 +1,10 @@
 {
     "files.watcherExclude": {
-        "**/backend_configurations/**": true
+        "**/__pycache__/**": true,
+        "**/.ipynb_checkpoints": true,
+        "**/backend_configurations/**": true,
+        "/**/dist-packages/**": true,
+        "/**/site-packages/**": true,
+        "/usr/**": true
     }
 }
