@@ -1,5 +1,4 @@
 """Functions for fitting a unitary to observation."""
-from collections.abc import Sequence
 from typing import Any, NamedTuple, Optional, Union
 from matplotlib.figure import Figure
 import jax
@@ -105,75 +104,3 @@ def fit_unitary_to_expval(
     state = fit_result.state.__class__(*values)
 
     return np.array(popt_ufloats), state, expvals_pred, figure
-
-
-def fit_unitaries_linear(
-    data: list[dict[str, Any]],
-    composite_index: Optional[Sequence[int]] = None,
-    data_processor: Optional[DataProcessor] = None,
-    plot: bool = True
-) -> tuple[np.ndarray, NamedTuple, np.ndarray, np.ndarray, Union[Figure, None]]:
-    if data_processor is None:
-        data_processor = DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
-
-    expvals = data_processor(data)
-    initial_states = []
-    signs = []
-    meas_bases = []
-    for datum in data:
-        metadata = datum['metadata']
-        initial_states.append(axes.index(metadata['initial_state']))
-        signs.append(metadata.get('initial_state_sign', 1))
-        meas_bases.append(axes.index(metadata['meas_basis']))
-    initial_states = np.array(initial_states, dtype=int)
-    signs = np.array(signs, dtype=int)
-    meas_bases = np.array(meas_bases, dtype=int)
-
-
-def fit_unitaries_linear_to_expval(
-    expvals: np.ndarray,
-    xvals: np.ndarray,
-    initial_states: np.ndarray,
-    meas_bases: np.ndarray,
-    signs: Optional[np.ndarray] = None,
-    plot: bool = True
-) -> tuple[np.ndarray, NamedTuple, np.ndarray, Union[Figure, None]]:
-    if signs is None:
-        signs = np.ones_like(initial_states)
-
-    @jax.jit
-    def objective(params):
-        slope, intercept, psi, phi = jnp.moveaxis(params, -1, 0)
-        axis = jnp.array([jnp.sin(psi) * jnp.cos(phi), jnp.sin(psi) * jnp.sin(phi), jnp.cos(psi)])
-        axis = jnp.moveaxis(axis, 0, -1)
-        # Shape [(parameter extra), xvals, 3]
-        extra_dims = jnp.arange(slope.ndim)
-        theta = slope[..., None] * jnp.expand_dims(xvals, extra_dims) + intercept[..., None]
-        xyz = theta[..., None] * axis
-        r_elements = so3_cartesian(xyz, npmod=jnp)[..., meas_bases, initial_states] * signs
-        return jnp.sum(
-            jnp.square((r_elements - unp.nominal_values(expvals)) / unp.std_devs(expvals)),
-            axis=-1
-        )
-
-    solver = jaxopt.GradientDescent(fun=objective, maxiter=10000)
-
-    slopes = np.linspace(0., twopi / (np.amax(xvals) - np.amin(xvals)), 4)
-    intercepts = np.linspace(0., twopi, 4, endpoint=False)
-    islope, iint = np.ogrid[:len(slopes), :len(intercepts)]
-    p0s = np.empty((2, len(slopes), len(intercepts), 4))
-    p0s[..., 0] = slopes[islope]
-    p0s[..., 1] = intercepts[iint]
-    # Use both orientations
-    p0s[0, ..., 2:] = [np.pi / 2., 0.]
-    p0s[1, ..., 2:] = [np.pi / 2., np.pi / 2.]
-
-    fit_result = jax.vmap(solver.run)(jnp.array(p0s))
-    fvals = jax.vmap(objective)(fit_result.params)
-    iopt = np.argmin(fvals)
-    # Renormalize the rotation parameters so that the norm fits within [0, pi].
-    popt = rescale_axis(fit_result.params[iopt])
-    expvals_pred = so3_cartesian(popt)[..., meas_bases, initial_states] * signs
-
-    pcov = np.linalg.inv(jax.hessian(objective)(popt) * 0.5)
-    popt_ufloats = correlated_values(nom_values=popt, covariance_mat=pcov, tags=['x', 'y', 'z'])
