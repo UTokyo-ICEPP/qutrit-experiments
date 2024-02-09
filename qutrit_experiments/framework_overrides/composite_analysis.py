@@ -8,13 +8,14 @@ from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing import Pipe, Process, cpu_count
 from multiprocessing.connection import Connection
 from threading import Lock
-from typing import Optional, Union
+from typing import Any, Optional, Union
 from qiskit_experiments.exceptions import AnalysisError
 from qiskit_experiments.framework import (AnalysisResult, AnalysisStatus, BaseAnalysis,
                                           CompositeAnalysis as CompositeAnalysisOrig,
                                           ExperimentData, FigureData, Options)
 
 from ..framework.child_data import set_child_data_structure
+from ..framework.threaded_analysis import ThreadedAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
     def _run_sub_analysis(
         analysis: BaseAnalysis,
         experiment_data: ExperimentData,
+        thread_output: Optional[Any] = None,
         data_deserialized: bool = False
     ) -> tuple[
         AnalysisStatus,
@@ -57,7 +59,10 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         try:
             experiment_components = analysis._get_experiment_components(experiment_data)
             # making new analysis
-            results, figures = analysis._run_analysis(experiment_data)
+            if thread_output is None:
+                results, figures = analysis._run_analysis(experiment_data)
+            else:
+                results, figures = analysis._run_analysis_unthreaded(experiment_data, thread_output)
             # Add components
             analysis_results = [
                 analysis._format_analysis_result(
@@ -241,6 +246,17 @@ class CompositeAnalysis(CompositeAnalysisOrig):
 
             start = time.time()
 
+            thread_outputs = {}
+            threaded_tasks = [task for task in task_list
+                              if isinstance(task[0], ThreadedAnalysis)]
+            if threaded_tasks:
+                with ThreadPoolExecutor(max_workers=max_procs) as executor:
+                    results = executor.map(CompositeAnalysis._run_sub_analysis_thread,
+                                           [x[0] for x in threaded_tasks],
+                                           [x[1] for x in threaded_tasks])
+                thread_outputs = {task_id: result for (_, _, task_id), result
+                                  in zip(task_list, results)}
+
             # Backend cannot be pickled, so unset the attribute temporarily.
             # We use a list here but the backend cannot possibly be different among subdata..
             # Also BaseAnalysis.run is overwritten somewhere, making analysis instances unpickable.
@@ -248,7 +264,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             # _run_sub_analysis.
             backends = []
             runfuncs = []
-            for an, sub_data, task_id in task_list:
+            for an, sub_data, _ in task_list:
                 backends.append(sub_data.backend)
                 sub_data.backend = None
                 runfuncs.append(an.run)
@@ -258,6 +274,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                     all_results = executor.map(CompositeAnalysis._run_sub_analysis,
                                                [x[0] for x in task_list],
                                                [x[1] for x in task_list],
+                                               [thread_outputs.get(x[2]) for x in task_list],
                                                [True] * len(task_list))
             finally:
                 # Restore the original states of the data and analyses
