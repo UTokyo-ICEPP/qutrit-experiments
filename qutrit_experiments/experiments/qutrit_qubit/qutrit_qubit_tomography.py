@@ -336,6 +336,7 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
+        options.figure_names = ['theta_x', 'theta_y', 'theta_z', 'chisq']
         options.data_processor = None # Needed to have DP propagated to tomography analysis
         options.plot = True
         options.return_expvals = False
