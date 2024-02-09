@@ -78,9 +78,6 @@ class UnitaryTomography(MapToPhysicalQubits, BaseExperiment):
             }
             circuits.append(circuit)
 
-
-            
-
         return circuits
 
     def _metadata(self) -> dict[str, Any]:

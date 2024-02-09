@@ -1,5 +1,4 @@
 """Functions for fitting a unitary to observation."""
-from collections.abc import Sequence
 from typing import Any, NamedTuple, Optional, Union
 from matplotlib.figure import Figure
 import jax
@@ -58,7 +57,7 @@ def fit_unitary_to_expval(
             axis=-1
         )
 
-    solver = jaxopt.GradientDescent(fun=objective)
+    solver = jaxopt.GradientDescent(fun=objective, maxiter=10000)
 
     p0s = []
     for iax in range(3):
@@ -94,4 +93,13 @@ def fit_unitary_to_expval(
     else:
         figure = None
 
-    return np.array(popt_ufloats), fit_result.state[iopt], expvals_pred, figure
+    # state is a namedtuple
+    values = []
+    for sval in fit_result.state:
+        if sval is None:
+            values.append(None)
+        else:
+            values.append(np.array(sval[iopt]))
+    state = fit_result.state.__class__(*values)
+
+    return np.array(popt_ufloats), state, expvals_pred, figure

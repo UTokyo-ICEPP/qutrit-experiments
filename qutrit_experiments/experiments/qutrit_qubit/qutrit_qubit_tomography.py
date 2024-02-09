@@ -87,7 +87,7 @@ class QutritQubitTomography(BatchExperiment):
         metadata['control_states'] = sorted(set(exp.extra_metadata['control_state']
                                                 for exp in self._experiments))
         return metadata
-    
+
     def _batch_circuits(self, to_transpile=False) -> list[QuantumCircuit]:
         if self.tomography_type == 'unitary':
             return super()._batch_circuits(to_transpile)
@@ -119,6 +119,7 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
+        options.figure_names = ['expectation_values']
         options.data_processor = None # Needed to have DP propagated to tomography analysis
         options.plot = True
         options.prep_unitaries = {}
@@ -168,6 +169,7 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
         ])
 
         if self.options.plot:
+            # Plot all expectation values
             labels = []
             child_data = experiment_data.child_data(component_index[0])
             for datum in child_data.data():
@@ -301,7 +303,7 @@ class QutritQubitTomographyScan(BatchExperiment):
                     "composite_index": [iexp],
                 }
                 circuits.append(circuit)
-            
+
             if self.component_experiment(iexp).num_experiments > len(self.control_states):
                 for template_circuit in template_circuits[num_tomography_circuits:]:
                     circuit = template_circuit.copy()
