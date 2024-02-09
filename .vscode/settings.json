@@ -6,5 +6,8 @@
         "/**/dist-packages/**": true,
         "/**/site-packages/**": true,
         "/usr/**": true
-    }
+    },
+    "python.analysis.extraPaths": [
+        "/usr/local/lib/python3.10/dist-packages"
+    ]
 }
