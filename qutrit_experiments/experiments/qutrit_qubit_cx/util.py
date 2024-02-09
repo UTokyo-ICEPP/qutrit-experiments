@@ -18,6 +18,19 @@ class RCRType(IntEnum):
     X12 = 0 # CRCR angle = 2 * (θ_1 + θ_2 - 2*θ_0)
 
 
+def make_cr_circuit(
+    physical_qubits: Sequence[int],
+    cr_schedule: ScheduleBlock
+) -> QuantumCircuit:
+    params = cr_schedule.parameters
+    
+    circuit = QuantumCircuit(2)
+    circuit.append(Gate('cr', 2, params), [0, 1])
+    circuit.add_calibration('cr', physical_qubits, cr_schedule, params)
+    
+    return circuit
+
+
 def make_rcr_circuit(
     physical_qubits: Sequence[int],
     cr_schedule: ScheduleBlock,
