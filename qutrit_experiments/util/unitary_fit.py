@@ -17,9 +17,19 @@ twopi = 2. * np.pi
 
 def fit_unitary(
     data: list[dict[str, Any]],
-    data_processor: Optional[DataProcessor] = None,
-    plot: bool = True
-) -> tuple[np.ndarray, NamedTuple, np.ndarray, np.ndarray, Union[Figure, None]]:
+    data_processor: Optional[DataProcessor] = None
+) -> tuple[np.ndarray, NamedTuple, np.ndarray, np.ndarray, tuple]:
+    expvals, initial_states, meas_bases, signs = extract_input_values(data, data_processor)
+    popt_ufloats, state = fit_unitary_to_expval(expvals, initial_states, meas_bases, signs=signs)
+    expvals_pred = so3_cartesian(unp.nominal_values(popt_ufloats))[..., meas_bases, initial_states]
+    expvals_pred *= signs
+    return popt_ufloats, state, expvals_pred, (expvals, initial_states, meas_bases, signs)
+
+
+def extract_input_values(
+    data: list[dict[str, Any]],
+    data_processor: Optional[DataProcessor] = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if data_processor is None:
         data_processor = DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
 
@@ -36,17 +46,15 @@ def fit_unitary(
     signs = np.array(signs, dtype=int)
     meas_bases = np.array(meas_bases, dtype=int)
 
-    fit_result = fit_unitary_to_expval(expvals, initial_states, meas_bases, signs=signs, plot=plot)
-    return fit_result[:2] + (expvals,) + fit_result[2:]
+    return expvals, initial_states, meas_bases, signs
 
 
 def fit_unitary_to_expval(
     expvals: np.ndarray,
     initial_states: np.ndarray,
     meas_bases: np.ndarray,
-    signs: Optional[np.ndarray] = None,
-    plot: bool = True
-) -> tuple[np.ndarray, NamedTuple, np.ndarray, Union[Figure, None]]:
+    signs: Optional[np.ndarray] = None
+) -> tuple[np.ndarray, NamedTuple]:
     if signs is None:
         signs = np.ones_like(initial_states)
 
@@ -72,27 +80,9 @@ def fit_unitary_to_expval(
     iopt = np.argmin(fvals)
     # Renormalize the rotation parameters so that the norm fits within [0, pi].
     popt = rescale_axis(fit_result.params[iopt])
-    expvals_pred = so3_cartesian(popt)[..., meas_bases, initial_states] * signs
 
     pcov = np.linalg.inv(jax.hessian(objective)(popt) * 0.5)
     popt_ufloats = correlated_values(nom_values=popt, covariance_mat=pcov, tags=['x', 'y', 'z'])
-
-    if plot:
-        ax = get_non_gui_ax()
-        xvalues = np.arange(len(initial_states))
-        ax.set_ylim(-1.05, 1.05)
-        ax.set_ylabel('Pauli expectation')
-        ec = ax.errorbar(xvalues, unp.nominal_values(expvals), unp.std_devs(expvals), fmt='o',
-                         label='observed')
-        ax.bar(xvalues, np.zeros_like(xvalues), 1., bottom=expvals_pred, fill=False,
-               edgecolor=ec.lines[0].get_markerfacecolor(), label='fit result')
-        xticks = [f'{axes[basis]}|{axes[init]}{"+" if sign > 0 else "-"}'
-                  for init, sign, basis in zip(initial_states, signs, meas_bases)]
-        ax.set_xticks(xvalues, labels=xticks)
-        ax.legend()
-        figure = ax.get_figure()
-    else:
-        figure = None
 
     # state is a namedtuple
     values = []
@@ -103,4 +93,30 @@ def fit_unitary_to_expval(
             values.append(np.array(sval[iopt]))
     state = fit_result.state.__class__(*values)
 
-    return np.array(popt_ufloats), state, expvals_pred, figure
+    return np.array(popt_ufloats), state
+
+
+def plot_unitary_fit(
+    popt_ufloats: np.ndarray,
+    expvals: np.ndarray,
+    initial_states: np.ndarray,
+    meas_bases: np.ndarray,
+    signs: Optional[np.ndarray] = None
+) -> Figure:
+    expvals_pred = so3_cartesian(unp.nominal_values(popt_ufloats))[..., meas_bases, initial_states]
+    if signs is not None:
+        expvals_pred *= signs
+
+    ax = get_non_gui_ax()
+    xvalues = np.arange(len(initial_states))
+    ax.set_ylim(-1.05, 1.05)
+    ax.set_ylabel('Pauli expectation')
+    ec = ax.errorbar(xvalues, unp.nominal_values(expvals), unp.std_devs(expvals), fmt='o',
+                        label='observed')
+    ax.bar(xvalues, np.zeros_like(xvalues), 1., bottom=expvals_pred, fill=False,
+            edgecolor=ec.lines[0].get_markerfacecolor(), label='fit result')
+    xticks = [f'{axes[basis]}|{axes[init]}{"+" if sign > 0 else "-"}'
+                for init, sign, basis in zip(initial_states, signs, meas_bases)]
+    ax.set_xticks(xvalues, labels=xticks)
+    ax.legend()
+    return ax.get_figure()

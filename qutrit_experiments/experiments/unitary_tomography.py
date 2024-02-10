@@ -7,11 +7,12 @@ import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit import Gate
 from qiskit.providers import Backend
-from qiskit_experiments.framework import (AnalysisResultData, BaseAnalysis, BaseExperiment,
-                                          ExperimentData, Options)
+from qiskit_experiments.framework import (AnalysisResultData, BaseExperiment, ExperimentData,
+                                          Options)
 
 from ..experiment_mixins import MapToPhysicalQubits
-from ..util.unitary_fit import fit_unitary
+from ..framework.threaded_analysis import ThreadedAnalysis
+from ..util.unitary_fit import extract_input_values, fit_unitary, plot_unitary_fit
 
 twopi = 2. * np.pi
 
@@ -93,7 +94,7 @@ class UnitaryTomography(MapToPhysicalQubits, BaseExperiment):
         return metadata
 
 
-class UnitaryTomographyAnalysis(BaseAnalysis):
+class UnitaryTomographyAnalysis(ThreadedAnalysis):
     """Analysis for UnitaryTomography."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -102,22 +103,22 @@ class UnitaryTomographyAnalysis(BaseAnalysis):
         options.plot = True
         return options
 
-    def _run_analysis(
+    def _run_analysis_threaded(self, experiment_data: ExperimentData) -> Any:
+        return fit_unitary(experiment_data.data(), data_processor=self.options.data_processor)
+
+    def _run_analysis_unthreaded(
         self,
         experiment_data: ExperimentData,
+        thread_output: Any
     ) -> tuple[list[AnalysisResultData], list[matplotlib.figure.Figure]]:
-        popt, state, observed, predicted, figure = fit_unitary(
-            experiment_data.data(),
-            data_processor=self.options.data_processor,
-            plot=self.options.plot
-        )
-
+        popt_ufloats, state, predicted, fit_input = thread_output
         analysis_results = [
             AnalysisResultData(name='unitary_fit_state', value=state),
-            AnalysisResultData(name='unitary_fit_params', value=popt),
-            AnalysisResultData(name='expvals_observed', value=observed),
+            AnalysisResultData(name='unitary_fit_params', value=popt_ufloats),
+            AnalysisResultData(name='expvals_observed', value=fit_input[0]),
             AnalysisResultData(name='expvals_predicted', value=predicted)
         ]
-        if figure is not None:
-            return analysis_results, [figure]
+
+        if self.options.plot:
+            return analysis_results, [plot_unitary_fit(popt_ufloats, *fit_input)]
         return analysis_results, []

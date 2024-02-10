@@ -14,8 +14,9 @@ from qiskit_experiments.library.tomography.fitters.cvxpy_utils import cvxpy
 from qiskit_experiments.library.tomography.tomography_experiment import TomographyExperiment
 
 from ..constants import DEFAULT_SHOTS
+from ..framework.threaded_analysis import ThreadedAnalysis
 from ..transpilation import map_to_physical_qubits, translate_to_basis
-from ..util.unitary_fit import fit_unitary
+from ..util.unitary_fit import fit_unitary, plot_unitary_fit
 
 logger = logging.getLogger(__name__)
 twopi = 2. * np.pi
@@ -71,7 +72,7 @@ class CircuitTomography(TomographyExperiment):
     def circuits(self) -> list[QuantumCircuit]:
         if self.experiment_options.decompose_circuits:
             return self._decomposed_circuits(apply_layout=False)
-        
+
         circuits = super().circuits()
         for circuit in circuits:
             for inst in list(circuit.data):
@@ -241,7 +242,7 @@ class CircuitTomography(TomographyExperiment):
         return data
 
 
-class CircuitTomographyAnalysis(ProcessTomographyAnalysis):
+class CircuitTomographyAnalysis(ProcessTomographyAnalysis, ThreadedAnalysis):
     """ProcessTomographyAnalysis with an optional fit to a unitary when number of qubits is 1."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -250,51 +251,43 @@ class CircuitTomographyAnalysis(ProcessTomographyAnalysis):
         options.plot = True
         return options
 
-    def _run_analysis(
+    def _run_analysis_threaded(self, experiment_data: ExperimentData) -> Any:
+        num_qubits = len(experiment_data.metadata['m_qubits'])
+        num_qubits *= len(experiment_data.metadata['p_qubits'])
+        if num_qubits == 1:
+            return fit_unitary(experiment_data.data(), self.options.data_processor)
+        else:
+            # Returning None will trigger composite analysis to call _run_analysis of this class
+            return ()
+
+    def _run_analysis_unthreaded(
         self,
-        experiment_data: ExperimentData
+        experiment_data: ExperimentData,
+        thread_output: Any
     ) -> tuple[list[AnalysisResultData, list[Figure]]]:
         if self.options.data_processor:
-            original_counts = self._update_data(experiment_data)
+            logger.debug('Overwriting counts using the output of the DataProcessor.')
+            processed_ydata = self.options.data_processor(experiment_data.data())
+            original_counts = [datum['counts'] for datum in experiment_data.data()]
+            for datum, ydatum in zip(experiment_data.data(), processed_ydata):
+                datum['counts'] = ydatum
 
         analysis_results, figures = super()._run_analysis(experiment_data)
 
-        num_qubits = len(experiment_data.metadata['m_qubits'])
-        num_qubits *= len(experiment_data.metadata['p_qubits'])
-        if num_qubits != 1:
-            if self.options.data_processor:
-                self._restore_data(experiment_data, original_counts)
-            return analysis_results, figures
-
-        # Not passing the custom data processor as counts have been updated
-        popt, state, observed, predicted, figure = fit_unitary(
-            experiment_data.data(),
-            plot=self.options.plot
-        )
-
-        analysis_results.extend([
-            AnalysisResultData(name='unitary_fit_state', value=state),
-            AnalysisResultData(name='unitary_fit_params', value=popt),
-            AnalysisResultData(name='expvals_observed', value=observed),
-            AnalysisResultData(name='expvals_predicted', value=predicted)
-        ])
-        if figure is not None:
-            figures.append(figure)
-
         if self.options.data_processor:
-            self._restore_data(experiment_data, original_counts)
+            logger.debug('Restoring counts.')
+            for datum, counts in zip(experiment_data.data(), original_counts):
+                datum['counts'] = counts
+
+        if thread_output:
+            popt_ufloats, state, expvals_pred, fit_input = thread_output
+            analysis_results.extend([
+                AnalysisResultData(name='unitary_fit_state', value=state),
+                AnalysisResultData(name='unitary_fit_params', value=popt_ufloats),
+                AnalysisResultData(name='expvals_observed', value=fit_input[0]),
+                AnalysisResultData(name='expvals_predicted', value=expvals_pred)
+            ])
+            if self.options.plot:
+                figures.append(plot_unitary_fit(*fit_input))
 
         return analysis_results, figures
-
-    def _update_data(self, experiment_data: ExperimentData):
-        logger.debug('Overwriting counts using the output of the DataProcessor.')
-        processed_ydata = self.options.data_processor(experiment_data.data())
-        original_counts = [datum['counts'] for datum in experiment_data.data()]
-        for datum, ydatum in zip(experiment_data.data(), processed_ydata):
-            datum['counts'] = ydatum
-        return original_counts
-
-    def _restore_data(self, experiment_data: ExperimentData, original_counts: list[dict[str, int]]):
-        logger.debug('Restoring counts.')
-        for datum, counts in zip(experiment_data.data(), original_counts):
-            datum['counts'] = counts
