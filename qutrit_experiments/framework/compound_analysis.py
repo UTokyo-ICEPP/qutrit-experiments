@@ -1,6 +1,7 @@
 """CompositeAnalysis with additional analysis on top."""
+from abc import abstractmethod
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..framework_overrides.composite_analysis import CompositeAnalysis
 
@@ -25,10 +26,40 @@ class CompoundAnalysis(CompositeAnalysis):
                 for analysis in self._analyses:
                     analysis.set_options(**{key: value})
 
+    @abstractmethod
     def _run_additional_analysis(
         self,
         experiment_data: 'ExperimentData',
         analysis_results: list['AnalysisResultData'],
         figures: list['Figure']
     ) -> tuple[list['AnalysisResultData'], list['Figure']]:
-        return [], []
+        pass
+
+
+class ThreadedCompoundAnalysis(CompoundAnalysis):
+    def _run_additional_analysis(
+        self,
+        experiment_data: 'ExperimentData',
+        analysis_results: list['AnalysisResultData'],
+        figures: list['Figure']
+    ) -> tuple[list['AnalysisResultData'], list['Figure']]:
+        thread_output = self._run_additional_analysis_threaded(experiment_data)
+        return self._run_additional_analysis_unthreaded(experiment_data, analysis_results, figures,
+                                                        thread_output)
+
+    @abstractmethod
+    def _run_additional_analysis_threaded(
+        self,
+        experiment_data: 'ExperimentData'
+    ) -> Any:
+        pass
+
+    @abstractmethod
+    def _run_additional_analysis_unthreaded(
+        self,
+        experiment_data: 'ExperimentData',
+        analysis_results: list['AnalysisResultData'],
+        figures: list['Figure'],
+        thread_output: Any
+    ) -> tuple[list['AnalysisResultData'], list['Figure']]:
+        pass

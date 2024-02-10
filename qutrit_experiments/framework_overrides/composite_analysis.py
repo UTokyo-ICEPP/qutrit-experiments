@@ -83,6 +83,14 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             return AnalysisStatus.ERROR, (ex, traceback.format_exc())
 
     @staticmethod
+    def _run_sub_analysis_thread(
+        analysis: ThreadedAnalysis,
+        experiment_data: ExperimentData,
+    ) -> Any:
+        """Run the threaded part of a ThreadedAnalysis."""
+        return analysis._run_analysis_threaded(experiment_data)
+
+    @staticmethod
     def _run_sub_composite_postanalysis(
         analysis: CompositeAnalysisOrig,
         parent_data: ExperimentData,
@@ -136,9 +144,22 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             logger.debug('Starting a subprocess for the analysis of experiment id %s',
                          parent_task_id)
             start = time.time()
+
+            if hasattr(analysis, '_run_additional_analysis_threaded'):
+                try:
+                    thread_output = analysis._run_additional_analysis_threaded(parent_data)
+                except Exception as exc:
+                    if analysis.options.get('ignore_failed', False):
+                        logger.warning('Ignoring postanalysis failure for %s:', parent_task_id)
+                        traceback.print_exception(exc)
+                        return [], []
+                    return exc
+            else:
+                thread_output = None
+
             conn1, conn2 = Pipe()
             proc = Process(target=CompositeAnalysis._postanalysis,
-                           args=(analysis, parent_data, component_data, conn2))
+                           args=(analysis, parent_data, component_data, thread_output, conn2))
             proc.start()
             # Can't recv() directly because recv deserializes the figures and can trigger
             # concurrency problems with mpl
@@ -168,6 +189,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         analysis: CompositeAnalysisOrig,
         parent_data: ExperimentData,
         component_data: list[ExperimentData],
+        thread_output: Optional[Any] = None,
         conn: Optional[Connection] = None
     ) -> tuple[list[AnalysisResult], list[FigureData]]:
         analysis_results, figures = [], []
@@ -177,7 +199,10 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             if analysis._flatten_results:
                 results, figures = analysis._combine_results(component_data)
 
-            if hasattr(analysis, '_run_additional_analysis'):
+            if thread_output is not None:
+                results, figures = analysis._run_additional_analysis_unthreaded(parent_data,
+                                                                                results, figures)
+            elif hasattr(analysis, '_run_additional_analysis'):
                 results, figures = analysis._run_additional_analysis(parent_data, results, figures)
 
             experiment_components = analysis._get_experiment_components(parent_data)
@@ -236,6 +261,9 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         task_list = []
         subdata_map = {}
         self._gather_tasks(self, experiment_data, task_list, subdata_map)
+        task_ids = [task_id for _, _, task_id in task_list]
+        analyses = {task_id: analysis for analysis, _, task_id in task_list}
+        sub_data = {task_id: sub_data for _, sub_data, task_id in task_list}
 
         # Run the component analysis on each component data
         if (max_procs := self.options.parallelize) != 0:
@@ -247,15 +275,13 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             start = time.time()
 
             thread_outputs = {}
-            threaded_tasks = [task for task in task_list
-                              if isinstance(task[0], ThreadedAnalysis)]
+            threaded_tasks = [tid for tid, an in analyses.items()
+                              if isinstance(an, ThreadedAnalysis)]
             if threaded_tasks:
                 with ThreadPoolExecutor(max_workers=max_procs) as executor:
                     results = executor.map(CompositeAnalysis._run_sub_analysis_thread,
-                                           [x[0] for x in threaded_tasks],
-                                           [x[1] for x in threaded_tasks])
-                thread_outputs = {task_id: result for (_, _, task_id), result
-                                  in zip(task_list, results)}
+                                           analyses.values(), sub_data.values())
+                thread_outputs = dict(zip(threaded_tasks, results))
 
             # Backend cannot be pickled, so unset the attribute temporarily.
             # We use a list here but the backend cannot possibly be different among subdata..
@@ -264,31 +290,32 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             # _run_sub_analysis.
             backends = []
             runfuncs = []
-            for an, sub_data, _ in task_list:
-                backends.append(sub_data.backend)
-                sub_data.backend = None
-                runfuncs.append(an.run)
-                an.run = None
+            for tid in task_ids:
+                backends.append(sub_data[tid].backend)
+                sub_data[tid].backend = None
+                runfuncs.append(analyses[tid].run)
+                analyses[tid].run = None
             try:
                 with ProcessPoolExecutor(max_workers=max_procs) as executor:
                     all_results = executor.map(CompositeAnalysis._run_sub_analysis,
-                                               [x[0] for x in task_list],
-                                               [x[1] for x in task_list],
-                                               [thread_outputs.get(x[2]) for x in task_list],
+                                               analyses.values(),
+                                               sub_data.values(),
+                                               [thread_outputs.get(x[2]) for x in task_ids],
                                                [True] * len(task_list))
             finally:
                 # Restore the original states of the data and analyses
-                for (an, sub_data, _), backend, runfunc in zip(task_list, backends, runfuncs):
-                    sub_data.backend = backend
-                    an.run = runfunc
+                for tid, backend, runfunc in zip(task_ids, backends, runfuncs):
+                    sub_data[tid].backend = backend
+                    analyses[tid].run = runfunc
 
             logger.debug('Done in %.3f seconds.', time.time() - start)
 
         else:
-            all_results = [CompositeAnalysis._run_sub_analysis(analysis, sub_expdata)
-                           for analysis, sub_expdata, _ in task_list]
+            all_results = map(CompositeAnalysis._run_sub_analysis,
+                              analyses.values(),
+                              sub_data.values())
 
-        for (status, retval), (_, sub_expdata, task_id) in zip(all_results, task_list):
+        for (status, retval), task_id in zip(all_results, task_ids):
             if status == AnalysisStatus.ERROR:
                 exc, stacktrace = retval
                 sys.stderr.write(stacktrace)
@@ -299,13 +326,13 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                     raise AnalysisError(f'Analysis failed for analysis {task_id}') from exc
             elif max_procs != 0:
                 # Multiprocess -> need to insert results to the experiment data in this process
-                sub_expdata._clear_results()
+                sub_data[task_id]._clear_results()
                 analysis_results, figures = retval
                 if analysis_results:
-                    sub_expdata.add_analysis_results(analysis_results)
+                    sub_data[task_id].add_analysis_results(analysis_results)
                 if figures:
-                    sub_expdata.add_figures([f.figure for f in figures],
-                                             figure_names=[f.name for f in figures])
+                    sub_data[task_id].add_figures([f.figure for f in figures],
+                                                   figure_names=[f.name for f in figures])
 
         # Combine the child data if the analysis requires flattening
         # Entries in subdata_map is innermost-first
@@ -334,7 +361,8 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                 if self.options.parallelize == 0 and task_id != ():
                     # Wait for completion
                     result = future.result()
-                    if isinstance(result, Exception) and analysis.options.get('ignore_failed', False):
+                    if (isinstance(result, Exception)
+                        and analysis.options.get('ignore_failed', False)):
                         raise AnalysisError(f'Postanalysis failed for {task_id}') from result
 
         try:
