@@ -8,17 +8,18 @@ import numpy as np
 import scipy.optimize as sciopt
 from uncertainties import correlated_values, ufloat, unumpy as unp
 from qiskit import QuantumCircuit
-from qiskit.circuit import Parameter
+from qiskit.circuit import Gate, Parameter
 from qiskit.pulse import ScheduleBlock
 from qiskit.providers import Backend, Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.database_service.exceptions import ExperimentEntryNotFound
 from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
-from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
+from qiskit_experiments.framework import AnalysisResultData, BackendTiming, ExperimentData, Options
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ...util.bloch import so3_cartesian, so3_cartesian_axnorm, su2_cartesian_axnorm, su2_cartesian_params
+from ...util.pulse_area import grounded_gauss_area
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
 from .util import RCRType, get_margin, make_cr_circuit, make_crcr_circuit
@@ -307,6 +308,9 @@ class CycledRepeatedCRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         analysis_results, figures = super()._run_additinal_analysis(experiment_data,
                                                                     analysis_results, figures)
 
+        scan_idx = experiment_data.metadata['scan_parameters'].index(self.options.width_name)
+        widths = np.array(experiment_data.metadata['scan_values'][scan_idx])
+        x_interp = np.linspace(widths[0], widths[-1], 100)
         popt_ufloats = analysis_results[-1].value
         # Slope and intercept (with uncertainties) of x[1] - x[0]
         lineparam = popt_ufloats[:, :2]
