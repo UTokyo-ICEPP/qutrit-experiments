@@ -83,7 +83,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             return AnalysisStatus.ERROR, (ex, traceback.format_exc())
 
     @staticmethod
-    def _run_sub_analysis_thread(
+    def _run_sub_analysis_threaded(
         analysis: ThreadedAnalysis,
         experiment_data: ExperimentData,
     ) -> Any:
@@ -275,14 +275,15 @@ class CompositeAnalysis(CompositeAnalysisOrig):
 
             start = time.time()
 
-            thread_outputs = {}
-            threaded_tasks = [tid for tid, an in analyses.items()
-                              if isinstance(an, ThreadedAnalysis)]
-            if threaded_tasks:
-                with ThreadPoolExecutor(max_workers=max_procs) as executor:
-                    results = executor.map(CompositeAnalysis._run_sub_analysis_thread,
-                                           analyses.values(), sub_data.values())
-                thread_outputs = dict(zip(threaded_tasks, results))
+            thread_outputs = [NO_THREAD] * len(task_ids)
+            with ThreadPoolExecutor(max_workers=max_procs) as executor:
+                futures = {}
+                for itask, (task_id, analysis) in enumerate(analyses.items()):
+                    if isinstance(analysis, ThreadedAnalysis):
+                        futures[itask] = executor.submit(analysis._run_analysis_threaded,
+                                                         sub_data[task_id])
+                for itask, future in futures.items():
+                    thread_outputs[itask] = future.result()
 
             # Backend cannot be pickled, so unset the attribute temporarily.
             # We use a list here but the backend cannot possibly be different among subdata..
@@ -301,8 +302,8 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                     all_results = executor.map(CompositeAnalysis._run_sub_analysis,
                                                analyses.values(),
                                                sub_data.values(),
-                                               [thread_outputs.get(x[2]) for x in task_ids],
-                                               [True] * len(task_list))
+                                               thread_outputs,
+                                               [True] * len(task_ids))
             finally:
                 # Restore the original states of the data and analyses
                 for tid, backend, runfunc in zip(task_ids, backends, runfuncs):
