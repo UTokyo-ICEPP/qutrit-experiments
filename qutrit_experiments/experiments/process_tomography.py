@@ -14,7 +14,7 @@ from qiskit_experiments.library.tomography.fitters.cvxpy_utils import cvxpy
 from qiskit_experiments.library.tomography.tomography_experiment import TomographyExperiment
 
 from ..constants import DEFAULT_SHOTS
-from ..framework.threaded_analysis import ThreadedAnalysis
+from ..framework.threaded_analysis import NO_THREAD, ThreadedAnalysis
 from ..transpilation import map_to_physical_qubits, translate_to_basis
 from ..util.unitary_fit import fit_unitary, plot_unitary_fit
 
@@ -257,8 +257,7 @@ class CircuitTomographyAnalysis(ProcessTomographyAnalysis, ThreadedAnalysis):
         if num_qubits == 1:
             return fit_unitary(experiment_data.data(), self.options.data_processor)
         else:
-            # Returning None will trigger composite analysis to call _run_analysis of this class
-            return ()
+            return None
 
     def _run_analysis_unthreaded(
         self,

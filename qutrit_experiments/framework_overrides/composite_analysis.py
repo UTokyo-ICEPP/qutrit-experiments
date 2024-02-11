@@ -15,7 +15,7 @@ from qiskit_experiments.framework import (AnalysisResult, AnalysisStatus, BaseAn
                                           ExperimentData, FigureData, Options)
 
 from ..framework.child_data import set_child_data_structure
-from ..framework.threaded_analysis import ThreadedAnalysis
+from ..framework.threaded_analysis import NO_THREAD, ThreadedAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
     def _run_sub_analysis(
         analysis: BaseAnalysis,
         experiment_data: ExperimentData,
-        thread_output: Optional[Any] = None,
+        thread_output: Optional[Any] = NO_THREAD,
         data_deserialized: bool = False
     ) -> tuple[
         AnalysisStatus,
@@ -59,7 +59,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         try:
             experiment_components = analysis._get_experiment_components(experiment_data)
             # making new analysis
-            if thread_output is None:
+            if thread_output is NO_THREAD:
                 results, figures = analysis._run_analysis(experiment_data)
             else:
                 results, figures = analysis._run_analysis_unthreaded(experiment_data, thread_output)
@@ -155,7 +155,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                         return [], []
                     return exc
             else:
-                thread_output = None
+                thread_output = NO_THREAD
 
             conn1, conn2 = Pipe()
             proc = Process(target=CompositeAnalysis._postanalysis,
@@ -189,7 +189,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         analysis: CompositeAnalysisOrig,
         parent_data: ExperimentData,
         component_data: list[ExperimentData],
-        thread_output: Optional[Any] = None,
+        thread_output: Optional[Any] = NO_THREAD,
         conn: Optional[Connection] = None
     ) -> tuple[list[AnalysisResult], list[FigureData]]:
         analysis_results, figures = [], []
@@ -199,9 +199,10 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             if analysis._flatten_results:
                 results, figures = analysis._combine_results(component_data)
 
-            if thread_output is not None:
+            if thread_output is not NO_THREAD:
                 results, figures = analysis._run_additional_analysis_unthreaded(parent_data,
-                                                                                results, figures)
+                                                                                results, figures,
+                                                                                thread_output)
             elif hasattr(analysis, '_run_additional_analysis'):
                 results, figures = analysis._run_additional_analysis(parent_data, results, figures)
 

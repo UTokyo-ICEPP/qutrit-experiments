@@ -25,3 +25,9 @@ class ThreadedAnalysis(BaseAnalysis):
         thread_output: Any
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         pass
+
+
+class NoThread:
+    pass
+
+NO_THREAD = NoThread()
