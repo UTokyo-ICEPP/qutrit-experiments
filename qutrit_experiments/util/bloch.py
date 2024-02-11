@@ -135,7 +135,7 @@ def so3_cartesian_params(matrix: array_like, npmod=np):
     cos = 1. - (npmod.sum(matrix[..., [2, 1, 0, 2, 1, 0], [1, 2, 2, 0, 0, 1]], axis=-1)
                 / 2. / npmod.sum(axis[..., [0, 1, 2]] * axis[..., [1, 2, 0]], axis=-1))
     theta = npmod.arccos(cos)
-    return axis * theta
+    return axis * theta[..., None]
 
 
 def normalized_rotation_axis(xyz: array_like, npmod=np):
