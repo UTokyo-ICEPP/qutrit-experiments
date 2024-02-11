@@ -5,6 +5,7 @@ import numpy as np
 from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.providers import Backend, Options
+from qiskit_experiments.database_service.exceptions import ExperimentEntryNotFound
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
@@ -154,9 +155,10 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
         if not prep_unitary_parameters:
             prep_unitary_parameters = self.options.prep_unitaries
         if prep_unitary_parameters:
-            analysis_results.append(
-                AnalysisResultData(name='raw_parameters', value=dict(unitary_parameters))
-            )
+            analysis_results.extend([
+                AnalysisResultData(name='raw_parameters', value=dict(unitary_parameters)),
+                AnalysisResultData(name='prep_parameters', value=dict(prep_unitary_parameters))
+            ])
             for control_state, prep_params in prep_unitary_parameters.items():
                 unitary = (so3_cartesian(-prep_params, npmod=unp)
                            @ so3_cartesian(unitary_parameters[control_state], npmod=unp))
@@ -356,11 +358,21 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         unitaries = []
         observeds = []
         predicteds = []
+        prep_params = None
         for child_index in component_index:
             child_data = experiment_data.child_data(child_index)
             if not control_states:
                 control_states = child_data.metadata['control_states']
-            unitaries.append(child_data.analysis_results('unitary_parameters').value)
+            try:
+                prep_params = child_data.analysis_results('prep_parameters').value
+                unitary_params = child_data.analysis_results('raw_parameters').value
+            except ExperimentEntryNotFound:
+                unitary_params = child_data.analysis_results('unitary_parameters').value
+            if prep_params is not None:
+                unitary_params = so3_cartesian_params(so3_cartesian(-prep_params, npmod=unp)
+                                                      @ so3_cartesian(unitary_params, npmod=unp),
+                                                      npmod=unp)
+            unitaries.append(unitary_params)
             observeds.append(child_data.analysis_results('expvals_observed').value)
             predicteds.append(child_data.analysis_results('expvals_predicted').value)
 
