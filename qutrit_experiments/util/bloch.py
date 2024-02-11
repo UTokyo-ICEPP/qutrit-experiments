@@ -8,7 +8,8 @@ from uncertainties import unumpy as unp
 array_like = Union[Number, np.ndarray, Sequence[Number]]
 twopi = 2. * np.pi
 # Define math functions not in unp
-for fname in ['array', 'square', 'sum', 'einsum', 'moveaxis']:
+for fname in ['array', 'square', 'sum', 'tensordot', 'matmul', 'eye', 'diagflat', 'roll',
+              'expand_dims', 'moveaxis', 'vectorize']:
     setattr(unp, fname, getattr(np, fname))
 
 
@@ -69,6 +70,8 @@ paulis = np.array([
 
 
 def su2_cartesian(xyz: array_like, npmod=np):
+    if npmod in (np, unp):
+        xyz = np.asarray(xyz)
     axis, norm = normalized_rotation_axis(xyz, npmod=npmod)
     return su2_cartesian_axnorm(axis, norm, npmod=npmod)
 
@@ -81,14 +84,18 @@ def su2_cartesian_axnorm(axis: array_like, norm: array_like, npmod=np):
 
 
 def su2_cartesian_params(unitary: array_like, npmod=np):
-    if npmod is np:
+    if npmod in (np, unp):
         unitary = np.asarray(unitary)
-    sin_axis = -npmod.einsum('...ij,kji->...k', unitary, paulis).imag / 2.
-    theta = npmod.arccos(npmod.einsum('...ii->...', unitary).real / 2.)[..., None] * 2.
-    return sin_axis / npmod.sin(theta / 2.) * theta
+    # ...ij,kji->...k
+    sin_axis = -npmod.tensordot(unitary, paulis, ((-2, -1), (-1, -2))).imag / 2.
+    cos = npmod.trace(unitary, axis1=-2, axis2=-1).real / 2.
+    theta_over_two = npmod.arccos(cos)[..., None]
+    return sin_axis / npmod.sin(theta_over_two) * theta_over_two * 2.
 
 
 def so3_cartesian(xyz: array_like, npmod=np):
+    if npmod in (np, unp):
+        xyz = np.asarray(xyz)
     axis, norm = normalized_rotation_axis(xyz, npmod=npmod)
     return so3_cartesian_axnorm(axis, norm, npmod=npmod)
 
@@ -96,7 +103,11 @@ def so3_cartesian(xyz: array_like, npmod=np):
 def so3_cartesian_axnorm(axis: array_like, norm: array_like, npmod=np):
     ctheta = npmod.cos(norm)
     ictheta = 1. - ctheta
-    matrix = npmod.einsum('...i,...j->...ij', axis, axis) * ictheta[..., None, None]
+    if npmod is unp:
+        # Somehow uncertainties wipes out the array-ness after arithmetic operations
+        ictheta = np.asarray(ictheta)
+    # ...i,...j->...ij (cannot use einsum when npmod is unp)
+    matrix = npmod.matmul(axis[..., None], axis[..., None, :]) * ictheta[..., None, None]
     extra_dims = tuple(range(matrix.ndim - 2))
     matrix += npmod.expand_dims(npmod.eye(3), extra_dims) * ctheta[..., None, None]
     vdiagflat = npmod.vectorize(npmod.diagflat, signature='(n)->(n,n)')
@@ -107,7 +118,7 @@ def so3_cartesian_axnorm(axis: array_like, norm: array_like, npmod=np):
 
 
 def so3_cartesian_params(matrix: array_like, npmod=np):
-    if npmod is np:
+    if npmod in (np, unp):
         matrix = np.asarray(matrix)
     sin_axis = np.moveaxis(
         npmod.array([
@@ -128,7 +139,7 @@ def so3_cartesian_params(matrix: array_like, npmod=np):
 
 
 def normalized_rotation_axis(xyz: array_like, npmod=np):
-    if npmod is np:
+    if npmod in (np, unp):
         xyz = np.asarray(xyz)
     norm = npmod.sqrt(npmod.sum(npmod.square(xyz), axis=-1))
     if npmod is unp:
