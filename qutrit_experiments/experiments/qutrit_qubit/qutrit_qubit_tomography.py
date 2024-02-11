@@ -369,9 +369,10 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
             except ExperimentEntryNotFound:
                 unitary_params = child_data.analysis_results('unitary_parameters').value
             if prep_params is not None:
-                unitary_params = so3_cartesian_params(so3_cartesian(-prep_params, npmod=unp)
-                                                      @ so3_cartesian(unitary_params, npmod=unp),
-                                                      npmod=unp)
+                for state, params in prep_params.items():
+                    unitary = (so3_cartesian(-params, npmod=unp)
+                               @ so3_cartesian(unitary_params[state], npmod=unp))
+                    unitary_params[state] = so3_cartesian_params(unitary, npmod=unp)
             unitaries.append(unitary_params)
             observeds.append(child_data.analysis_results('expvals_observed').value)
             predicteds.append(child_data.analysis_results('expvals_predicted').value)
