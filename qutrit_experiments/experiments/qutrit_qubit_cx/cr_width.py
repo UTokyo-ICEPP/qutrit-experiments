@@ -168,31 +168,31 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         # Fit in the unitary space
         def axis_from_params(params, npmod=np):
             psi, phi = params[2:]
-            return npmod.stack([
+            return npmod.array([
                 npmod.sin(psi) * npmod.cos(phi),
                 npmod.sin(psi) * npmod.sin(phi),
                 npmod.cos(psi)
-            ], axis=-1)
+            ])
 
         slope_norm = 1. / (widths[-1] - widths[0])
 
         def angle_from_params(params, wval):
             slope, intercept = params[:2]
-            return slope[..., None] * wval * slope_norm + intercept[..., None]
+            return wval * slope * slope_norm + intercept
 
         def make_objective(ic):
             prep_unitary = prep_unitaries.get(ic, np.eye(3))
-            std_devs_norm = unp.std_devs(expvals[ic])
-            std_devs_norm /= np.mean(std_devs_norm)
+            std_devs = unp.std_devs(expvals[ic])
             @jax.jit
-            def objective(params):
+            def objective(params, std_devs_scale):
                 r_elements = (prep_unitary @ so3_cartesian_axnorm(
                     axis_from_params(params, npmod=jnp),
                     angle_from_params(params, widths),
                     npmod=jnp
-                ))[iwidths[ic], initial_states[ic], meas_bases[ic]]
+                ))[iwidths[ic], meas_bases[ic], initial_states[ic]]
                 return jnp.sum(
-                    jnp.square((r_elements - unp.nominal_values(expvals[ic])) / std_devs_norm)
+                    jnp.square((r_elements - unp.nominal_values(expvals[ic]))
+                               / (std_devs / std_devs_scale))
                 )
             return objective
 
@@ -243,12 +243,12 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
             p0s[0, ..., 2:] = [psi, phi]
             p0s[1, ..., 2:] = [np.pi - psi, np.pi + phi]
 
-            fit_result = jax.vmap(solver.run)(p0s.reshape(-1, 4))
-            fvals = jax.vmap(objective)(fit_result.params)
-            print('fvals', fvals)
+            std_devs_scale = np.mean(unp.std_devs(expvals[ic]))
+
+            fit_result = jax.vmap(solver.run, in_axes=[0, None])(p0s.reshape(-1, 4), std_devs_scale)
+            fvals = jax.vmap(objective, in_axes=[0, None])(fit_result.params, std_devs_scale)
             iopt = np.argmin(fvals)
             popt = np.array(fit_result.params[iopt])
-            print('popt', popt)
             if popt[0] < 0.:
                 # Slope must be positive - invert the sign and the axis orientation
                 popt[0:2] *= -1.
@@ -259,7 +259,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
             # Keep phi in [-pi, pi]
             popt[3] = (popt[3] + np.pi) % twopi - np.pi
 
-            pcov = np.linalg.inv(jax.hessian(objective)(popt))
+            pcov = np.linalg.inv(jax.hessian(objective)(popt, 1.))
             popt_ufloats.append(
                 np.array(correlated_values(nom_values=popt, covariance_mat=pcov,
                                            tags=['slope', 'intercept', 'psi', 'phi']))

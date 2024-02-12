@@ -101,17 +101,20 @@ def so3_cartesian(xyz: array_like, npmod=np):
 
 
 def so3_cartesian_axnorm(axis: array_like, norm: array_like, npmod=np):
-    ctheta = npmod.cos(norm)
+    # axis shape: [A, 3]
+    # norm shape: [B]
+    # A and B must be broadcastable
+    ctheta = npmod.cos(norm)[..., None, None]
     ictheta = 1. - ctheta
-    if npmod is unp:
-        # Somehow uncertainties wipes out the array-ness after arithmetic operations
-        ictheta = np.asarray(ictheta)
-    # ...i,...j->...ij (cannot use einsum when npmod is unp)
-    matrix = npmod.matmul(axis[..., None], axis[..., None, :]) * ictheta[..., None, None]
-    extra_dims = tuple(range(matrix.ndim - 2))
-    matrix += npmod.expand_dims(npmod.eye(3), extra_dims) * ctheta[..., None, None]
-    vdiagflat = npmod.vectorize(npmod.diagflat, signature='(n)->(n,n)')
     stheta = npmod.sin(norm)[..., None, None]
+    # R_ij += (1-cosθ) u⊗u
+    # ...i,...j->...ij (cannot use einsum when npmod is unp)
+    matrix = npmod.matmul(axis[..., None], axis[..., None, :]) * ictheta
+    # R_ii += cosθ I
+    extra_dims = tuple(range(matrix.ndim - 2))
+    matrix += npmod.expand_dims(npmod.eye(3), extra_dims) * ctheta
+    # R_ij += sinθ [u]x
+    vdiagflat = npmod.vectorize(npmod.diagflat, signature='(n)->(n,n)')
     matrix += npmod.roll(vdiagflat(npmod.roll(axis, -1, axis=-1)), -1, axis=-1) * stheta
     matrix -= npmod.roll(vdiagflat(npmod.roll(axis, 1, axis=-1)), 1, axis=-1) * stheta
     return matrix
