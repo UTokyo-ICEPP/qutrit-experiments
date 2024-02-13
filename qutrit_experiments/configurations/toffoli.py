@@ -121,13 +121,13 @@ def qubits_assignment_error(runner, experiment_data):
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 @register_exp
 def c2t_cr_rough_width(runner):
-    """Few-sample CR HT just to measure ωx to find a rough estimate for the CR width in CRCR."""
-    from ..experiments.qutrit_qubit_cx.cr_rough_width import CycledRepeatedCRRoughWidthCal
+    """Few-sample CR UT to measure ωx to find a rough estimate for the CR width in CRCR."""
+    from ..experiments.qutrit_qubit_cx.cr_width import CRRoughWidthCal
     return ExperimentConfig(
-        CycledRepeatedCRRoughWidthCal,
+        CRRoughWidthCal,
         runner.program_data['qubits'][1:],
         args={
-            'widths': np.linspace(0., 4096., 9)
+            'widths': np.arange(128., 384., 64.)
         }
     )
 
@@ -165,10 +165,10 @@ def c2t_zzramsey(runner):
         QutritZZRamsey,
         runner.program_data['qubits'][1:],
         args={
-            'delays': np.linspace(0., 4.e-7, 16),
-            'osc_freq': 5.e+6
+            'delays': np.linspace(0., 4.e-7, 6),
+            'osc_freq': 2.e+6
         },
-        run_options={'shots': 4000}
+        run_options={'shots': 2000}
     )
 
 @register_post
@@ -399,15 +399,6 @@ def c2t_sizzle_c2_amp_scan(runner):
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 @register_exp
-def c2t_rcr_rotary(runner):
-    from ..experiments.qutrit_qubit_cx.repeated_cr_rotary import RepeatedCRRotaryAmplitudeCal
-    return ExperimentConfig(
-        RepeatedCRRotaryAmplitudeCal,
-        runner.program_data['qubits'][1:]
-    )
-
-@add_readout_mitigation(logical_qubits=[1], expval=True)
-@register_exp
 def c2t_crcr_cr_width(runner):
     from ..experiments.qutrit_qubit_cx.cr_width import CycledRepeatedCRWidthCal
     qubits = runner.program_data['qubits'][1:]
@@ -430,10 +421,30 @@ def c2t_crcr_cr_width(runner):
 
 @register_post
 def c2t_crcr_cr_width(runner, experiment_data):
-    params = unp.nominal_values(experiment_data.analysis_results('unitary_line_fit_params',
+    params = unp.nominal_values(experiment_data.analysis_results('unitary_linear_fit_params',
                                                                  block=False).value)
     runner.program_data['crcr_angle_per_dt'] = np.diff(params[:, 0] * np.sin(params[:, 2])
                                                        * np.cos(params[:, 3]))
+
+@add_readout_mitigation(logical_qubits=[1], expval=True)
+@register_exp
+def c2t_rcr_rotary(runner):
+    from ..experiments.qutrit_qubit_cx.repeated_cr_rotary import RepeatedCRRotaryAmplitudeCal
+    qubits = runner.program_data['qubits'][1:]
+
+    # Scan rotary amplitudes expected to generate +-2 rad rotations within one CR pulse
+    sigma = runner.calibrations.get_parameter_value('sigma', qubits, 'cr')
+    rsr = runner.calibrations.get_parameter_value('rsr', qubits, 'cr')
+    width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
+    gs_area = grounded_gauss_area(sigma, rsr, gs_factor=True) + width
+    angle_per_amp = rabi_freq_per_amp(runner.backend, qubits[1]) * runner.backend.dt * gs_area
+    amp = 2. / angle_per_amp
+    
+    return ExperimentConfig(
+        RepeatedCRRotaryAmplitudeCal,
+        runner.program_data['qubits'][1:],
+        args={'amplitudes': np.linspace(-amp, amp, 8)}
+    )
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 @register_exp

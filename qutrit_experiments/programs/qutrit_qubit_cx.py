@@ -30,7 +30,7 @@ def calibrate_qutrit_qubit_cx(
     # introduce siZZle
     fine_tune_cr(runner)
 
-    for exp_type in ['c2t_rcr_rotary', 'c2t_crcr_cr_width', 'c2t_crcr_rx_amp']:
+    for exp_type in ['c2t_crcr_cr_width', 'c2t_rcr_rotary', 'c2t_crcr_rx_amp']:
         exp_data[exp_type] = runner.run_experiment(exp_type)
 
 
