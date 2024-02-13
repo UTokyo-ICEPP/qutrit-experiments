@@ -425,7 +425,7 @@ def c2t_crcr_cr_width(runner, experiment_data):
     fit_params = experiment_data.analysis_results('unitary_linear_fit_params', block=False).value
     params = np.array([unp.nominal_values(fit_params[ic]) for ic in range(2)])
     runner.program_data['crcr_angle_per_dt'] = np.diff(params[:, 0] * np.sin(params[:, 2])
-                                                       * np.cos(params[:, 3]))
+                                                       * np.cos(params[:, 3]))[0]
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 @register_exp
@@ -460,10 +460,10 @@ def c2t_crcr_rx_amp(runner):
 
 @register_post
 def c2t_crcr_rx_amp(runner, experiment_data):
-    params = unp.nominal_values(experiment_data.analysis_results('unitary_line_fit_params',
+    params = unp.nominal_values(experiment_data.analysis_results('unitary_linear_fit_params',
                                                                  block=False).value)
     runner.program_data['crcr_angle_per_rx_amp'] = np.diff(params[:, 0] * np.sin(params[:, 2])
-                                                           * np.cos(params[: 3]))
+                                                           * np.cos(params[: 3]))[0]
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 @register_exp
