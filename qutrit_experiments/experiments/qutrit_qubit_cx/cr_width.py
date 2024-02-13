@@ -287,7 +287,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         return analysis_results, figures
 
 
-class CycledRepeatedCRWidthAnalysis(QutritQubitTomographyScanAnalysis):
+class CycledRepeatedCRWidthAnalysis(CRWidthAnalysis):
     """Analysis for CycledRepeatedCRWidth."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -300,6 +300,7 @@ class CycledRepeatedCRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         self,
         experiment_data: ExperimentData
     ) -> None:
+        super()._run_additional_analysis_threaded(experiment_data)
         self.options.figure_names.append(self.options.figure_name)
 
     def _run_additional_analysis(
@@ -308,13 +309,14 @@ class CycledRepeatedCRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         analysis_results: list[AnalysisResultData],
         figures: list[Figure]
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
-        analysis_results, figures = super()._run_additinal_analysis(experiment_data,
-                                                                    analysis_results, figures)
+        analysis_results, figures = super()._run_additional_analysis(experiment_data,
+                                                                     analysis_results, figures)
 
         scan_idx = experiment_data.metadata['scan_parameters'].index(self.options.width_name)
         widths = np.array(experiment_data.metadata['scan_values'][scan_idx])
         x_interp = np.linspace(widths[0], widths[-1], 100)
-        popt_ufloats = analysis_results[-1].value
+        popt_ufloats = next(res.value for res in analysis_results
+                            if res.name == 'unitary_linear_fit_params')
         # Slope and intercept (with uncertainties) of x[1] - x[0]
         lineparam = popt_ufloats[:, :2]
         psi, phi = popt_ufloats.T[2:]
