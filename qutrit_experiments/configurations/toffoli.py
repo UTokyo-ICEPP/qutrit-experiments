@@ -32,6 +32,7 @@ from .qutrit import (
 )
 
 logger = logging.getLogger(__name__)
+twopi = 2. * np.pi
 
 
 def register_single_qutrit_exp(function):
@@ -437,13 +438,15 @@ def c2t_rcr_rotary(runner):
     rsr = runner.calibrations.get_parameter_value('rsr', qubits, 'cr')
     width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
     gs_area = grounded_gauss_area(sigma, rsr, gs_factor=True) + width
-    angle_per_amp = rabi_freq_per_amp(runner.backend, qubits[1]) * runner.backend.dt * gs_area
+    angle_per_amp = (rabi_freq_per_amp(runner.backend, qubits[1]) * twopi * runner.backend.dt
+                     * gs_area)
     amp = 2. / angle_per_amp
     
     return ExperimentConfig(
         RepeatedCRRotaryAmplitudeCal,
         runner.program_data['qubits'][1:],
-        args={'amplitudes': np.linspace(-amp, amp, 8)}
+        args={'amplitudes': np.linspace(-amp, amp, 8)},
+        analysis_options={'thetax_per_amp': angle_per_amp}
     )
 
 @add_readout_mitigation(logical_qubits=[1], expval=True)

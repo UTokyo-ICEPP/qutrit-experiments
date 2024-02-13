@@ -2,7 +2,8 @@ from collections.abc import Sequence
 from typing import Optional
 from matplotlib.figure import Figure
 import numpy as np
-from uncertainties import unumpy as unp
+import scipy.optimize as sciopt
+from uncertainties import correlated_values, unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
 from qiskit.pulse import ScheduleBlock
@@ -40,7 +41,7 @@ class RepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
 
         super().__init__(physical_qubits, make_rcr_circuit(physical_qubits, cr_schedule, rcr_type),
                          amp_param_name, amplitudes, angle_param_name=angle_param_name,
-                         measure_preparations=measure_preparations,
+                         measure_preparations=measure_preparations, control_states=(1,),
                          backend=backend)
         self.analysis = RepeatedCRRotaryAmplitudeAnalysis(
             [exp.analysis for exp in self._experiments]
@@ -49,6 +50,12 @@ class RepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
 
 class RepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
     """Analysis for CycledRepeatedCRWidth."""
+    @classmethod
+    def _default_options(cls) -> Options:
+        options = super()._default_options()
+        options.thetax_per_amp = None
+        return options
+    
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
@@ -59,18 +66,25 @@ class RepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
                                                                      analysis_results, figures)
 
         amplitudes = np.array(experiment_data.metadata['scan_values'][0])
-        unitaries = next(res.value for res in analysis_results if res.name == 'unitary_parameters')
-        unitaries = unp.nominal_values(unitaries)
-        # Sort the amplitudes by max of |Y| over control states, then find the first local minimum
-        # of max |Z|
-        max_y = np.max(np.abs(unitaries[:, :, 1]), axis=1)
-        max_z = np.max(np.abs(unitaries[:, :, 2]), axis=1)
-        sort_by_y = np.argsort(max_y)
-        max_z_sorted = max_z[sort_by_y]
-        iamp = next(sort_by_y[idx] for idx in range(len(amplitudes) - 1)
-                    if max_z_sorted[idx] < max_z_sorted[idx + 1])
+        if (scale_p0 := self.options.thetax_per_amp) is None:
+            scale_p0 = 2. / np.amax(amplitudes)
+        unitaries = next(unp.nominal_values(np.squeeze(res.value)) for res in analysis_results
+                         if res.name == 'unitary_parameters')
+        # unitaries has shape [scan, 3] because of np.squeeze (only one control state is used)
+        # Fit a tangent curve to unitaries[:, :, 1]
+        def curve(x, norm, amp0, scale, offset):
+            return norm * np.tan((x - amp0) * scale) + offset
+        
+        norm_p0 = np.diff(unitaries[[0, -1], 1]) / np.diff(np.tan(amplitudes[[0, -1]] * scale_p0))
+        center = len(amplitudes) // 2
+        offset_p0 = unitaries[center, 1] - norm_p0 * np.tan(amplitudes[center] * scale_p0)
+        
+        popt, pcov = sciopt.curve_fit(curve, amplitudes, unitaries[:, 1],
+                                      p0=(norm_p0, 0., scale_p0, offset_p0))
+        popt_ufloats = correlated_values(popt, pcov)
+        # Necessary rotary amplitude 
         analysis_results.append(
-            AnalysisResultData(name='rotary_amp', value=amplitudes[iamp])
+            AnalysisResultData(name='rotary_amp', value=popt_ufloats[1])
         )
         return analysis_results, figures
 
