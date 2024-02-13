@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Optional
+from typing import Any, Optional
 from matplotlib.figure import Figure
 import jax
 import jax.numpy as jnp
@@ -108,8 +108,20 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
+        options.figure_name_template = 'linear_fit_c{state}'
         options.width_name = 'width'
         return options
+    
+    def _run_additional_analysis_threaded(
+        self,
+        experiment_data: ExperimentData
+    ) -> None:
+        # Update of options must be done in a thread
+        # Use the first child data for control state information
+        first = experiment_data.child_data(0)
+        control_states = first.metadata['control_states']
+        self.options.figure_names += [self.options.figure_name_template.format(state=ic)
+                                      for ic in control_states]
 
     def _run_additional_analysis(
         self,
@@ -196,28 +208,6 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
                 )
             return objective
 
-        # def fidelities(params, ic, npmod=np):
-        #     test_u = su2_cartesian_axnorm(
-        #         axis_from_params(params, npmod=npmod),
-        #         angle_from_params(params, widths),
-        #         npmod=npmod
-        #     )
-        #     # Has to be a jnp array because ic is
-        #     udag = su2_cartesian(npmod.array(unitary_params_n)[:, ic], npmod=npmod).conjugate()
-        #     return npmod.square(npmod.abs(npmod.einsum('wij,wij->w', udag, test_u) / 2.))
-
-        # @jax.jit
-        # def objective(params, ic):
-        #     return 1. - jnp.mean(fidelities(params, ic, npmod=jnp))
-
-        # # Negative log fidelity has too many local minima and is not a good objective for fitting,
-        # # but the uncertainties should be evaluated through this quantity
-        # # (There must be some mistake in my reasoning though; the uncertainties appear too large)
-        # def negative_log_fidelity(params, ic):
-        #     return -jnp.sum(jnp.log(fidelities(params, ic, npmod=jnp)))
-
-        # solver = jaxopt.GradientDescent(objective, maxiter=10000)
-
         popt_ufloats = []
 
         for ic in control_states:
@@ -291,14 +281,30 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
 
         popt_ufloats = np.array(popt_ufloats)
         analysis_results.append(
-            AnalysisResultData('unitary_line_fit_params', value=popt_ufloats)
+            AnalysisResultData('unitary_linear_fit_params', value=popt_ufloats)
         )
+
+        print(self.options.figure_names)
+        print(len(figures))
 
         return analysis_results, figures
 
 
 class CycledRepeatedCRWidthAnalysis(QutritQubitTomographyScanAnalysis):
     """Analysis for CycledRepeatedCRWidth."""
+    @classmethod
+    def _default_options(cls) -> Options:
+        options = super()._default_options()
+        # Parent class has a dynamic number of figures so we can't append to figure_names
+        options.figure_name = 'angle_diff'
+        return options
+    
+    def _run_additional_analysis_threaded(
+        self,
+        experiment_data: ExperimentData
+    ) -> None:
+        self.options.figure_names.append(self.options.figure_name)
+
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
@@ -361,7 +367,7 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         schedule = calibrations.get_schedule(schedule_name[0], physical_qubits,
                                              assign_params=assign_params)
         circuit = QuantumCircuit(2)
-        circuit.append(Gate('cr', 1, [width]), [0, 1])
+        circuit.append(Gate('cr', 2, [width]), [0, 1])
         circuit.add_calibration('cr', physical_qubits, schedule, [width])
 
         if (widths_exp := widths) is None:
