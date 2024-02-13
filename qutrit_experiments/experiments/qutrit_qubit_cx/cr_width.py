@@ -437,13 +437,13 @@ class CycledRepeatedCRWidthCal(BaseCalibrationExperiment, CycledRepeatedCRWidth)
         measure_preparations: bool = True,
         auto_update: bool = True
     ):
-        assign_params = {pname: Parameter(pname) for pname in cal_parameter_name}
-        cr_schedules = [calibrations.get_schedule(schedule_name, physical_qubits,
+        assign_params = {pname: Parameter(pname) for pname in cal_parameter_name[:2]}
+        cr_schedules = [calibrations.get_schedule(schedule_name[0], physical_qubits,
                                                   assign_params=assign_params)]
         for pname in ['cr_sign_angle', 'counter_sign_angle', 'cr_stark_sign_phase']:
             # Stark phase is relative to the CR angle, and we want to keep it the same for CRp and CRm
             assign_params[pname] = np.pi
-        cr_schedules.append(calibrations.get_schedule(schedule_name, physical_qubits,
+        cr_schedules.append(calibrations.get_schedule(schedule_name[0], physical_qubits,
                                                       assign_params=assign_params))
 
         super().__init__(
