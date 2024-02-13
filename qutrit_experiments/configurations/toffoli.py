@@ -422,8 +422,8 @@ def c2t_crcr_cr_width(runner):
 
 @register_post
 def c2t_crcr_cr_width(runner, experiment_data):
-    params = unp.nominal_values(experiment_data.analysis_results('unitary_linear_fit_params',
-                                                                 block=False).value)
+    fit_params = experiment_data.analysis_results('unitary_linear_fit_params', block=False).value
+    params = np.array([unp.nominal_values(fit_params[ic]) for ic in range(2)])
     runner.program_data['crcr_angle_per_dt'] = np.diff(params[:, 0] * np.sin(params[:, 2])
                                                        * np.cos(params[:, 3]))
 
@@ -440,7 +440,7 @@ def c2t_rcr_rotary(runner):
     gs_area = grounded_gauss_area(sigma, rsr, gs_factor=True) + width
     angle_per_amp = (rabi_freq_per_amp(runner.backend, qubits[1]) * twopi * runner.backend.dt
                      * gs_area)
-    amp = 2. / angle_per_amp
+    amp = 1. / angle_per_amp
     
     return ExperimentConfig(
         RepeatedCRRotaryAmplitudeCal,

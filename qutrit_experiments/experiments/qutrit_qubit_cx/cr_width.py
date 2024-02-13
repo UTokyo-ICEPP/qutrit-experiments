@@ -296,10 +296,10 @@ class CycledRepeatedCRWidthAnalysis(CRWidthAnalysis):
         dxintercept = np.diff(intercept * unp.sin(psi) * unp.cos(phi))[0]
         wmin = (np.pi - dxintercept) / dxslope
         while wmin.n < 0.:
-            wmin += twopi / np.abs(slope.n)
-        while (wtest := wmin - twopi / np.abs(slope.n)).n > 0.:
+            wmin += twopi / np.abs(dxslope.n)
+        while (wtest := wmin - twopi / np.abs(dxslope.n)).n > 0.:
             wmin = wtest
-        cx_sign = np.sign(slope.n * wmin.n + intercept.n)
+        cx_sign = np.sign(dxslope.n * wmin.n + dxintercept.n)
 
         analysis_results.extend([
             AnalysisResultData(name='cr_width', value=wmin),
@@ -315,7 +315,7 @@ class CycledRepeatedCRWidthAnalysis(CRWidthAnalysis):
             plotter.set_series_data(
                 'angle_diff',
                 x_interp=x_interp,
-                y_interp=slope.n * x_interp + intercept.n
+                y_interp=dxslope.n * x_interp + dxintercept.n
             )
             figures.append(plotter.figure())
 

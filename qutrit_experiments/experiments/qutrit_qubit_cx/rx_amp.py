@@ -3,7 +3,7 @@ from typing import Optional
 from matplotlib.figure import Figure
 import numpy as np
 import scipy.optimize as sciopt
-from uncertainties import unumpy as unp
+from uncertainties import correlated_values, unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
 from qiskit.pulse import ScheduleBlock
@@ -73,10 +73,14 @@ class CycledRepeatedCRRxAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
         imin = np.argmin(np.abs(x0_steps))
         p0_a = x0_steps[imin] / np.diff(amplitudes)[0]
         p0_b = x0[0] - p0_a * amplitudes[0]
-        popt, _ = sciopt.curve_fit(curve, amplitudes, x0, p0=(p0_a, p0_b))
+        popt, pcov = sciopt.curve_fit(curve, amplitudes, x0, p0=(p0_a, p0_b))
+        popt_ufloats = correlated_values(popt, pcov)
         rx_amp = -popt[1] / popt[0]
 
-        analysis_results.append(AnalysisResultData(name='rx_amp', value=rx_amp))
+        analysis_results.extend([
+            AnalysisResultData(name='unitary_linear_fit_params', value=popt_ufloats),
+            AnalysisResultData(name='rx_amp', value=rx_amp)
+        ])
 
         if self.options.plot:
             ax = figures[0].axes[0]
