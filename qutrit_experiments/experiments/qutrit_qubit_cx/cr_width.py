@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from matplotlib.figure import Figure
 import jax
 import jax.numpy as jnp
@@ -356,7 +356,7 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['width', 'cr_base_angle', 'rcr_type'],
+        cal_parameter_name: list[str] = ['width', 'cr_base_angle', 'rcr_type'],                                 
         schedule_name: str = ['cr', 'cr', None],
         auto_update: bool = True,
         widths: Optional[Sequence[float]] = None
@@ -365,19 +365,12 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         assign_params = {cal_parameter_name[0]: width, 'margin': 0}
         schedule = calibrations.get_schedule(schedule_name[0], physical_qubits,
                                              assign_params=assign_params)
-        circuit = QuantumCircuit(2)
-        circuit.append(Gate('cr', 2, [width]), [0, 1])
-        circuit.add_calibration('cr', physical_qubits, schedule, [width])
-
-        if (widths_exp := widths) is None:
-            widths_exp = self._default_experiment_options().widths
-
         super().__init__(
             calibrations,
             physical_qubits,
-            circuit,
+            schedule,
             'width',
-            widths_exp,
+            widths,
             backend=backend,
             schedule_name=schedule_name,
             cal_parameter_name=cal_parameter_name,
@@ -406,19 +399,21 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         # 1 blocks (assuming all blocks are ~pure X rotations after base angle adjustment)
         rotation = np.array([[np.cos(dphi), np.sin(dphi)], [-np.sin(dphi), np.cos(dphi)]])
         omega_x = np.einsum('ij,cj->ci', rotation, hxy_cb)[:, 0]
+        # Angle per CR width of block 0 of CRCR for two RCR types
         crcr_omega_0 = 2. * np.array([omega_x[2], omega_x[0]])
+        # Angle per CR width of block 2 of CRCR for two RCR types
         crcr_omega_1 = 2. * np.sum(omega_x[None, :] * np.array([[1., 1., -1.], [-1., 1., 1.]]),
-                                axis=1)
-        crcr_rel_freqs = np.abs(crcr_omega_1 - crcr_omega_0)
+                                   axis=1)
+        crcr_rel_freqs = crcr_omega_1 - crcr_omega_0
         # Whichever RCR type with larger angular rate will be used
-        rcr_type_index = np.argmax(crcr_rel_freqs)
+        rcr_type_index = np.argmax(np.abs(crcr_rel_freqs))
         rcr_type = [RCRType.X, RCRType.X12][rcr_type_index]
         # Compute the width accounting for the gaussiansquare flanks
         sigma = self._cals.get_parameter_value('sigma', self.physical_qubits, self._sched_name[0])
         rsr = self._cals.get_parameter_value('rsr', self.physical_qubits, self._sched_name[0])
         flank = grounded_gauss_area(sigma, rsr, True)
         cr_width = BackendTiming(self._backend).round_pulse(
-            samples=np.pi / crcr_rel_freqs[rcr_type_index] - flank
+            samples=np.pi / np.abs(crcr_rel_freqs[rcr_type_index]) - flank
         )
 
         for pname, sname, value in zip(self._param_name, self._sched_name,
@@ -436,8 +431,8 @@ class CycledRepeatedCRWidthCal(BaseCalibrationExperiment, CycledRepeatedCRWidth)
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['width', 'margin'],
-        schedule_name: str = 'cr',
+        cal_parameter_name: list[str] = ['width', 'margin', 'qutrit_qubit_cx_sign'],
+        schedule_name: list[Union[str, None]] = ['cr', 'cr', None],
         widths: Optional[Sequence[float]] = None,
         measure_preparations: bool = True,
         auto_update: bool = True
@@ -474,9 +469,11 @@ class CycledRepeatedCRWidthCal(BaseCalibrationExperiment, CycledRepeatedCRWidth)
         null_sched = self._cals.get_schedule(self._sched_name, self.physical_qubits,
                                              assign_params={p: 0. for p in self._param_name})
         margin = get_margin(null_sched.duration, width, self._backend)
+        cx_sign = experiment_data.analysis_results('cx_sign', block=False).value
 
-        for pname, value in zip(self._param_name, [width, margin]):
+        for pname, sname, value in zip(self._param_name, self._sched_name,
+                                       [width, margin, cx_sign]):
             BaseUpdater.add_parameter_value(
-                self._cals, experiment_data, value, pname, schedule=self._sched_name,
+                self._cals, experiment_data, value, pname, schedule=sname,
                 group=self.experiment_options.group
             )

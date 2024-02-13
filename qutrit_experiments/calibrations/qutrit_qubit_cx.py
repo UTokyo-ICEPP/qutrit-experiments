@@ -126,6 +126,7 @@ def add_crcr_elements(
 ) -> None:
     """Add the parameter for rcr type and the schedule for offset Rx on the target qubit."""
     calibrations._register_parameter(Parameter('rcr_type'), ())
+    calibrations._register_parameter(Parameter('qutrit_qubit_cx_sign'), ())
 
     duration = Parameter('duration')
     amp = Parameter('amp')
