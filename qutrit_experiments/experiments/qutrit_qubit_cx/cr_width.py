@@ -18,7 +18,7 @@ from qiskit_experiments.data_processing import BasisExpectationValue, DataProces
 from qiskit_experiments.framework import AnalysisResultData, BackendTiming, ExperimentData, Options
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ...util.bloch import so3_cartesian, so3_cartesian_axnorm, su2_cartesian_axnorm, su2_cartesian_params
+from ...util.bloch import so3_cartesian, so3_cartesian_axnorm, so3_cartesian_params
 from ...util.pulse_area import grounded_gauss_area
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
@@ -108,21 +108,9 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
-        options.figure_name_template = 'linear_fit_c{state}'
         options.width_name = 'width'
         return options
     
-    def _run_additional_analysis_threaded(
-        self,
-        experiment_data: ExperimentData
-    ) -> None:
-        # Update of options must be done in a thread
-        # Use the first child data for control state information
-        first = experiment_data.child_data(0)
-        control_states = first.metadata['control_states']
-        self.options.figure_names += [self.options.figure_name_template.format(state=ic)
-                                      for ic in control_states]
-
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
@@ -139,7 +127,6 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         unitary_params_n = unp.nominal_values(unitary_params)
         scan_idx = experiment_data.metadata['scan_parameters'].index(self.options.width_name)
         widths = np.array(experiment_data.metadata['scan_values'][scan_idx])
-        x_interp = np.linspace(widths[0], widths[-1], 100)
 
         # Use the first child data for control state information
         first = experiment_data.child_data(0)
@@ -208,7 +195,8 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
                 )
             return objective
 
-        popt_ufloats = []
+        popts = {}
+        popt_ufloats = {}
 
         for ic in control_states:
             objective = make_objective(ic)
@@ -248,41 +236,32 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
             popt[1] %= twopi
             # Keep phi in [-pi, pi]
             popt[3] = (popt[3] + np.pi) % twopi - np.pi
+            popts[ic] = popt
 
             pcov = np.linalg.inv(jax.hessian(objective)(popt, 1.))
-            popt_ufloats.append(
-                np.array(correlated_values(nom_values=popt, covariance_mat=pcov,
-                                           tags=['slope', 'intercept', 'psi', 'phi']))
-            )
-            popt_ufloats[-1][0] *= slope_norm
+            popt_ufloats[ic] = np.array(correlated_values(nom_values=popt, covariance_mat=pcov,
+                                        tags=['slope', 'intercept', 'psi', 'phi']))
+            popt_ufloats[ic][0] *= slope_norm
 
-            if self.options.plot:
-                plotter = CurvePlotter(MplDrawer())
-                plotter.set_figure_options(
-                    xlabel='CR width',
-                    ylabel='angle',
-                    ylim=(-np.pi - 0.1, np.pi + 0.1)
-                )
-                axis = axis_from_params(popt)
-                # Constrain theta to [-pi, pi] because the observed unitary parameters are in that
-                # domain
-                theta = (angle_from_params(popt, x_interp) + np.pi) % twopi - np.pi
-                xyz_pred = su2_cartesian_params(su2_cartesian_axnorm(axis, theta))
-                for iax, ax in enumerate(['x', 'y', 'z']):
-                    plotter.set_series_data(
-                        ax,
-                        x_formatted=widths,
-                        y_formatted=unitary_params_n[:, ic, iax],
-                        y_formatted_err=unp.std_devs(unitary_params[:, ic, iax]),
-                        x_interp=x_interp,
-                        y_interp=xyz_pred[:, iax]
-                    )
-                figures.append(plotter.figure())
-
-        popt_ufloats = np.array(popt_ufloats)
         analysis_results.append(
             AnalysisResultData('unitary_linear_fit_params', value=popt_ufloats)
         )
+
+        if self.options.plot:
+            x_interp = np.linspace(widths[0], widths[-1], 100)
+            xyz_preds = {
+                ic: so3_cartesian_params(
+                    so3_cartesian_axnorm(
+                        axis_from_params(popts[ic]),
+                        angle_from_params(popts[ic], x_interp)
+                    )
+                )
+                for ic in control_states
+            }
+            for iax, figure in enumerate(figures[:3]):
+                ax = figure.axes[0]
+                for ic in control_states:
+                    ax.plot(x_interp, xyz_preds[ic][:, iax])
 
         return analysis_results, figures
 
@@ -292,17 +271,9 @@ class CycledRepeatedCRWidthAnalysis(CRWidthAnalysis):
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
-        # Parent class has a dynamic number of figures so we can't append to figure_names
-        options.figure_name = 'angle_diff'
+        options.figure_names.append('angle_diff')
         return options
     
-    def _run_additional_analysis_threaded(
-        self,
-        experiment_data: ExperimentData
-    ) -> None:
-        super()._run_additional_analysis_threaded(experiment_data)
-        self.options.figure_names.append(self.options.figure_name)
-
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
@@ -315,14 +286,15 @@ class CycledRepeatedCRWidthAnalysis(CRWidthAnalysis):
         scan_idx = experiment_data.metadata['scan_parameters'].index(self.options.width_name)
         widths = np.array(experiment_data.metadata['scan_values'][scan_idx])
         x_interp = np.linspace(widths[0], widths[-1], 100)
-        popt_ufloats = next(res.value for res in analysis_results
-                            if res.name == 'unitary_linear_fit_params')
+        fit_params = next(res.value for res in analysis_results
+                          if res.name == 'unitary_linear_fit_params')
         # Slope and intercept (with uncertainties) of x[1] - x[0]
-        lineparam = popt_ufloats[:, :2]
-        psi, phi = popt_ufloats.T[2:]
-        slope, intercept = (lineparam[1] * unp.sin(psi[1]) * unp.cos(phi[1])
-                            - lineparam[0] * unp.sin(psi[0]) * unp.cos(phi[0]))
-        wmin = (np.pi - intercept) / slope
+        slope, intercept, psi, phi = [
+            np.array([fit_params[0][ip], fit_params[1][ip]]) for ip in range(4)
+        ]
+        dxslope = np.diff(slope * unp.sin(psi) * unp.cos(phi))[0]
+        dxintercept = np.diff(intercept * unp.sin(psi) * unp.cos(phi))[0]
+        wmin = (np.pi - dxintercept) / dxslope
         while wmin.n < 0.:
             wmin += twopi / np.abs(slope.n)
         while (wtest := wmin - twopi / np.abs(slope.n)).n > 0.:
@@ -381,12 +353,13 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         pass
 
     def update_calibrations(self, experiment_data: ExperimentData):
-        slope, _, psi, phi = unp.nominal_values(
-            experiment_data.analysis_results('unitary_linear_fit_params', block=False).value
-        ).transpose((1, 0))
+        fit_params = experiment_data.analysis_results('unitary_linear_fit_params',
+                                                      block=False).value
+        slope = np.array([fit_params[ic][0].n for ic in range(3)])
+        psi = np.array([fit_params[ic][2].n for ic in range(3)])
+        phi = np.array([fit_params[ic][3].n for ic in range(3)])
         # XY Hamiltonian expressed in control-state basis
-        ht_cb = slope * np.sin(psi)
-        hxy_cb = ht_cb[:, None] * np.array([np.cos(phi), np.sin(phi)]).T
+        hxy_cb = (slope * np.sin(psi))[:, None] * np.array([np.cos(phi), np.sin(phi)]).T
         # XY Hamiltonian in operation (I, z, ζ) basis
         hxy_ob = np.linalg.inv([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) @ hxy_cb
         # Calculate the angle overshoot from zy/zx
@@ -466,8 +439,8 @@ class CycledRepeatedCRWidthCal(BaseCalibrationExperiment, CycledRepeatedCRWidth)
 
     def update_calibrations(self, experiment_data: ExperimentData):
         width = experiment_data.analysis_results('cr_width', block=False).value.n
-        null_sched = self._cals.get_schedule(self._sched_name, self.physical_qubits,
-                                             assign_params={p: 0. for p in self._param_name})
+        null_sched = self._cals.get_schedule(self._sched_name[0], self.physical_qubits,
+                                             assign_params={p: 0. for p in self._param_name[:2]})
         margin = get_margin(null_sched.duration, width, self._backend)
         cx_sign = experiment_data.analysis_results('cx_sign', block=False).value
 

@@ -39,9 +39,9 @@ def fine_tune_cr(runner: ExperimentsRunner):
     qubits = tuple(runner.program_data['qubits'][1:])
     cr_width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
 
-    slope, _, psi, _ = unp.nominal_values(
-        exp_data['c2t_cr_rough_width'].analysis_results('unitary_linear_fit_params').value
-    ).transpose((1, 0))
+    fit_params = exp_data['c2t_cr_rough_width'].analysis_results('unitary_linear_fit_params').value
+    slope = np.array([fit_params[ic][0].n for ic in range(3)])
+    psi = np.array([fit_params[ic][2].n for ic in range(3)])
     # Disregard the intercept because the logic below is all in terms of omega_z
     # The idea is that by cancelling / suppressing omega_z the intercept should be
     # reduced ~linearly
