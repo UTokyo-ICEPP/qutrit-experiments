@@ -284,9 +284,6 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
             AnalysisResultData('unitary_linear_fit_params', value=popt_ufloats)
         )
 
-        print(self.options.figure_names)
-        print(len(figures))
-
         return analysis_results, figures
 
 
@@ -389,21 +386,27 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         pass
 
     def update_calibrations(self, experiment_data: ExperimentData):
-        # [[slope, intercept, psi, phi] * control_states]
-        params = unp.nominal_values(
-            experiment_data.analysis_results('unitary_linear_parameters', block=False).value
-        )
-        # Calculate the angle overshoot from control=0
+        slope, _, psi, phi = unp.nominal_values(
+            experiment_data.analysis_results('unitary_linear_fit_params', block=False).value
+        ).transpose((1, 0))
+        # XY Hamiltonian expressed in control-state basis
+        ht_cb = slope * np.sin(psi)
+        hxy_cb = ht_cb[:, None] * np.array([np.cos(phi), np.sin(phi)]).T
+        # XY Hamiltonian in operation (I, z, ζ) basis
+        hxy_ob = np.linalg.inv([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) @ hxy_cb
+        # Calculate the angle overshoot from zy/zx
         current_angle = self._cals.get_parameter_value(self._param_name[1], self.physical_qubits,
-                                                       self._sched_name[1])
-        cr_base_angle = (current_angle - params[0, 3]) % twopi
+                                                    self._sched_name[1])
+        dphi = np.arctan2(hxy_ob[1, 1], hxy_ob[1, 0])
+        cr_base_angle = (current_angle - dphi) % twopi
 
         # Approximate angular rate at which the Rabi phase difference accummulates between 0/2 and
-        # 1 blocks
-        omega_x = params[:, 0] * np.sin(params[:, 2])
+        # 1 blocks (assuming all blocks are ~pure X rotations after base angle adjustment)
+        rotation = np.array([[np.cos(dphi), np.sin(dphi)], [-np.sin(dphi), np.cos(dphi)]])
+        omega_x = np.einsum('ij,cj->ci', rotation, hxy_cb)[:, 0]
         crcr_omega_0 = 2. * np.array([omega_x[2], omega_x[0]])
         crcr_omega_1 = 2. * np.sum(omega_x[None, :] * np.array([[1., 1., -1.], [-1., 1., 1.]]),
-                                   axis=1)
+                                axis=1)
         crcr_rel_freqs = np.abs(crcr_omega_1 - crcr_omega_0)
         # Whichever RCR type with larger angular rate will be used
         rcr_type_index = np.argmax(crcr_rel_freqs)
@@ -413,7 +416,7 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         rsr = self._cals.get_parameter_value('rsr', self.physical_qubits, self._sched_name[0])
         flank = grounded_gauss_area(sigma, rsr, True)
         cr_width = BackendTiming(self._backend).round_pulse(
-            samples=np.pi / crcr_rel_freqs[rcr_type_index] / self._backend.dt - flank
+            samples=np.pi / crcr_rel_freqs[rcr_type_index] - flank
         )
 
         for pname, sname, value in zip(self._param_name, self._sched_name,
