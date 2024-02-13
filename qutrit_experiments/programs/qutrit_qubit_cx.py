@@ -6,6 +6,7 @@ from uncertainties import unumpy as unp
 from qiskit_experiments.framework import BackendTiming
 
 from ..runners import ExperimentsRunner
+from ..util.bloch import so3_cartesian_axnorm
 from ..util.pulse_area import grounded_gauss_area
 from ..util.sizzle import sizzle_hamiltonian_shifts
 
@@ -27,48 +28,54 @@ def calibrate_qutrit_qubit_cx(
 
     # Check the Z components of the CR Hamiltonian and decide whether to tune down the amplitude or
     # introduce siZZle
-    sizzle_params = fine_tune_cr(runner)
-
-    if sizzle_params is not None:
-        runner.calibrations.add_parameter_value(sizzle_params['frequency'], 'stark_frequency',
-                                                qubits, 'cr')
-        exp_data['c2t_sizzle_t_amp_scan'] = runner.run_experiment('c2t_sizzle_t_amp_scan')
-        if runner.calibrations.get_parameter_value('counter_stark_amp', qubits, 'cr') > 0.1:
-            exp_data['c2t_sizzle_c2_amp_scan'] = runner.run_experiment('c2t_sizzle_c2_amp_scan')
+    fine_tune_cr(runner)
 
     for exp_type in ['c2t_rcr_rotary', 'c2t_crcr_cr_width', 'c2t_crcr_rx_amp']:
         exp_data[exp_type] = runner.run_experiment(exp_type)
 
 
-def fine_tune_cr(runner: ExperimentsRunner) -> Union[float, None]:
+def fine_tune_cr(runner: ExperimentsRunner):
     exp_data = runner.program_data['experiment_data']
     qubits = tuple(runner.program_data['qubits'][1:])
     cr_width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
 
-    cr_omega = exp_data['c2t_cr_rough_width'].analysis_results('hamiltonian_components').value
-    omega_z = unp.nominal_values(cr_omega)[:, 2]
-    theta_z = omega_z * (cr_width + gauss_flank_area(runner)) * runner.backend.dt
+    slope, _, psi, _ = unp.nominal_values(
+        exp_data['c2t_cr_rough_width'].analysis_results('unitary_linear_fit_params').value
+    ).transpose((1, 0))
+    # Disregard the intercept because the logic below is all in terms of omega_z
+    # The idea is that by cancelling / suppressing omega_z the intercept should be
+    # reduced ~linearly
+    theta_z = slope * cr_width * np.cos(psi)
     if np.all(np.abs(theta_z) < 0.05):
-        return None
+        return
 
     # Otherwise first check the induced Zs
     exp_data['c2t_zzramsey'] = runner.run_experiment('c2t_zzramsey')
     static_omega_z = unp.nominal_values(runner.program_data['c2t_static_omega_zs'])
+    omega_z = slope * np.cos(psi) / runner.backend.dt
     induced_omega_z = omega_z - static_omega_z
     flank = gauss_flank_area(runner)
     induced_theta_z = induced_omega_z * (cr_width + flank) * runner.backend.dt
 
     if (max_induced := np.max(np.abs(induced_theta_z))) > 0.05:
-        scale_down_cr_amp(runner, omega_z, static_omega_z, 0.05 / max_induced)
+        omega_z = scale_down_cr_amp(runner, omega_z, static_omega_z, 0.05 / max_induced)
+        cr_width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
         theta_z = omega_z * (cr_width + flank) * runner.backend.dt
 
     if np.all(np.abs(theta_z) < 0.05) or np.abs(theta_z[0]) < 0.02:
         # If theta_Iz is too small, target Stark amplitude will be small too, leaving very little
         # room to maneuver with siZZle.
-        return None
+        return
 
     # Try siZZle to cancel the Z components
-    return get_sizzle_params(omega_z, runner)
+    if (sizzle_params := get_sizzle_params(omega_z, runner)) is None:
+        return
+
+    runner.calibrations.add_parameter_value(sizzle_params['frequency'], 'stark_frequency', qubits,
+                                            'cr')
+    exp_data['c2t_sizzle_t_amp_scan'] = runner.run_experiment('c2t_sizzle_t_amp_scan')
+    if runner.calibrations.get_parameter_value('counter_stark_amp', qubits, 'cr') > 0.1:
+        exp_data['c2t_sizzle_c2_amp_scan'] = runner.run_experiment('c2t_sizzle_c2_amp_scan')
 
 
 def gauss_flank_area(runner):
@@ -83,11 +90,11 @@ def scale_down_cr_amp(
     omega_z: np.ndarray,
     static_omega_z: np.ndarray,
     omega_z_scale: float
-):
+) -> np.ndarray:
     # Reduce the cr amplitude
     # Induced ωz should have form a*cr_amp^2
     amp_scale = np.sqrt(omega_z_scale)
-    omega_z[:] = (omega_z - static_omega_z) * omega_z_scale + static_omega_z
+    omega_z = (omega_z - static_omega_z) * omega_z_scale + static_omega_z
     flank = gauss_flank_area(runner)
 
     qubits = tuple(runner.program_data['qubits'][1:])
@@ -97,6 +104,7 @@ def scale_down_cr_amp(
     new_width = (current_width + flank) / amp_scale - flank
     new_width = BackendTiming(runner.backend).round_pulse(samples=new_width)
     runner.calibrations.add_parameter_value(new_width, 'width', qubits, 'cr')
+    return omega_z
 
 
 def get_sizzle_params(z_comps, runner):
