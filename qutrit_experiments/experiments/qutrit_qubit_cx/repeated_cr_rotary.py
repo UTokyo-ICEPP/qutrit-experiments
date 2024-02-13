@@ -64,28 +64,52 @@ class RepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         analysis_results, figures = super()._run_additional_analysis(experiment_data,
                                                                      analysis_results, figures)
-
         amplitudes = np.array(experiment_data.metadata['scan_values'][0])
         if (scale_p0 := self.options.thetax_per_amp) is None:
             scale_p0 = 2. / np.amax(amplitudes)
         unitaries = next(unp.nominal_values(np.squeeze(res.value)) for res in analysis_results
                          if res.name == 'unitary_parameters')
         # unitaries has shape [scan, 3] because of np.squeeze (only one control state is used)
-        # Fit a tangent curve to unitaries[:, :, 1]
+        # First identify the amplitude range where thetax has not jumped
+        # point closest to zero
+        center = np.argmin(np.abs(unitaries[:, 0]))
+        if center == len(amplitudes) - 1:
+            # Pathological case - what happened?
+            slope = (np.diff(unitaries[[center - 1, center], 0])
+                     / np.diff(amplitudes[[center - 1, center]]))[0]
+        else:
+            slope = (np.diff(unitaries[[center, center + 1], 0])
+                     / np.diff(amplitudes[[center, center + 1]]))[0]
+        intercept = unitaries[center, 0] - slope * amplitudes[center]
+        # Points where linear prediction is not off from observation by more than 1
+        indices = np.nonzero(np.abs(slope * amplitudes + intercept - unitaries[:, 0]) < 1.)[0]
+        amps_selected = amplitudes[indices]
+        uy_selected = unitaries[indices, 1]
+
+        # Fit a tangent curve to uy_selected
         def curve(x, norm, amp0, scale, offset):
             return norm * np.tan((x - amp0) * scale) + offset
         
-        norm_p0 = np.diff(unitaries[[0, -1], 1]) / np.diff(np.tan(amplitudes[[0, -1]] * scale_p0))
-        center = len(amplitudes) // 2
-        offset_p0 = unitaries[center, 1] - norm_p0 * np.tan(amplitudes[center] * scale_p0)
+        norm_p0 = (np.diff(uy_selected[[0, -1]])
+                   / np.diff(np.tan(amps_selected[[0, -1]] * scale_p0)))[0]
+        center = len(amps_selected) // 2
+        offset_p0 = uy_selected[center] - norm_p0 * np.tan(amps_selected[center] * scale_p0)
         
-        popt, pcov = sciopt.curve_fit(curve, amplitudes, unitaries[:, 1],
+        popt, pcov = sciopt.curve_fit(curve, amps_selected, uy_selected,
                                       p0=(norm_p0, 0., scale_p0, offset_p0))
         popt_ufloats = correlated_values(popt, pcov)
         # Necessary rotary amplitude 
         analysis_results.append(
             AnalysisResultData(name='rotary_amp', value=popt_ufloats[1])
         )
+
+        if self.options.plot:
+            ax = figures[1].axes[0]
+            x_interp = np.linspace(amps_selected[0], amps_selected[-1], 100)
+            y_interp = curve(x_interp, *popt)
+            ax.plot(x_interp, y_interp, label='fit')
+            ax.legend()
+
         return analysis_results, figures
 
 
@@ -126,7 +150,8 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, RepeatedCRRotaryAm
         pass
 
     def update_calibrations(self, experiment_data: ExperimentData):
-        amplitude = experiment_data.analysis_results('rotary_amp', block=False).value
+        result_index = self.experiment_options.result_index
+        amplitude = BaseUpdater.get_value(experiment_data, 'rotary_amp', result_index)
         angle = 0.
         if amplitude < 0.:
             amplitude *= -1.
