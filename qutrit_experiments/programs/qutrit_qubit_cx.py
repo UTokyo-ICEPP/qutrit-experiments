@@ -5,8 +5,9 @@ import scipy.optimize as sciopt
 from uncertainties import unumpy as unp
 from qiskit_experiments.framework import BackendTiming
 
+from ..experiments.qutrit_qubit_cx.util import RCRType
 from ..runners import ExperimentsRunner
-from ..util.bloch import so3_cartesian_axnorm
+from ..util.bloch import so3_cartesian_axnorm, so3_cartesian_params
 from ..util.pulse_area import grounded_gauss_area
 from ..util.sizzle import sizzle_hamiltonian_shifts
 
@@ -30,7 +31,31 @@ def calibrate_qutrit_qubit_cx(
     # introduce siZZle
     fine_tune_cr(runner)
 
-    for exp_type in ['c2t_crcr_cr_width', 'c2t_rcr_rotary', 'c2t_crcr_rx_amp']:
+    exp_type = 'c2t_crcr_cr_width'
+    exp_data[exp_type] = runner.run_experiment(exp_type)
+
+    # Compute the expected RCR unitary in block 1 as an input to c2t_rcr_rotary
+    fit_params = exp_data['c2t_cr_rough_width'].analysis_results('unitary_linear_fit_params').value
+    slope, intercept, psi, phi = np.array([unp.nominal_values(fit_params[ic]) for ic in range(3)]).T
+    rcr_type = runner.calibrations.get_parameter_value('rcr_type', qubits)
+    cr_width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
+    thetas = slope * cr_width + intercept
+    axes = np.array([np.sin(psi) * np.cos(phi), np.sin(psi) * np.sin(phi), np.cos(psi)]).T
+    cr_unitaries = so3_cartesian_axnorm(axes, thetas)
+    if rcr_type == RCRType.X:
+        block1_unitary = cr_unitaries[0] @ cr_unitaries[1]
+    else:
+        block1_unitary = cr_unitaries[2] @ cr_unitaries[1]
+    unitary_params = so3_cartesian_params(block1_unitary)
+    # Rotation angle should not wrap under the application of rotary test pulse
+    # At this point block1_unitary should be close to pure-X so we just consider X values
+    runner.program_data['rcr_rotary_test_angles'] = np.linspace(
+        -np.pi - unitary_params[0] + 0.8, # Give sufficient buffer
+        np.pi - unitary_params[0] - 0.8,
+        8
+    )
+
+    for exp_type in ['c2t_rcr_rotary', 'c2t_crcr_rx_amp']:
         exp_data[exp_type] = runner.run_experiment(exp_type)
 
 

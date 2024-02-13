@@ -422,6 +422,7 @@ def c2t_crcr_cr_width(runner):
 
 @register_post
 def c2t_crcr_cr_width(runner, experiment_data):
+    # dθ/dt
     fit_params = experiment_data.analysis_results('unitary_linear_fit_params', block=False).value
     params = np.array([unp.nominal_values(fit_params[ic]) for ic in range(2)])
     runner.program_data['crcr_angle_per_dt'] = np.diff(params[:, 0] * np.sin(params[:, 2])
@@ -433,19 +434,21 @@ def c2t_rcr_rotary(runner):
     from ..experiments.qutrit_qubit_cx.repeated_cr_rotary import RepeatedCRRotaryAmplitudeCal
     qubits = runner.program_data['qubits'][1:]
 
-    # Scan rotary amplitudes expected to generate +-2 rad rotations within one CR pulse
     sigma = runner.calibrations.get_parameter_value('sigma', qubits, 'cr')
     rsr = runner.calibrations.get_parameter_value('rsr', qubits, 'cr')
     width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
     gs_area = grounded_gauss_area(sigma, rsr, gs_factor=True) + width
     angle_per_amp = (rabi_freq_per_amp(runner.backend, qubits[1]) * twopi * runner.backend.dt
                      * gs_area)
-    amp = 1. / angle_per_amp
-    
+    angle_per_amp *= 2. # Un-understood empirical factor 2
+    if (angles := runner.program_data.get('rcr_rotary_test_angles')) is None:
+        # Scan rotary amplitudes expected to generate +-1 rad rotations within one CR pulse
+        angles = np.linspace(-1., 1., 8)
+
     return ExperimentConfig(
         RepeatedCRRotaryAmplitudeCal,
         runner.program_data['qubits'][1:],
-        args={'amplitudes': np.linspace(-amp, amp, 8)},
+        args={'amplitudes': angles / angle_per_amp},
         analysis_options={'thetax_per_amp': angle_per_amp}
     )
 
