@@ -1,3 +1,5 @@
+"""Analysis with a part run in a thread of the main process when run parallel under
+CompositeAnalysis."""
 from abc import abstractmethod
 from typing import Any
 from matplotlib.figure import Figure
@@ -7,6 +9,8 @@ from qiskit_experiments.framework.experiment_data import ExperimentData
 
 
 class ThreadedAnalysis(BaseAnalysis):
+    """Analysis with a part run in a thread of the main process when run parallel under
+    CompositeAnalysis."""
     def _run_analysis(
         self,
         experiment_data: ExperimentData
@@ -27,7 +31,6 @@ class ThreadedAnalysis(BaseAnalysis):
         pass
 
 
-class NoThread:
+class NO_THREAD:
+    """Special constant to indicate the analysis is not threaded."""
     pass
-
-NO_THREAD = NoThread()

@@ -1,7 +1,8 @@
 """CompositeAnalysis with additional analysis on top."""
 from abc import abstractmethod
+from collections.abc import Callable
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from ..framework_overrides.composite_analysis import CompositeAnalysis
 
@@ -35,31 +36,15 @@ class CompoundAnalysis(CompositeAnalysis):
     ) -> tuple[list['AnalysisResultData'], list['Figure']]:
         pass
 
-
-class ThreadedCompoundAnalysis(CompoundAnalysis):
-    def _run_additional_analysis(
-        self,
-        experiment_data: 'ExperimentData',
-        analysis_results: list['AnalysisResultData'],
-        figures: list['Figure']
-    ) -> tuple[list['AnalysisResultData'], list['Figure']]:
-        thread_output = self._run_additional_analysis_threaded(experiment_data)
-        return self._run_additional_analysis_unthreaded(experiment_data, analysis_results, figures,
-                                                        thread_output)
-
-    @abstractmethod
-    def _run_additional_analysis_threaded(
-        self,
-        experiment_data: 'ExperimentData'
-    ) -> Any:
-        pass
-
-    @abstractmethod
-    def _run_additional_analysis_unthreaded(
-        self,
-        experiment_data: 'ExperimentData',
-        analysis_results: list['AnalysisResultData'],
-        figures: list['Figure'],
-        thread_output: Any
-    ) -> tuple[list['AnalysisResultData'], list['Figure']]:
-        pass
+    _run_additional_analysis_threaded: Optional[Callable[['ExperimentData'], Any]] = None
+    """Override this attribute as a method if a part of the additional analysis must be run in a
+    thread of the main process (e.g. when making changes to the analysis object)."""
+    
+    _run_additional_analysis_unthreaded: Optional[
+        Callable[
+            ['ExperimentData', list['AnalysisResultData'], list['Figure'], Any],
+            tuple[list['AnalysisResultData'], list['Figure']]
+        ]
+    ] = None
+    """Override this attribute as a method if the result of _run_additional_analysis_threaded must
+    be input to the additional analysis (possibly run in a separate process)."""

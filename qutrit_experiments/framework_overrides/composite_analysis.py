@@ -145,7 +145,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                          parent_task_id)
             start = time.time()
 
-            if hasattr(analysis, '_run_additional_analysis_threaded'):
+            if callable(analysis._run_additional_analysis_threaded):
                 try:
                     thread_output = analysis._run_additional_analysis_threaded(parent_data)
                 except Exception as exc:
@@ -199,7 +199,9 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             if analysis._flatten_results:
                 results, figures = analysis._combine_results(component_data)
 
-            if thread_output is not NO_THREAD:
+            if (hasattr(analysis, '_run_additional_analysis_unthreaded')
+                and callable(analysis._run_additional_analysis_unthreaded)
+                and thread_output is not NO_THREAD):
                 results, figures = analysis._run_additional_analysis_unthreaded(parent_data,
                                                                                 results, figures,
                                                                                 thread_output)
