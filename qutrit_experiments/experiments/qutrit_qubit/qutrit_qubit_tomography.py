@@ -124,7 +124,16 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
         options.data_processor = None # Needed to have DP propagated to tomography analysis
         options.plot = True
         options.prep_unitaries = {}
+        options.maxiter = None
+        options.tol = None
         return options
+
+    def _set_subanalysis_options(self, experiment_data: ExperimentData):
+        for an in self._analyses:
+            if (val := self.options.maxiter):
+                an.set_options(maxiter=val)
+            if (val := self.options.tol):
+                an.set_options(tol=val)
 
     def _run_additional_analysis(
         self,
@@ -342,7 +351,16 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         options.data_processor = None # Needed to have DP propagated to tomography analysis
         options.plot = True
         options.return_expvals = False
+        options.maxiter = None
+        options.tol = None
         return options
+
+    def _set_subanalysis_options(self, experiment_data: ExperimentData):
+        for an in self._analyses:
+            if (val := self.options.maxiter):
+                an.set_options(maxiter=val)
+            if (val := self.options.tol):
+                an.set_options(tol=val)
 
     def _run_additional_analysis(
         self,

@@ -1,4 +1,5 @@
 """Functions for fitting a unitary to observation."""
+import logging
 from typing import Any, NamedTuple, Optional, Union
 from matplotlib.figure import Figure
 import jax
@@ -11,16 +12,20 @@ from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 
 from .bloch import rescale_axis, so3_cartesian
 
+logger = logging.getLogger(__name__)
 axes = ['x', 'y', 'z']
 twopi = 2. * np.pi
 
 
 def fit_unitary(
     data: list[dict[str, Any]],
-    data_processor: Optional[DataProcessor] = None
+    data_processor: Optional[DataProcessor] = None,
+    maxiter: Optional[int] = None,
+    tol: Optional[float] = None
 ) -> tuple[np.ndarray, NamedTuple, np.ndarray, np.ndarray, tuple]:
     expvals, initial_states, meas_bases, signs = extract_input_values(data, data_processor)
-    popt_ufloats, state = fit_unitary_to_expval(expvals, initial_states, meas_bases, signs=signs)
+    popt_ufloats, state = fit_unitary_to_expval(expvals, initial_states, meas_bases, signs=signs,
+                                                maxiter=maxiter, tol=tol)
     expvals_pred = so3_cartesian(unp.nominal_values(popt_ufloats))[..., meas_bases, initial_states]
     expvals_pred *= signs
     return popt_ufloats, state, expvals_pred, (expvals, initial_states, meas_bases, signs)
@@ -53,8 +58,12 @@ def fit_unitary_to_expval(
     expvals: np.ndarray,
     initial_states: np.ndarray,
     meas_bases: np.ndarray,
-    signs: Optional[np.ndarray] = None
+    signs: Optional[np.ndarray] = None,
+    maxiter: Optional[int] = None,
+    tol: Optional[float] = None
 ) -> tuple[np.ndarray, NamedTuple]:
+    logger.debug('Fit unitary to expval %d datapoints maxiter %s tol %s', len(expvals), maxiter,
+                 tol)
     if signs is None:
         signs = np.ones_like(initial_states)
 
@@ -66,7 +75,12 @@ def fit_unitary_to_expval(
             axis=-1
         )
 
-    solver = jaxopt.GradientDescent(fun=objective, maxiter=10000)
+    options = {}
+    if maxiter:
+        options['maxiter'] = maxiter
+    if tol:
+        options['tol'] = tol
+    solver = jaxopt.GradientDescent(fun=objective, **options)
 
     p0s = []
     for iax in range(3):

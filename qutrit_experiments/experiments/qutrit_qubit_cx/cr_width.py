@@ -108,9 +108,11 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
+        options.parallelize_on_thread = True
         options.width_name = 'width'
+        options.tol = 1.e-4
         return options
-    
+
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
@@ -200,7 +202,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
 
         for ic in control_states:
             objective = make_objective(ic)
-            solver = jaxopt.GradientDescent(objective, maxiter=10000)
+            solver = jaxopt.GradientDescent(objective, maxiter=10000, tol=1.e-4)
 
             axes = unitary_params_n[:, ic].copy()
             axes /= np.sqrt(np.sum(np.square(axes), axis=-1))[:, None]
@@ -273,7 +275,7 @@ class CycledRepeatedCRWidthAnalysis(CRWidthAnalysis):
         options = super()._default_options()
         options.figure_names.append('angle_diff')
         return options
-    
+
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
@@ -328,7 +330,7 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['width', 'cr_base_angle', 'rcr_type'],                                 
+        cal_parameter_name: list[str] = ['width', 'cr_base_angle', 'rcr_type'],
         schedule_name: str = ['cr', 'cr', None],
         auto_update: bool = True,
         widths: Optional[Sequence[float]] = None
