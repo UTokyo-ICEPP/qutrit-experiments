@@ -139,7 +139,18 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             if figures:
                 subdata.add_figures(figures, figure_names=subanalysis.options.figure_names)
 
-        if lock is not None:
+        if lock is None:
+            try:
+                msg = CompositeAnalysis._postanalysis(analysis, parent_data, component_data)
+            except Exception as exc:
+                msg = exc
+        elif analysis.options.get('parallelize_on_thread', False):
+            try:
+                with lock:
+                    msg = CompositeAnalysis._postanalysis(analysis, parent_data, component_data)
+            except Exception as exc:
+                msg = exc
+        else:
             # Parallelizing the postanalyses - run as a subprocess to circumvent the GIL
             logger.debug('Starting a subprocess for the analysis of experiment id %s',
                          parent_task_id)
@@ -170,11 +181,6 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             proc.join()
             logger.debug('%s finished in %.2f seconds.',
                          parent_data.experiment_id, time.time() - start)
-        else:
-            try:
-                msg = CompositeAnalysis._postanalysis(analysis, parent_data, component_data)
-            except Exception as exc:
-                msg = exc
 
         if isinstance(msg, Exception) and analysis.options.get('ignore_failed', False):
             logger.warning('Ignoring postanalysis failure for %s:', parent_task_id)
