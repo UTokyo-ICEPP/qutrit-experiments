@@ -32,10 +32,9 @@ def calibrate_single_qutrit_gates(runner: ExperimentsRunner, calibrated: Optiona
 
 def characterize_qutrit(runner: ExperimentsRunner):
     runner.program_data['qutrit'] = runner.program_data['qubits'][0]
-    exp_types = [
-        'qutrit_assignment_error',
-        'qutrit_t1',
-        'qutrit_x12_irb'
-    ]
-    for exp_type in exp_types:
+
+    for exp_type in ['qutrit_assignment_error', 'qutrit_t1']:
         runner.run_experiment(exp_type)
+
+    runner.transpile_resolve_rz = 'all'
+    runner.run_experiment('qutrit_x12_irb')
