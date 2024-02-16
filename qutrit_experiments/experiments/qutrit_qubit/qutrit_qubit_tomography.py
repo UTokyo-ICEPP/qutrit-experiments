@@ -35,7 +35,8 @@ class QutritQubitTomography(BatchExperiment):
         measure_preparations: bool = True,
         control_states: Sequence[int] = (0, 1, 2),
         backend: Optional[Backend] = None,
-        extra_metadata: Optional[dict[str, Any]] = None
+        extra_metadata: Optional[dict[str, Any]] = None,
+        analysis_cls: Optional[type[CompoundAnalysis]] = None
     ):
         experiments = []
         for iexp in range(5 if measure_preparations else 3):
@@ -76,9 +77,11 @@ class QutritQubitTomography(BatchExperiment):
 
             experiments.append(exp)
 
-        analyses = [exp.analysis for exp in experiments]
+        if analysis_cls is None:
+            analysis_cls = QutritQubitTomographyAnalysis
+
         super().__init__(experiments, backend=backend,
-                         analysis=QutritQubitTomographyAnalysis(analyses))
+                         analysis=analysis_cls([exp.analysis for exp in experiments]))
         self.tomography_type = tomography_type
         self.extra_metadata = extra_metadata or {}
 
@@ -232,7 +235,7 @@ class QutritQubitTomographyScan(BatchExperiment):
         measure_preparations: bool = True,
         control_states: Sequence[int] = (0, 1, 2),
         backend: Optional[Backend] = None,
-        analysis: Optional[CompositeAnalysis] = None
+        analysis_cls: Optional[type[CompositeAnalysis]] = None
     ):
         def find_param(pname, plist):
             return next(p for p in plist if p.name == pname)
@@ -268,9 +271,11 @@ class QutritQubitTomographyScan(BatchExperiment):
                                       extra_metadata=extra_metadata)
             )
 
-        if analysis is None:
-            analysis = QutritQubitTomographyScanAnalysis([exp.analysis for exp in experiments])
-        super().__init__(experiments, backend=backend, analysis=analysis)
+        if analysis_cls is None:
+            analysis_cls = QutritQubitTomographyScanAnalysis
+
+        super().__init__(experiments, backend=backend,
+                         analysis=analysis_cls([exp.analysis for exp in experiments]))
         self.tomography_type = tomography_type
         self.control_states = tuple(control_states)
 
