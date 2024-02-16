@@ -19,7 +19,7 @@ from qiskit.result import Counts
 from qiskit_experiments.calibration_management import (BaseCalibrationExperiment, Calibrations,
                                                        ParameterValue)
 from qiskit_experiments.database_service import ExperimentEntryNotFound
-from qiskit_experiments.framework import (BaseExperiment,
+from qiskit_experiments.framework import (AnalysisStatus, BaseExperiment,
                                           CompositeAnalysis as CompositeAnalysisOrig,
                                           ExperimentData)
 from qiskit_experiments.framework.composite.composite_experiment import CompositeExperiment
@@ -230,17 +230,20 @@ class ExperimentsRunner:
             exp_data.block_for_results()
             # Analysis callbacks get cleared when there are job errors; need to call check_status
             # here directly to raise upon error
-            self._check_status(exp_data)
+            self._check_job_status(exp_data)
         else:
             # Which means this is probably meaningless
             with exp_data._analysis_callbacks.lock:
-                exp_data.add_analysis_callback(self._check_status)
+                exp_data.add_analysis_callback(self._check_job_status)
 
         if not analyze or experiment.analysis is None:
             if isinstance(experiment, CompositeExperiment):
                 # Usually analysis fills the child data so we do it manually instead
                 with exp_data._analysis_callbacks.lock:
                     exp_data.add_analysis_callback(fill_child_data)
+
+            if block_for_results:
+                self._check_status(exp_data)
 
             logger.info('No analysis will be performed for %s.', exp_type)
             return exp_data
@@ -251,6 +254,9 @@ class ExperimentsRunner:
             logger.info('Reserving the analysis for %s', exp_type)
         experiment.analysis.run(exp_data)
 
+        if block_for_results:
+            self._check_status(exp_data)
+
         if calibrate:
             def update_calibrations(exp_data):
                 self.update_calibrations(exp_data, experiment=experiment,
@@ -260,6 +266,7 @@ class ExperimentsRunner:
 
         if (postexp := postexperiments.get(exp_type)) is not None:
             if block_for_results:
+                self._check_status(exp_data)
                 logger.info('Performing the postexperiment for %s.', exp_type)
             else:
                 logger.info('Reserving the postexperiment for %s.', exp_type)
@@ -269,7 +276,7 @@ class ExperimentsRunner:
                 exp_data.add_analysis_callback(postexperiment)
 
         if block_for_results:
-            exp_data.block_for_results()
+            self._check_status(exp_data)
             if print_level == 1:
                 print_summary(exp_data)
             elif print_level == 2:
@@ -565,8 +572,8 @@ class ExperimentsRunner:
 
         return jobs
 
-    def _check_status(self, experiment_data: ExperimentData):
-        logger.info('Checking the job status for %s', experiment_data.experiment_type)
+    def _check_job_status(self, experiment_data: ExperimentData):
+        logger.info('Checking the job status of %s', experiment_data.experiment_type)
 
         ## Check the job status
         if (job_status := experiment_data.job_status()) != JobStatus.DONE:
@@ -592,6 +599,12 @@ class ExperimentsRunner:
                     job.time_per_step = lambda: {'COMPLETED': now}
                 else:
                     job.time_per_step = lambda: {}
+
+    def _check_status(self, experiment_data: ExperimentData):
+        logger.debug('Checking the status of %s', experiment_data.experiment_type)
+        experiment_data.block_for_results()
+        if (status := experiment_data.analysis_status()) != AnalysisStatus.DONE:
+            raise RuntimeError(f'Post-job status = {status.value}')
 
     def _run_code_test(self, experiment, experiment_data):
         """Test circuit generation and then fill the container with dummy data."""
