@@ -47,7 +47,7 @@ class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
-        options.lengths = np.arange(1, 100, 7)
+        options.lengths = np.arange(1, 50, 3)
         options.num_samples = 5
         options.seed = None
         options.qubit_mode = None # for debugging
