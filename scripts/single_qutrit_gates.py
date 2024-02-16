@@ -17,6 +17,7 @@ if __name__ == '__main__':
     
     program_config = get_program_config()
     assert program_config['qubits'] is not None and len(program_config['qubits']) == 1
+    print('Starting single_qutrit_gates:', program_config['name'])
     setup_data_dir(program_config)
     backend = setup_backend(program_config)
     calibrations = make_single_qutrit_gate_calibrations(backend)
