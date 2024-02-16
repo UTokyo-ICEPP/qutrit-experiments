@@ -201,7 +201,7 @@ class CycledRepeatedCRFineCRWidthCal(CycledRepeatedCRFineCal, CycledRepeatedCRFi
         self.angle_per_dt = angle_per_dt
 
     def _update_calibrations_from_d_theta(self, experiment_data: ExperimentData, d_theta: float):
-        current_width = self._cals.get_parameter_value(self._param_name[0], self.physical_qubits[1],
+        current_width = self._cals.get_parameter_value(self._param_name[0], self.physical_qubits,
                                                        schedule=self._sched_name)
         width = current_width - d_theta / self.angle_per_dt
         null_sched = self._cals.get_schedule(self._sched_name, self.physical_qubits,
