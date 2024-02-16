@@ -11,6 +11,7 @@ from qiskit.providers import Backend, Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
+from qiskit_experiments.library import Rabi
 from qiskit_experiments.visualization import MplDrawer
 
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
@@ -47,9 +48,8 @@ class CycledRepeatedCRRxAmplitude(QutritQubitTomographyScan):
                          make_crcr_circuit(physical_qubits, cr_schedules, rx_schedule, rcr_type),
                          param_name, amplitudes, angle_param_name=angle_param_name,
                          measure_preparations=measure_preparations,
-                         control_states=(0,), backend=backend)
-        analyses = [exp.analysis for exp in self._experiments]
-        self.analysis = CycledRepeatedCRRxAmplitudeAnalysis(analyses)
+                         control_states=(0,), backend=backend,
+                         analysis_cls=CycledRepeatedCRRxAmplitudeAnalysis)
 
 
 class CycledRepeatedCRRxAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
@@ -93,7 +93,7 @@ class CycledRepeatedCRRxAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
 
 
 class CycledRepeatedCRRxAmplitudeCal(BaseCalibrationExperiment, CycledRepeatedCRRxAmplitude):
-    """Calibration experiment for CR width and Rx amplitude"""
+    """Calibration experiment for Rx amplitude"""
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -135,6 +135,52 @@ class CycledRepeatedCRRxAmplitudeCal(BaseCalibrationExperiment, CycledRepeatedCR
 
     def update_calibrations(self, experiment_data: ExperimentData):
         rx_amp = experiment_data.analysis_results('rx_amp', block=False).value
+        sign_angle = 0.
+        if rx_amp < 0.:
+            rx_amp *= -1.
+            sign_angle = np.pi
+
+        for pname, value in zip(self._param_name, [rx_amp, sign_angle]):
+            BaseUpdater.add_parameter_value(
+                self._cals, experiment_data, value, pname, schedule=self._sched_name,
+                group=self.experiment_options.group
+            )
+
+
+class SimpleRxAmplitudeCal(BaseCalibrationExperiment, Rabi):
+    """Calibration experiment for Rx amplitude based on a simple Rabi experiment."""
+    def __init__(
+        self,
+        physical_qubits: Sequence[int],
+        calibrations: Calibrations,
+        target_angle: float,
+        backend: Optional[Backend] = None,
+        cal_parameter_name: list[str] = ['amp', 'sign_angle'],
+        schedule_name: str = 'offset_rx',
+        amplitudes: Optional[Sequence[float]] = None,
+        auto_update: bool = True
+    ):
+        assign_params = {cal_parameter_name[0]: Parameter('amp'), cal_parameter_name[1]: 0.}
+        rx_schedule = calibrations.get_schedule(schedule_name, physical_qubits,
+                                                assign_params=assign_params)
+        super().__init__(
+            calibrations,
+            physical_qubits,
+            rx_schedule,
+            backend=backend,
+            schedule_name=schedule_name,
+            cal_parameter_name=cal_parameter_name,
+            auto_update=auto_update,
+            amplitudes=amplitudes,
+        )
+        self.target_angle = target_angle
+
+    def _attach_calibrations(self, circuit: QuantumCircuit):
+        pass
+
+    def update_calibrations(self, experiment_data: ExperimentData):
+        angular_rate = BaseUpdater.get_value(experiment_data, 'rabi_rate') * twopi
+        rx_amp = self.target_angle / angular_rate
         sign_angle = 0.
         if rx_amp < 0.:
             rx_amp *= -1.
