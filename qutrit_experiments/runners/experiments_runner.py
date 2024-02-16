@@ -686,6 +686,9 @@ class ExperimentsRunner:
         if transform is not None:
             value = transform(value)
 
+        logger.info('Adding parameter value %s for %s qubits=%s schedule=%s',
+                    value, to_param, to_qubits, to_schedule)
+
         to_value = ParameterValue(
             value=value,
             date_time=from_value.date_time,

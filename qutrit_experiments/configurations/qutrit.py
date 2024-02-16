@@ -340,5 +340,5 @@ def qutrit_x12_irb(runner, qubit):
         [qubit],
         args={'interleaved_gate': X12Gate},
         analysis_options={'outcome': '0'}, # Needed because add_readout_mitigation sets this to '1'
-        experiment_options={'max_circuits': 10} # IRB with resolve_rz requires extreme resources
+        experiment_options={'max_circuits': 3} # IRB with resolve_rz requires extreme resources
     )
