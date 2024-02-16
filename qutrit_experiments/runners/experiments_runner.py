@@ -437,13 +437,15 @@ class ExperimentsRunner:
                 param_name = exp._param_name
                 sched_name = exp._sched_name
                 if isinstance(param_name, str):
-                    update_list = [(param_name, sched_name, exp.physical_qubits, updated)]
+                    targets = [(param_name, sched_name)]
                 elif isinstance(sched_name, str):
-                    update_list = [(pname, sched_name, exp.physical_qubits, updated)
-                                   for pname in param_name]
+                    targets = [(pname, sched_name) for pname in param_name]
                 else:
-                    update_list = [(pname, sname, exp.physical_qubits, updated)
-                                   for pname, sname in zip(param_name, sched_name)]
+                    targets = list(zip(param_name, sched_name))
+                qubits_map = exp.experiment_options.get('calibration_qubits', {})
+                for pname, sname in targets:
+                    qubits = qubits_map.get((pname, sname), exp.physical_qubits)
+                    update_list.append((pname, sname, qubits, updated))
 
             elif type(exp) in [BatchExperiment, ParallelExperiment]:
                 for subexp, child_data in zip(exp.component_experiment(), exp_data.child_data()):
