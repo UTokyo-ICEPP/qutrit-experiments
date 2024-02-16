@@ -405,7 +405,7 @@ def c2t_crcr_cr_width(runner):
 
     current_width = runner.calibrations.get_parameter_value('width', qubits, schedule='cr')
     if current_width != 0.:
-        widths = np.linspace(current_width - 128, current_width + 128, 9)
+        widths = np.linspace(current_width - 128, current_width + 128, 5)
         while widths[0] < 0.:
             widths += 16.
     else:
@@ -430,7 +430,7 @@ def c2t_crcr_cr_width(runner, experiment_data):
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_rcr_rotary(runner):
-    from ..experiments.qutrit_qubit_cx.repeated_cr_rotary import RepeatedCRRotaryAmplitudeCal
+    from ..experiments.qutrit_qubit_cx.rotary import RepeatedCRRotaryAmplitudeCal
     qubits = runner.program_data['qubits'][1:]
 
     sigma = runner.calibrations.get_parameter_value('sigma', qubits, 'cr')
@@ -449,6 +449,29 @@ def c2t_rcr_rotary(runner):
         runner.program_data['qubits'][1:],
         args={'amplitudes': angles / angle_per_amp},
         analysis_options={'thetax_per_amp': angle_per_amp}
+    )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1], expval=True)
+def c2t_crcr_rotary(runner):
+    from ..experiments.qutrit_qubit_cx.rotary import CycledRepeatedCRRotaryAmplitudeCal
+    qubits = runner.program_data['qubits'][1:]
+
+    sigma = runner.calibrations.get_parameter_value('sigma', qubits, 'cr')
+    rsr = runner.calibrations.get_parameter_value('rsr', qubits, 'cr')
+    width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
+    gs_area = grounded_gauss_area(sigma, rsr, gs_factor=True) + width
+    angle_per_amp = (rabi_freq_per_amp(runner.backend, qubits[1]) * twopi * runner.backend.dt
+                     * gs_area)
+    angle_per_amp *= 2. # Un-understood empirical factor 2
+    if (angles := runner.program_data.get('crcr_rotary_test_angles')) is None:
+        # Scan rotary amplitudes expected to generate +-1 rad rotations within one CR pulse
+        angles = np.linspace(-1., 1., 8)
+
+    return ExperimentConfig(
+        CycledRepeatedCRRotaryAmplitudeCal,
+        runner.program_data['qubits'][1:],
+        args={'amplitudes': angles / angle_per_amp}
     )
 
 @register_exp
