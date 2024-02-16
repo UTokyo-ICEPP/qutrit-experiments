@@ -98,8 +98,8 @@ class CycledRepeatedCRWidth(QutritQubitTomographyScan):
         super().__init__(physical_qubits,
                          make_crcr_circuit(physical_qubits, cr_schedules, None, rcr_type),
                          param_names, param_values, measure_preparations=measure_preparations,
-                         control_states=(0, 1), backend=backend)
-        self.analysis = CycledRepeatedCRWidthAnalysis([exp.analysis for exp in self._experiments])
+                         control_states=(0, 1), backend=backend,
+                         analysis_cls=CycledRepeatedCRWidthAnalysis)
         self.analysis.set_options(width_name='crp_width')
 
 
