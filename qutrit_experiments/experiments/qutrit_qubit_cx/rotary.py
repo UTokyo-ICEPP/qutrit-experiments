@@ -52,7 +52,7 @@ class RepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
         options = super()._default_options()
         options.thetax_per_amp = None
         return options
-    
+
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
@@ -86,16 +86,16 @@ class RepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
         # Fit a tangent curve to uy_selected
         def curve(x, norm, amp0, scale, offset):
             return norm * np.tan((x - amp0) * scale) + offset
-        
+
         norm_p0 = (np.diff(uy_selected[[0, -1]])
                    / np.diff(np.tan(amps_selected[[0, -1]] * scale_p0)))[0]
         center = len(amps_selected) // 2
         offset_p0 = uy_selected[center] - norm_p0 * np.tan(amps_selected[center] * scale_p0)
-        
+
         popt, pcov = sciopt.curve_fit(curve, amps_selected, uy_selected,
                                       p0=(norm_p0, 0., scale_p0, offset_p0))
         popt_ufloats = correlated_values(popt, pcov)
-        # Necessary rotary amplitude 
+        # Necessary rotary amplitude
         analysis_results.append(
             AnalysisResultData(name='rotary_amp', value=popt_ufloats[1])
         )
@@ -108,7 +108,7 @@ class RepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
             ax.legend()
 
         return analysis_results, figures
-    
+
 
 class CycledRepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
     """BatchExperiment of RepeatedCRTomography scanning the rotary amplitude."""
@@ -235,7 +235,7 @@ class CycledRepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment,
 
     def update_calibrations(self, experiment_data: ExperimentData):
         # Pick the rotary value with the smallest chisq?
-        chisq = experiment_data.analysis_results('chisq', block=False)
+        chisq = experiment_data.analysis_results('chisq', block=False).value
         bestfit_idx = np.argmin(np.sum(chisq, axis=1))
         amplitude = self.experiment_options.parameter_values[0][bestfit_idx]
         angle = 0.
