@@ -35,10 +35,7 @@ class CycledRepeatedCRFine(MapToPhysicalQubits, BaseExperiment):
         backend: Optional[Backend] = None
     ):
         super().__init__(physical_qubits, analysis=FineAmplitudeAnalysis(), backend=backend)
-        self._cr_schedules = tuple(cr_schedules)
-        self._rx_schedule = rx_schedule
-        self._rcr_type = rcr_type
-
+        self._crcr_circuit = make_crcr_circuit(physical_qubits, cr_schedules, rx_schedule, rcr_type)
         if repetitions is not None:
             self.set_experiment_options(repetitions=repetitions)
 
@@ -50,9 +47,6 @@ class CycledRepeatedCRFine(MapToPhysicalQubits, BaseExperiment):
         )
 
     def circuits(self) -> list[QuantumCircuit]:
-        crcr_circuit = make_crcr_circuit(self._physical_qubits, self._cr_schedules,
-                                         self._rx_schedule, self._rcr_type)
-
         circuits = []
 
         for add_x in [0, 1]:
@@ -73,7 +67,7 @@ class CycledRepeatedCRFine(MapToPhysicalQubits, BaseExperiment):
             self._prep_circuit(circuit)
             circuit.sx(1)
             for _ in range(repetition):
-                circuit.compose(crcr_circuit, inplace=True)
+                circuit.compose(self._crcr_circuit, inplace=True)
                 self._iteration_circuit(circuit)
             circuit.measure(1, 0)
             circuit.metadata = {
@@ -171,7 +165,7 @@ class CycledRepeatedCRFineRxAmpCal(CycledRepeatedCRFineCal, CycledRepeatedCRFine
 
         amp = current_amp - d_theta / self.angle_per_amp
         sign_angle = 0. if amp > 0. else np.pi
-        for pname, value in zip(self._param_name, [amp, sign_angle]):
+        for pname, value in zip(self._param_name, [abs(amp), sign_angle]):
             BaseUpdater.add_parameter_value(
                 self._cals, experiment_data, value, pname, schedule=self._sched_name,
                 group=self.experiment_options.group
@@ -198,6 +192,8 @@ class CycledRepeatedCRFineCRWidthCal(CycledRepeatedCRFineCal, CycledRepeatedCRFi
         super().__init__(physical_qubits, calibrations, backend=backend,
                          cal_parameter_name=cal_parameter_name, schedule_name=schedule_name,
                          repetitions=repetitions, auto_update=auto_update)
+        cx_sign = calibrations.get_parameter_value('qutrit_qubit_cx_sign', physical_qubits)
+        self.analysis.options.fixed_parameters['phase_offset'] = cx_sign * np.pi / 2.
         self.angle_per_dt = angle_per_dt
 
     def _update_calibrations_from_d_theta(self, experiment_data: ExperimentData, d_theta: float):
