@@ -392,7 +392,7 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         )
 
         for pname, sname, value in zip(self._param_name, self._sched_name,
-                                       [cr_width, cr_base_angle, rcr_type]):
+                                       [cr_width, cr_base_angle, int(rcr_type)]):
             BaseUpdater.add_parameter_value(
                 self._cals, experiment_data, value, pname, schedule=sname,
                 group=self.experiment_options.group
