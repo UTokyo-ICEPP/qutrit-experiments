@@ -97,7 +97,7 @@ class QutritCRTargetStarkAnalysis(QutritQubitTomographyScanAnalysis):
             amp = ufloat(0., 0.)
         else:
             popt_ufloats = correlated_values(popt, pcov)
-            amp = unp.sqrt(-popt_ufloats[1] / popt_ufloats[0])
+            amp = unp.sqrt(-popt_ufloats[1] / popt_ufloats[0])[0]
 
         analysis_results.append(AnalysisResultData(name='counter_stark_amp', value=amp))
 
