@@ -475,20 +475,26 @@ def c2t_crcr_rotary(runner):
     )
 
 @register_exp
-@add_readout_mitigation(logical_qubits=[1], expval=True)
+@add_readout_mitigation
 def c2t_crcr_rx_amp(runner):
-    from ..experiments.qutrit_qubit_cx.rx_amp import CycledRepeatedCRRxAmplitudeCal
+    from ..experiments.qutrit_qubit_cx.rx_amp import SimpleRxAmplitudeCal
+    qubits = (runner.program_data['qubits'][2],)
+    x_sched = runner.backend.defaults().instruction_schedule_map.get('x', qubits)
+    pi_amp = x_sched.instructions[0][1].pulse.amp
+
     return ExperimentConfig(
-        CycledRepeatedCRRxAmplitudeCal,
-        runner.program_data['qubits'][1:]
+        SimpleRxAmplitudeCal,
+        qubits,
+        args={
+            'target_angle': runner.program_data['rx_target_angle'],
+            'amplitudes': np.linspace(-pi_amp, pi_amp, 32)
+        }
     )
 
 @register_post
 def c2t_crcr_rx_amp(runner, experiment_data):
-    params = unp.nominal_values(experiment_data.analysis_results('unitary_linear_fit_params',
-                                                                 block=False).value)
-    runner.program_data['crcr_angle_per_rx_amp'] = np.diff(params[:, 0] * np.sin(params[:, 2])
-                                                           * np.cos(params[: 3]))[0]
+    angular_rate = experiment_data.analysis_results('rabi_rate', block=False).value.n * twopi
+    runner.program_data['crcr_angle_per_rx_amp'] = angular_rate
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)

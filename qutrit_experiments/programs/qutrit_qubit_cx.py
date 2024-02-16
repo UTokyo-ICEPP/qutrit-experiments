@@ -7,7 +7,7 @@ from qiskit_experiments.framework import BackendTiming
 
 from ..experiments.qutrit_qubit_cx.util import RCRType
 from ..runners import ExperimentsRunner
-from ..util.bloch import so3_cartesian_axnorm, so3_cartesian_params
+from ..util.bloch import so3_cartesian, so3_cartesian_axnorm, so3_cartesian_params
 from ..util.pulse_area import grounded_gauss_area
 from ..util.sizzle import sizzle_hamiltonian_shifts
 
@@ -18,118 +18,67 @@ def calibrate_qutrit_qubit_cx(
     runner: ExperimentsRunner,
     initial_cr_amp: float = 0.8
 ):
-    exp_data = runner.program_data.setdefault('experiment_data', {})
     qubits = runner.program_data['qubits'][1:]
 
     runner.calibrations.add_parameter_value(initial_cr_amp, 'cr_amp', qubits, 'cr')
 
     # Construct the error mitigation matrix and find the rough CR pulse width
-    for exp_type in ['qubits_assignment_error', 'c2t_cr_rough_width']:
-        exp_data[exp_type] = runner.run_experiment(exp_type)
+    runner.run_experiment('qubits_assignment_error')
+    data = runner.run_experiment('c2t_cr_rough_width')
+    fit_params = data.analysis_results('unitary_linear_fit_params').value
+    slope, intercept, psi, phi = np.stack([fit_params[ic] for ic in range(3)], axis=1)
+    omega_z = (np.linalg.inv([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) @ (slope * unp.cos(psi))
+               / runner.backend.dt)
 
     # Check the Z components of the CR Hamiltonian and decide whether to tune down the amplitude or
     # introduce siZZle
-    fine_tune_cr(runner)
+    fine_tune_cr(omega_z, runner)
 
-    exp_type = 'c2t_crcr_cr_width'
-    exp_data[exp_type] = runner.run_experiment(exp_type)
-
-    # Compute the expected RCR unitary in block 1 as an input to c2t_rcr_rotary
-    fit_params = exp_data['c2t_cr_rough_width'].analysis_results('unitary_linear_fit_params').value
-    slope, intercept, psi, phi = np.array([unp.nominal_values(fit_params[ic]) for ic in range(3)]).T
-    rcr_type = runner.calibrations.get_parameter_value('rcr_type', qubits)
+    runner.run_experiment('c2t_crcr_cr_width')
+    
     cr_width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
-    thetas = slope * cr_width + intercept
-    axes = np.array([np.sin(psi) * np.cos(phi), np.sin(psi) * np.sin(phi), np.cos(psi)]).T
-    cr_unitaries = so3_cartesian_axnorm(axes, thetas)
-    if rcr_type == RCRType.X:
-        block1_unitary = cr_unitaries[0] @ cr_unitaries[1]
-    else:
-        block1_unitary = cr_unitaries[2] @ cr_unitaries[1]
-    unitary_params = so3_cartesian_params(block1_unitary)
-    # Rotation angle should not wrap under the application of rotary test pulse
-    # At this point block1_unitary should be close to pure-X so we just consider X values
-    runner.program_data['rcr_rotary_test_angles'] = np.linspace(
-        -np.pi - unitary_params[0] + 0.8, # Give sufficient buffer
-        np.pi - unitary_params[0] - 0.8,
-        8
+    cr_params = unp.nominal_values(
+        (slope * cr_width + intercept)[..., None]
+        * np.stack(
+            [unp.sin(psi) * unp.cos(phi), unp.sin(psi) * unp.sin(phi), unp.cos(psi)],
+            axis=-1
+        )
     )
+    rotary_guess = get_rotary_guess(cr_params, runner)
+    runner.program_data['crcr_rotary_test_angles'] = np.linspace(
+        rotary_guess - np.pi / 8., rotary_guess + np.pi / 8., 6
+    )
+    data = runner.run_experiment('c2t_crcr_rotary')
+    rotary_amp = runner.calibrations.get_parameter_value('counter_amp', qubits, 'cr')
+    if runner.calibrations.get_parameter_value('counter_sign_angle', qubits, 'cr') != 0.:
+        rotary_amp *= -1.
+    rotary_idx = int(np.argmin(np.abs(runner.program_data['crcr_rotary_test_angles'] - rotary_amp)))
+    child_0 = data.child_data(rotary_idx).child_data(0)
+    fit_params = child_0.analysis_results('unitary_fit_params').value
+    runner.program_data['rx_target_angle'] = -fit_params[0].n
 
-    for exp_type in ['c2t_rcr_rotary', 'c2t_crcr_rx_amp']:
-        exp_data[exp_type] = runner.run_experiment(exp_type)
+    for exp_type in ['c2t_crcr_rx_amp', 'c2t_crcr_fine_rx_amp', 'c2t_crcr_fine_cr_width']:
+        runner.run_experiment(exp_type)
 
 
-def fine_tune_cr(runner: ExperimentsRunner):
-    exp_data = runner.program_data['experiment_data']
+def fine_tune_cr(omega_z: np.ndarray, runner: ExperimentsRunner):
     qubits = tuple(runner.program_data['qubits'][1:])
-    cr_width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
-
-    fit_params = exp_data['c2t_cr_rough_width'].analysis_results('unitary_linear_fit_params').value
-    slope = np.array([fit_params[ic][0].n for ic in range(3)])
-    psi = np.array([fit_params[ic][2].n for ic in range(3)])
-    # Disregard the intercept because the logic below is all in terms of omega_z
-    # The idea is that by cancelling / suppressing omega_z the intercept should be
-    # reduced ~linearly
-    theta_z = slope * cr_width * np.cos(psi)
-    if np.all(np.abs(theta_z) < 0.05):
-        return
-
-    # Otherwise first check the induced Zs
-    exp_data['c2t_zzramsey'] = runner.run_experiment('c2t_zzramsey')
-    static_omega_z = unp.nominal_values(runner.program_data['c2t_static_omega_zs'])
-    omega_z = slope * np.cos(psi) / runner.backend.dt
-    induced_omega_z = omega_z - static_omega_z
-    flank = gauss_flank_area(runner)
-    induced_theta_z = induced_omega_z * (cr_width + flank) * runner.backend.dt
-
-    if (max_induced := np.max(np.abs(induced_theta_z))) > 0.05:
-        omega_z = scale_down_cr_amp(runner, omega_z, static_omega_z, 0.05 / max_induced)
-        cr_width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
-        theta_z = omega_z * (cr_width + flank) * runner.backend.dt
-
-    if np.all(np.abs(theta_z) < 0.05) or np.abs(theta_z[0]) < 0.02:
-        # If theta_Iz is too small, target Stark amplitude will be small too, leaving very little
-        # room to maneuver with siZZle.
+    
+    # If |omega_Iz| < 3σ(omega_Iz), no need to try siZZle
+    if np.abs(omega_z[0].n) < 3. * omega_z[0].std_dev:
         return
 
     # Try siZZle to cancel the Z components
-    if (sizzle_params := get_sizzle_params(omega_z, runner)) is None:
+    if (sizzle_params := get_sizzle_params(unp.nominal_values(omega_z), runner)) is None:
         return
 
     runner.calibrations.add_parameter_value(sizzle_params['frequency'], 'stark_frequency', qubits,
                                             'cr')
-    exp_data['c2t_sizzle_t_amp_scan'] = runner.run_experiment('c2t_sizzle_t_amp_scan')
-    if runner.calibrations.get_parameter_value('counter_stark_amp', qubits, 'cr') > 0.1:
-        exp_data['c2t_sizzle_c2_amp_scan'] = runner.run_experiment('c2t_sizzle_c2_amp_scan')
-
-
-def gauss_flank_area(runner):
-    qubits = tuple(runner.program_data['qubits'][1:])
-    sigma = runner.calibrations.get_parameter_value('sigma', qubits, 'cr')
-    rsr = runner.calibrations.get_parameter_value('rsr', qubits, 'cr')
-    return grounded_gauss_area(sigma, rsr, True)
-
-
-def scale_down_cr_amp(
-    runner: ExperimentsRunner,
-    omega_z: np.ndarray,
-    static_omega_z: np.ndarray,
-    omega_z_scale: float
-) -> np.ndarray:
-    # Reduce the cr amplitude
-    # Induced ωz should have form a*cr_amp^2
-    amp_scale = np.sqrt(omega_z_scale)
-    omega_z = (omega_z - static_omega_z) * omega_z_scale + static_omega_z
-    flank = gauss_flank_area(runner)
-
-    qubits = tuple(runner.program_data['qubits'][1:])
-    current_amp = runner.calibrations.get_parameter_value('cr_amp', qubits, 'cr')
-    runner.calibrations.add_parameter_value(current_amp * amp_scale, 'cr_amp', qubits, 'cr')
-    current_width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
-    new_width = (current_width + flank) / amp_scale - flank
-    new_width = BackendTiming(runner.backend).round_pulse(samples=new_width)
-    runner.calibrations.add_parameter_value(new_width, 'width', qubits, 'cr')
-    return omega_z
+    runner.run_experiment('c2t_sizzle_t_amp_scan')
+    cr_amp = runner.calibrations.get_parameter_value('cr_amp', qubits, 'cr')
+    counter_stark_amp = runner.calibrations.get_parameter_value('counter_stark_amp', qubits, 'cr')
+    if sizzle_params['c_amp'] * sizzle_params['t_amp'] / counter_stark_amp < cr_amp:
+        runner.run_experiment('c2t_sizzle_c2_amp_scan')
 
 
 def get_sizzle_params(z_comps, runner):
@@ -140,34 +89,32 @@ def get_sizzle_params(z_comps, runner):
         return sizzle_hamiltonian_shifts(hvars, (control2, target), amps, freq, phase=phase)
 
     intervals = frequency_intervals(runner)
-    shifts = get_shifts((0., 0.02), np.array([np.mean(interval) for interval in intervals]))
-    iz_viable = np.nonzero(shifts[:, 0, 1] * z_comps[0] < 0.)[0]
 
-    def objective(ampsfreq, phase):
-        amps = ampsfreq[:2]
-        freq = ampsfreq[2] * 1.e+9
-        z_shifts = get_shifts(amps, freq, phase)[..., 1]
+    # Coarse grid search
+    frequencies = np.concatenate([np.arange(v[0], v[1], 1.e+6) for v in intervals])
+    amplitudes = np.linspace(-1., 1., 20)
+    all_shifts = np.array(
+        [[get_shifts((c, t), frequencies) for t in amplitudes] for c in amplitudes]
+    )
+    ic, it, ifreq = np.unravel_index(
+        np.argmin(np.sum(np.square(all_shifts[..., 1] + z_comps), axis=-1)),
+        all_shifts.shape[:-2]
+    )
+    # Minimization
+    def objective(params):
+        freq, camp, tamp = np.asarray(params) * np.array([1.e+9, 1., 1.])
+        z_shifts = get_shifts((camp, tamp), freq)[..., 1]
         return np.sum(np.square(z_shifts + z_comps), axis=-1)
 
-    parameters = None
-    minfval = -1.
-    for itest in iz_viable:
-        freq_interval = np.array(intervals[itest]) * 1.e-9
-        for isign, sign_phase in enumerate([0., np.pi]):
-            res = sciopt.minimize(objective, (0.2, 0.05, np.mean(freq_interval)), args=(sign_phase,),
-                                  bounds=[(0., 1.), (0., 1.), freq_interval])
-            if res.success and (minfval < 0. or res.fun < minfval):
-                parameters = (itest * 2 + isign, res.x[2] * 1.e+9, res.x[0], res.x[1])
-                minfval = res.fun
-
-    if minfval < 0.:
-        return None
+    freq_interval = next(tuple(np.array(v) * 1.e-9) for v in intervals
+                         if v[0] <= frequencies[ifreq] <= v[1])
+    res = sciopt.minimize(objective, (frequencies[ifreq] * 1.e-9, amplitudes[ic], amplitudes[it]),
+                          bounds=[freq_interval, (-1., 1.), (-1., 1.)])
 
     return {
-        'param_idx': parameters[0],
-        'frequency': parameters[1],
-        'c_amp': parameters[2] * (1. if parameters[0] % 2 == 0. else -1.),
-        't_amp': parameters[3]
+        'frequency': res.x[0] * 1.e+9,
+        'c_amp': res.x[1],
+        't_amp': res.x[2]
     }
 
 
@@ -186,3 +133,37 @@ def frequency_intervals(runner):
                   for left, right in zip(resonances[:-1], resonances[1:])]
     intervals += [(resonances[-1] + 15.e+6, resonances[-1] + 50.e+6)]
     return intervals
+
+
+def get_rotary_guess(cr_params: np.ndarray, runner: ExperimentsRunner):
+    """Find the rotary amp that is expected to minimize y and z on CRCR."""
+    qubits = tuple(runner.program_data['qubits'][1:])
+    rcr_type = runner.calibrations.get_parameter_value('rcr_type', qubits)
+
+    rotary_angles = np.linspace(-6. * np.pi, 6. * np.pi, 400)
+    rotary = np.stack([rotary_angles] + [np.zeros_like(rotary_angles)] * 2, axis=-1)
+    cr_params = cr_params[:, None, :] + rotary[None, ...]
+    cr_params = np.stack([cr_params, cr_params * np.array([-1., -1., 1.])], axis=1)
+    cr = so3_cartesian(cr_params) # [control, sign, rotary, 3, 3]
+    if rcr_type == RCRType.X:
+        rcr = np.array([
+            cr[1, :, :] @ cr[0, :, :],
+            cr[0, :, :] @ cr[1, :, :],
+            cr[2, :, :] @ cr[2, :, :]
+        ])
+        sgn = [0, 1, 0]
+    else:
+        rcr = np.array([
+            cr[0, :, :] @ cr[0, :, :],
+            cr[2, :, :] @ cr[1, :, :],
+            cr[1, :, :] @ cr[2, :, :]
+        ])
+        sgn = [0, 0, 1]
+
+    crcr = np.array([
+        rcr[(ic + 2) % 3, sgn[2]] @ rcr[(ic + 1) % 3, sgn[1]] @ rcr[ic, sgn[0]]
+        for ic in range(3)
+    ])
+    crcr_params = so3_cartesian_params(crcr) # [control, rotary, 3]
+    irotary = np.argmin(np.sum(np.square(crcr_params[..., 1:]), axis=(0, 2)))
+    return rotary_angles[irotary]
