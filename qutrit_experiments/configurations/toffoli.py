@@ -497,7 +497,7 @@ def c2t_crcr_rx_amp(runner, experiment_data):
     runner.program_data['crcr_angle_per_rx_amp'] = angular_rate
 
 @register_exp
-@add_readout_mitigation(logical_qubits=[1], expval=True)
+@add_readout_mitigation(logical_qubits=[1])
 def c2t_crcr_fine_rx_amp(runner):
     from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineRxAmpCal
     return ExperimentConfig(
@@ -509,7 +509,7 @@ def c2t_crcr_fine_rx_amp(runner):
     )
 
 @register_exp
-@add_readout_mitigation(logical_qubits=[1], expval=True)
+@add_readout_mitigation(logical_qubits=[1])
 def c2t_crcr_fine_cr_width(runner):
     from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineCRWidthCal
     return ExperimentConfig(

@@ -111,7 +111,7 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
         cr_schedules.append(calibrations.get_schedule('cr', physical_qubits,
                                                       assign_params=assign_params))
         rx_schedule = calibrations.get_schedule('offset_rx', physical_qubits[1])
-        
+
         super().__init__(
             calibrations,
             physical_qubits,
@@ -131,7 +131,7 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
     def update_calibrations(self, experiment_data: ExperimentData):
         result_index = self.experiment_options.result_index
         d_theta = BaseUpdater.get_value(experiment_data, "d_theta", result_index)
-        self._update_calibrations_from_d_theta(self, experiment_data, d_theta)
+        self._update_calibrations_from_d_theta(experiment_data, d_theta)
 
     def _update_calibrations_from_d_theta(self, experiment_data: ExperimentData, d_theta: float):
         pass
@@ -168,7 +168,7 @@ class CycledRepeatedCRFineRxAmpCal(CycledRepeatedCRFineCal, CycledRepeatedCRFine
                                                     schedule=self._sched_name)
         if sign_angle != 0.:
             current_amp *= -1.
-        
+
         amp = current_amp - d_theta / self.angle_per_amp
         sign_angle = 0. if amp > 0. else np.pi
         for pname, value in zip(self._param_name, [amp, sign_angle]):

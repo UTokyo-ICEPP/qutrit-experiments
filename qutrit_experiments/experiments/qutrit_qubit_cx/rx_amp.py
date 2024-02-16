@@ -8,6 +8,7 @@ from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
 from qiskit.pulse import ScheduleBlock
 from qiskit.providers import Backend, Options
+from qiskit.qobj.utils import MeasLevel, MeasReturnType
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
@@ -149,6 +150,13 @@ class CycledRepeatedCRRxAmplitudeCal(BaseCalibrationExperiment, CycledRepeatedCR
 
 class SimpleRxAmplitudeCal(BaseCalibrationExperiment, Rabi):
     """Calibration experiment for Rx amplitude based on a simple Rabi experiment."""
+    @classmethod
+    def _default_run_options(cls) -> Options:
+        options = super()._default_run_options()
+        options.meas_level = MeasLevel.CLASSIFIED
+        options.meas_return = MeasReturnType.AVERAGE
+        return options
+
     def __init__(
         self,
         physical_qubits: Sequence[int],
