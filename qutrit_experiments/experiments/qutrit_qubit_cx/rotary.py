@@ -42,10 +42,7 @@ class RepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
         super().__init__(physical_qubits, make_rcr_circuit(physical_qubits, cr_schedule, rcr_type),
                          amp_param_name, amplitudes, angle_param_name=angle_param_name,
                          measure_preparations=measure_preparations, control_states=(1,),
-                         backend=backend)
-        self.analysis = RepeatedCRRotaryAmplitudeAnalysis(
-            [exp.analysis for exp in self._experiments]
-        )
+                         backend=backend, analysis_cls=RepeatedCRRotaryAmplitudeAnalysis)
 
 
 class RepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):

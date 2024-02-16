@@ -404,9 +404,17 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         observeds = np.array([[o[(c, '')] for c in control_states] for o in observeds])
         predicteds = np.array([[p[(c, '')] for c in control_states] for p in predicteds])
 
+        chisq = np.sum(
+            np.square((unp.nominal_values(observeds) - predicteds)
+                       / unp.std_devs(observeds)),
+            axis=2
+        )
+        chisq /= observeds.shape[2]
+
         analysis_results.extend([
             AnalysisResultData(name='control_states', value=control_states),
-            AnalysisResultData(name='unitary_parameters', value=unitaries)
+            AnalysisResultData(name='unitary_parameters', value=unitaries),
+            AnalysisResultData(name='chisq', value=chisq)
         ])
         if self.options.return_expvals:
             analysis_results.extend([
@@ -430,13 +438,6 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
                         y_formatted_err=unp.std_devs(unitaries[:, ic, iop])
                     )
                 figures.append(plotter.figure())
-
-            chisq = np.sum(
-                np.square((unp.nominal_values(observeds) - predicteds)
-                           / unp.std_devs(observeds)),
-                axis=2
-            )
-            chisq /= observeds.shape[2]
 
             plotter = CurvePlotter(MplDrawer())
             plotter.set_figure_options(
