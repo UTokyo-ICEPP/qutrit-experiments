@@ -225,12 +225,16 @@ class ExperimentsRunner:
                     exp_data.add_analysis_callback(set_child_data_structure)
                 exp_data.add_analysis_callback(self.save_data)
 
-        with exp_data._analysis_callbacks.lock:
-            exp_data.add_analysis_callback(self._check_status)
-
         if block_for_results:
             # Wait here once just to make the program execution easier to understand
             exp_data.block_for_results()
+            # Analysis callbacks get cleared when there are job errors; need to call check_status
+            # here directly to raise upon error
+            self._check_status(exp_data)
+        else:
+            # Which means this is probably meaningless
+            with exp_data._analysis_callbacks.lock:
+                exp_data.add_analysis_callback(self._check_status)
 
         if not analyze or experiment.analysis is None:
             if isinstance(experiment, CompositeExperiment):
@@ -563,8 +567,7 @@ class ExperimentsRunner:
         logger.info('Checking the job status for %s', experiment_data.experiment_type)
 
         ## Check the job status
-        job_status = experiment_data.job_status()
-        if job_status != JobStatus.DONE:
+        if (job_status := experiment_data.job_status()) != JobStatus.DONE:
             if self._data_dir:
                 job_ids_path = os.path.join(self._data_dir,
                                             f'{experiment_data.experiment_type}_jobs.dat')
