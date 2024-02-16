@@ -23,6 +23,7 @@ class CycledRepeatedCRFine(MapToPhysicalQubits, BaseExperiment):
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
         options.repetitions = np.arange(1, 9)
+        return options
 
     def __init__(
         self,
@@ -38,7 +39,7 @@ class CycledRepeatedCRFine(MapToPhysicalQubits, BaseExperiment):
         self._rx_schedule = rx_schedule
         self._rcr_type = rcr_type
 
-        if repetitions is None:
+        if repetitions is not None:
             self.set_experiment_options(repetitions=repetitions)
 
         self.analysis.set_options(
