@@ -1,11 +1,12 @@
 from collections.abc import Sequence
 from enum import IntEnum
-from typing import Union
+from typing import Optional, Union
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit import Gate
 from qiskit.pulse import ScheduleBlock
 from qiskit.providers import Backend
+from qiskit_experiments.calibration_management import Calibrations
 from qiskit_experiments.framework import BackendData, BackendTiming
 
 from ...gates import X12Gate
@@ -20,10 +21,14 @@ class RCRType(IntEnum):
 
 def make_cr_circuit(
     physical_qubits: Sequence[int],
-    cr_schedule: ScheduleBlock
+    arg: Union[ScheduleBlock, Calibrations]
 ) -> QuantumCircuit:
+    if isinstance(arg, Calibrations):
+        cr_schedule = arg.get_schedule('cr', physical_qubits)
+    else:
+        cr_schedule = arg
+
     params = cr_schedule.parameters
-    
     circuit = QuantumCircuit(2)
     circuit.append(Gate('cr', 2, params), [0, 1])
     circuit.add_calibration('cr', physical_qubits, cr_schedule, params)
@@ -33,11 +38,16 @@ def make_cr_circuit(
 
 def make_rcr_circuit(
     physical_qubits: Sequence[int],
-    cr_schedule: ScheduleBlock,
-    rcr_type: RCRType
+    arg: Union[ScheduleBlock, Calibrations],
+    rcr_type: Optional[RCRType] = None
 ) -> QuantumCircuit:
+    if isinstance(arg, Calibrations):
+        cr_schedule = arg.get_schedule('cr', physical_qubits)
+        rcr_type = RCRType(arg.get_parameter_value('rcr_type', physical_qubits))
+    else:
+        cr_schedule = arg
+        
     params = cr_schedule.parameters
-
     rcr_circuit = QuantumCircuit(2)
     if rcr_type == RCRType.X:
         rcr_circuit.x(0)
@@ -57,10 +67,21 @@ def make_rcr_circuit(
 
 def make_crcr_circuit(
     physical_qubits: Sequence[int],
-    cr_schedules: tuple[ScheduleBlock, ScheduleBlock],
-    rx_schedule: Union[ScheduleBlock, None],
-    rcr_type: RCRType
+    arg: Union[tuple[ScheduleBlock, ScheduleBlock], Calibrations],
+    rx_schedule: Optional[ScheduleBlock] = None,
+    rcr_type: Optional[RCRType] = None
 ) -> QuantumCircuit:
+    if isinstance(arg, Calibrations):
+        cr_schedules = [arg.get_schedule('cr', physical_qubits)]
+        # Stark phase is relative to the CR angle, and we want to keep it the same for CRp and CRm
+        assign_params = {pname: np.pi for pname in
+                         ['cr_sign_angle', 'counter_sign_angle', 'cr_stark_sign_phase']}
+        cr_schedules.append(arg.get_schedule('cr', physical_qubits, assign_params=assign_params))
+        rx_schedule = arg.get_schedule('offset_rx', physical_qubits[1])
+        rcr_type = RCRType(arg.get_parameter_value('rcr_type', physical_qubits))
+    else:
+        cr_schedules = arg
+
     crp_params = cr_schedules[0].parameters
     crm_params = cr_schedules[1].parameters
     if rx_schedule is not None:
