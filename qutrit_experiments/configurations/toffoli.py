@@ -4,16 +4,9 @@ from functools import wraps
 import logging
 import numpy as np
 from uncertainties import unumpy as unp
-from qiskit import QuantumCircuit, pulse
-from qiskit.circuit import Gate, Parameter
-from qiskit.qobj.utils import MeasLevel, MeasReturnType
-from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
-from qiskit_experiments.framework import BackendTiming
 
-from ..data_processing import ReadoutMitigation
-from ..experiment_config import BatchExperimentConfig, ExperimentConfig, register_exp, register_post
+from ..experiment_config import ExperimentConfig, register_exp, register_post
 from ..experiments.qutrit_qubit_cx.util import RCRType, make_crcr_circuit
-from ..pulse_library import ModulatedGaussianSquare
 from ..util.pulse_area import rabi_freq_per_amp, grounded_gauss_area
 from .common import add_readout_mitigation
 from .qutrit import (

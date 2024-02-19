@@ -10,6 +10,7 @@ if __name__ == '__main__':
     logging.getLogger('qutrit_experiments').setLevel(logging.INFO)
 
     from qutrit_experiments.calibrations import make_single_qutrit_gate_calibrations
+    import qutrit_experiments.configurations.single_qutrit
     from qutrit_experiments.programs.common import (get_program_config, load_calibrations,
                                                     setup_backend, setup_data_dir, setup_runner)
     from qutrit_experiments.programs.single_qutrit_gates import (calibrate_single_qutrit_gates,
@@ -23,6 +24,8 @@ if __name__ == '__main__':
     calibrations = make_single_qutrit_gate_calibrations(backend)
     runner = setup_runner(backend, calibrations, program_config)
     calibrated = load_calibrations(runner, program_config)
+
+    runner.program_data['qutrit'] = runner.program_data['qubits'][0]
 
     calibrate_single_qutrit_gates(runner, calibrated)
     characterize_qutrit(runner)

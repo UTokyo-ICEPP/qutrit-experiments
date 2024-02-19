@@ -1,13 +1,14 @@
 from typing import Optional
 from ..runners.experiments_runner import ExperimentsRunner
-from ..configurations import single_qutrit
 
 
-def calibrate_single_qutrit_gates(runner: ExperimentsRunner, calibrated: Optional[set[str]] = None):
+def calibrate_single_qutrit_gates(
+    runner: ExperimentsRunner,
+    calibrated: Optional[set[str]] = None
+):
     if calibrated is None:
         calibrated = set()
 
-    runner.program_data['qutrit'] = runner.program_data['qubits'][0]
     exp_types = [
         'qutrit_rough_frequency',
         'qutrit_rough_amplitude',
@@ -31,8 +32,6 @@ def calibrate_single_qutrit_gates(runner: ExperimentsRunner, calibrated: Optiona
 
 
 def characterize_qutrit(runner: ExperimentsRunner):
-    runner.program_data['qutrit'] = runner.program_data['qubits'][0]
-
     for exp_type in ['qutrit_assignment_error', 'qutrit_t1']:
         runner.run_experiment(exp_type)
 

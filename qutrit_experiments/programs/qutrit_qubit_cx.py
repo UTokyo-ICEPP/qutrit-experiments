@@ -1,14 +1,11 @@
 import logging
-from typing import Union
 import numpy as np
 import scipy.optimize as sciopt
 from uncertainties import unumpy as unp
-from qiskit_experiments.framework import BackendTiming
 
 from ..experiments.qutrit_qubit_cx.util import RCRType
 from ..runners import ExperimentsRunner
-from ..util.bloch import so3_cartesian, so3_cartesian_axnorm, so3_cartesian_params
-from ..util.pulse_area import grounded_gauss_area
+from ..util.bloch import so3_cartesian, so3_cartesian_params
 from ..util.sizzle import sizzle_hamiltonian_shifts
 
 logger = logging.getLogger(__name__)
@@ -50,7 +47,7 @@ def calibrate_qutrit_qubit_cx(
     )
     runner.run_experiment('c2t_crcr_rotary')
 
-    for exp_type in ['c2t_crcr_rx_amp', 'c2t_crcr_fine_rx_amp', 'c2t_crcr_fine_cr_width']:
+    for exp_type in ['c2t_crcr_rx_amp', 'c2t_crcr_fine']:
         runner.run_experiment(exp_type)
 
     runner.run_experiment('c2t_crcr_validation')
