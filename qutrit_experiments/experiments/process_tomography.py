@@ -15,7 +15,7 @@ from qiskit_experiments.library.tomography.tomography_experiment import Tomograp
 
 from ..constants import DEFAULT_SHOTS
 from ..framework.threaded_analysis import NO_THREAD, ThreadedAnalysis
-from ..transpilation import map_to_physical_qubits, translate_to_basis
+from ..transpilation import map_to_physical_qubits, map_and_translate, translate_to_basis
 from ..util.unitary_fit import fit_unitary, plot_unitary_fit
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,7 @@ class CircuitTomography(TomographyExperiment):
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
         options.decompose_circuits = False
+        options.need_translation = False
         options.pre_circuit = None
         options.post_circuit = None
         return options
@@ -106,8 +107,11 @@ class CircuitTomography(TomographyExperiment):
     def _decomposed_circuits(self, apply_layout=False) -> list[QuantumCircuit]:
         channel = self._circuit
         if apply_layout:
-            channel = map_to_physical_qubits(channel, self.physical_qubits,
-                                             self._backend.coupling_map)
+            if self.experiment_options.need_translation:
+                channel = map_and_translate(channel, self.physical_qubits, self._backend)
+            else:
+                channel = map_to_physical_qubits(channel, self.physical_qubits,
+                                                 self._backend.coupling_map)
 
         prep_circuits = self._decomposed_prep_circuits()
         meas_circuits = self._decomposed_meas_circuits()
