@@ -449,9 +449,10 @@ class ExperimentsRunner:
                     targets = [(pname, sched_name) for pname in param_name]
                 else:
                     targets = list(zip(param_name, sched_name))
-                qubits_map = exp.experiment_options.get('calibration_qubits', {})
+                qubits_map = exp.experiment_options.get('calibration_qubit_index', {})
                 for pname, sname in targets:
-                    qubits = qubits_map.get((pname, sname), exp.physical_qubits)
+                    qubit_indices = qubits_map.get((pname, sname), range(len(exp.physical_qubits)))
+                    qubits = tuple(exp.physical_qubits[idx] for idx in qubit_indices)
                     update_list.append((pname, sname, qubits, updated))
 
             elif type(exp) in [BatchExperiment, ParallelExperiment]:

@@ -424,10 +424,10 @@ def c2t_crcr_cr_width(runner):
 def c2t_crcr_cr_width(runner, experiment_data):
     # d|θ_1x - θ_0x|/dt
     fit_params = experiment_data.analysis_results('unitary_linear_fit_params', block=False).value
-    slope, _, psi, phi = np.array([unp.nominal_values(fit_params[ic]) for ic in range(2)]).T
-    dDxdt = np.diff(slope * np.sin(psi) * np.cos(phi))[0]
-    cx_sign = experiment_data.analysis_results('cx_sign', block=False).value
-    runner.program_data['crcr_angle_gap_per_dt'] = dDxdt * cx_sign
+    params = [unp.nominal_values(fit_params[ic]) for ic in range(2)]
+    runner.program_data['crcr_width_rate_params'] = np.array(
+        [np.array([p[0], p[1]]) * np.sin(p[2]) * np.cos(p[3]) for p in params]
+    )
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
@@ -511,25 +511,14 @@ def c2t_crcr_rx_amp(runner, experiment_data):
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1])
-def c2t_crcr_fine_rx_amp(runner):
-    from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineRxAmpCal
+def c2t_crcr_fine(runner):
+    from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineCal
     return ExperimentConfig(
-        CycledRepeatedCRFineRxAmpCal,
+        CycledRepeatedCRFineCal,
         runner.program_data['qubits'][1:],
         args={
-            'angle_per_amp': runner.program_data['crcr_angle_per_rx_amp']
-        }
-    )
-
-@register_exp
-@add_readout_mitigation(logical_qubits=[1])
-def c2t_crcr_fine_cr_width(runner):
-    from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineCRWidthCal
-    return ExperimentConfig(
-        CycledRepeatedCRFineCRWidthCal,
-        runner.program_data['qubits'][1:],
-        args={
-            'angle_gap_per_dt': runner.program_data['crcr_angle_gap_per_dt']
+            'width_rate_params': runner.program_data['crcr_width_rate_params'],
+            'amp_rate': runner.program_data['crcr_angle_per_rx_amp']
         }
     )
 
