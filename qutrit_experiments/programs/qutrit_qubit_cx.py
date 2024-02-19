@@ -35,7 +35,7 @@ def calibrate_qutrit_qubit_cx(
     fine_tune_cr(omega_z, runner)
 
     runner.run_experiment('c2t_crcr_cr_width')
-    
+
     cr_width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
     cr_params = unp.nominal_values(
         (slope * cr_width + intercept)[..., None]
@@ -48,22 +48,17 @@ def calibrate_qutrit_qubit_cx(
     runner.program_data['crcr_rotary_test_angles'] = np.linspace(
         rotary_guess - np.pi / 8., rotary_guess + np.pi / 8., 6
     )
-    data = runner.run_experiment('c2t_crcr_rotary')
-    rotary_amp = runner.calibrations.get_parameter_value('counter_amp', qubits, 'cr')
-    if runner.calibrations.get_parameter_value('counter_sign_angle', qubits, 'cr') != 0.:
-        rotary_amp *= -1.
-    rotary_idx = int(np.argmin(np.abs(runner.program_data['crcr_rotary_test_angles'] - rotary_amp)))
-    child_0 = data.child_data(rotary_idx).child_data(0)
-    fit_params = child_0.analysis_results('unitary_fit_params').value
-    runner.program_data['rx_target_angle'] = -fit_params[0].n
+    runner.run_experiment('c2t_crcr_rotary')
 
     for exp_type in ['c2t_crcr_rx_amp', 'c2t_crcr_fine_rx_amp', 'c2t_crcr_fine_cr_width']:
         runner.run_experiment(exp_type)
 
+    runner.run_experiment('c2t_crcr_validation')
+
 
 def fine_tune_cr(omega_z: np.ndarray, runner: ExperimentsRunner):
     qubits = tuple(runner.program_data['qubits'][1:])
-    
+
     # If |omega_Iz| < 3σ(omega_Iz), no need to try siZZle
     if np.abs(omega_z[0].n) < 3. * omega_z[0].std_dev:
         return

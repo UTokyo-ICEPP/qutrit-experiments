@@ -182,7 +182,7 @@ class CycledRepeatedCRFineCRWidthCal(CycledRepeatedCRFineCal, CycledRepeatedCRFi
         self,
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
-        angle_per_dt: float,
+        angle_gap_per_dt: float,
         backend: Optional[Backend] = None,
         cal_parameter_name: list[str] = ['width', 'margin'],
         schedule_name: str = 'cr',
@@ -194,12 +194,12 @@ class CycledRepeatedCRFineCRWidthCal(CycledRepeatedCRFineCal, CycledRepeatedCRFi
                          repetitions=repetitions, auto_update=auto_update)
         cx_sign = calibrations.get_parameter_value('qutrit_qubit_cx_sign', physical_qubits)
         self.analysis.options.fixed_parameters['phase_offset'] = cx_sign * np.pi / 2.
-        self.angle_per_dt = angle_per_dt
+        self.angle_gap_per_dt = angle_gap_per_dt
 
     def _update_calibrations_from_d_theta(self, experiment_data: ExperimentData, d_theta: float):
         current_width = self._cals.get_parameter_value(self._param_name[0], self.physical_qubits,
                                                        schedule=self._sched_name)
-        width = current_width - d_theta / self.angle_per_dt
+        width = current_width - d_theta / self.angle_gap_per_dt
         null_sched = self._cals.get_schedule(self._sched_name, self.physical_qubits,
                                              assign_params={p: 0. for p in self._param_name})
         margin = get_margin(null_sched.duration, width, self._backend)

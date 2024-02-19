@@ -12,6 +12,7 @@ from qiskit_experiments.framework import BackendTiming
 
 from ..data_processing import ReadoutMitigation
 from ..experiment_config import BatchExperimentConfig, ExperimentConfig, register_exp, register_post
+from ..experiments.qutrit_qubit_cx.util import RCRType, make_crcr_circuit
 from ..pulse_library import ModulatedGaussianSquare
 from ..util.pulse_area import rabi_freq_per_amp, grounded_gauss_area
 from .qutrit import (
@@ -421,11 +422,12 @@ def c2t_crcr_cr_width(runner):
 
 @register_post
 def c2t_crcr_cr_width(runner, experiment_data):
-    # dθ/dt
+    # d|θ_1x - θ_0x|/dt
     fit_params = experiment_data.analysis_results('unitary_linear_fit_params', block=False).value
-    params = np.array([unp.nominal_values(fit_params[ic]) for ic in range(2)])
-    runner.program_data['crcr_angle_per_dt'] = np.diff(params[:, 0] * np.sin(params[:, 2])
-                                                       * np.cos(params[:, 3]))[0]
+    slope, _, psi, phi = np.array([unp.nominal_values(fit_params[ic]) for ic in range(2)]).T
+    dDxdt = np.diff(slope * np.sin(psi) * np.cos(phi))[0]
+    cx_sign = experiment_data.analysis_results('cx_sign', block=False).value
+    runner.program_data['crcr_angle_gap_per_dt'] = dDxdt * cx_sign
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
@@ -474,6 +476,17 @@ def c2t_crcr_rotary(runner):
         args={'amplitudes': angles / angle_per_amp}
     )
 
+@register_post
+def c2t_crcr_rotary(runner, experiment_data):
+    qubits = tuple(runner.program_data['qubits'][1:])
+    rotary_amp = runner.calibrations.get_parameter_value('counter_amp', qubits, 'cr')
+    if runner.calibrations.get_parameter_value('counter_sign_angle', qubits, 'cr') != 0.:
+        rotary_amp *= -1.
+    rotary_idx = int(np.argmin(np.abs(runner.program_data['crcr_rotary_test_angles'] - rotary_amp)))
+    child_0 = experiment_data.child_data(rotary_idx).child_data(0)
+    fit_params = child_0.analysis_results('unitary_fit_params').value
+    runner.program_data['rx_target_angle'] = -fit_params[0].n
+
 @register_exp
 @add_readout_mitigation
 def c2t_crcr_rx_amp(runner):
@@ -516,6 +529,27 @@ def c2t_crcr_fine_cr_width(runner):
         CycledRepeatedCRFineCRWidthCal,
         runner.program_data['qubits'][1:],
         args={
-            'angle_per_dt': runner.program_data['crcr_angle_per_dt']
+            'angle_gap_per_dt': runner.program_data['crcr_angle_gap_per_dt']
         }
+    )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1], expval=True)
+def c2t_crcr_validation(runner):
+    from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
+
+    qubits = tuple(runner.program_data['qubits'][1:])
+    cr_schedules = [runner.calibrations.get_schedule('cr', qubits)]
+    # Stark phase is relative to the CR angle, and we want to keep it the same for CRp and CRm
+    assign_params = {pname: np.pi for pname in
+                    ['cr_sign_angle', 'counter_sign_angle', 'cr_stark_sign_phase']}
+    cr_schedules.append(runner.calibrations.get_schedule('cr', qubits, assign_params=assign_params))
+    rx_schedule = runner.calibrations.get_schedule('offset_rx', qubits[1])
+    rcr_type = RCRType(runner.calibrations.get_parameter_value('rcr_type', qubits))
+    crcr_circuit = make_crcr_circuit(qubits, cr_schedules, rx_schedule, rcr_type)
+
+    return ExperimentConfig(
+        QutritQubitTomography,
+        qubits,
+        args={'circuit': crcr_circuit}
     )
