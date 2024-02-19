@@ -12,7 +12,7 @@ def calibrate_single_qutrit_gates(
     exp_types = [
         'qutrit_rough_frequency',
         'qutrit_rough_amplitude',
-        'qubit_assignment_error',
+        'qubits_assignment_error',
         'qutrit_semifine_frequency',
         'qutrit_fine_frequency',
         'qutrit_rough_x_drag',
