@@ -5,6 +5,7 @@ from qiskit.qobj.utils import MeasLevel
 from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 
 from ..data_processing import ReadoutMitigation
+from ..experiment_config import ExperimentConfig
 
 logger = logging.getLogger(__name__)
 
@@ -49,3 +50,20 @@ def configure_readout_mitigation(runner, config, logical_qubits=None, expval=Fal
         config.analysis_options['data_processor'] = DataProcessor('counts', nodes)
     else:
         processor._nodes.insert(0, ReadoutMitigation(matrix))
+
+def qubits_assignment_error(runner, qubits):
+    """Template configuration generator for CorrelatedReadoutError."""
+    from ..experiments.readout_error import CorrelatedReadoutError
+    if isinstance(qubits, int):
+        qubits = [qubits]
+    return ExperimentConfig(
+        CorrelatedReadoutError,
+        qubits
+    )
+
+def qubits_assignment_error_post(runner, experiment_data):
+    qubits = tuple(experiment_data.metadata['physical_qubits'])
+    mitigator = experiment_data.analysis_results('Correlated Readout Mitigator', block=False).value
+    prog_data = runner.program_data.setdefault('readout_assignment_matrices', {})
+    for combination in [qubits[0:1], qubits[1:2], qubits[2:3], qubits[:2], qubits[1:3], qubits]:
+        prog_data[combination] = mitigator.assignment_matrix(combination)

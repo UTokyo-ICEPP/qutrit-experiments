@@ -1,11 +1,11 @@
 # pylint: disable=function-redefined, unused-argument
 """Single qutrit calibration and characterization experiments for a full backend."""
+from functools import wraps
 import logging
+from .common import qubits_assignment_error, qubits_assignment_error_post
 from .qutrit import (
     qutrit_rough_frequency,
     qutrit_rough_amplitude,
-    qubit_assignment_error,
-    qubit_assignment_error_post,
     qutrit_semifine_frequency,
     qutrit_fine_frequency,
     qutrit_rough_x_drag,
@@ -30,12 +30,14 @@ logger = logging.getLogger(__name__)
 
 
 def register_backend_qutrit_exp(function):
+    @wraps(function)
     def conf_gen(runner):
         return runner.make_batch_config(function, exp_type=function.__name__)
-    register_exp(conf_gen, exp_type=function.__name__)
+    register_exp(conf_gen)
 
 
 def register_backend_qutrit_postexp(function):
+    @wraps(function)
     def postexp(runner, experiment_data):
         for parallel_data in experiment_data.child_data():
             for qutrit_data in parallel_data.child_data():
@@ -52,7 +54,7 @@ def register_backend_qutrit_postexp(function):
 qutrit_functions = [
     qutrit_rough_frequency,
     #qutrit_rough_amplitude,
-    qubit_assignment_error,
+    qubits_assignment_error,
     qutrit_semifine_frequency,
     qutrit_fine_frequency,
     qutrit_rough_x_drag,
@@ -83,5 +85,5 @@ def qutrit_rough_amplitude_parallel(runner):
     return conf
 register_exp(qutrit_rough_amplitude_parallel, exp_type='qutrit_rough_amplitude')
 
-register_backend_qutrit_postexp(qubit_assignment_error_post)
+register_backend_qutrit_postexp(qubits_assignment_error_post)
 register_backend_qutrit_postexp(qutrit_assignment_error_post)

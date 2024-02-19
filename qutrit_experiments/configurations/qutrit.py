@@ -11,7 +11,7 @@ from qiskit_experiments.data_processing import (DataProcessor, DiscriminatorNode
 from qiskit_experiments.visualization import MplDrawer, IQPlotter
 
 from ..calibrations import get_qutrit_pulse_gate
-from ..data_processing import LinearDiscriminator, ReadoutMitigation
+from ..data_processing import LinearDiscriminator
 from ..experiment_config import ExperimentConfig
 from .common import add_readout_mitigation
 
@@ -107,19 +107,6 @@ def qutrit_discriminator_post(runner, experiment_data):
             plotter.set_figure_options(series_params={'0': {'label': f'amp={amplitude}'}})
             plotter.set_supplementary_data(discriminator=discriminator)
             experiment_data.add_figures(plotter.figure(), f'iq_{iamp}')
-
-def qubit_assignment_error(runner, qubit):
-    from ..experiments.readout_error import CorrelatedReadoutError
-    return ExperimentConfig(
-        CorrelatedReadoutError,
-        [qubit]
-    )
-
-def qubit_assignment_error_post(runner, experiment_data):
-    qubit = experiment_data.metadata['physical_qubits'][0]
-    mitigator = experiment_data.analysis_results('Correlated Readout Mitigator', block=False).value
-    runner.program_data.setdefault('qubit_assignment_matrix', {})[(qubit,)] = \
-        mitigator.assignment_matrix([qubit])
 
 @add_readout_mitigation
 def qutrit_semifine_frequency(runner, qubit):

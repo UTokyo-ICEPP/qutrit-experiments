@@ -8,7 +8,7 @@ from uncertainties import unumpy as unp
 from ..experiment_config import ExperimentConfig, register_exp, register_post
 from ..experiments.qutrit_qubit_cx.util import RCRType, make_crcr_circuit
 from ..util.pulse_area import rabi_freq_per_amp, grounded_gauss_area
-from .common import add_readout_mitigation
+from .common import add_readout_mitigation, qubits_assignment_error
 from .qutrit import (
     qutrit_rough_frequency,
     qutrit_rough_amplitude,
@@ -56,21 +56,11 @@ qutrit_functions = [
 for func in qutrit_functions:
     register_single_qutrit_exp(func)
 
-@register_exp
-def qubits_assignment_error(runner):
-    from ..experiments.readout_error import CorrelatedReadoutError
-    return ExperimentConfig(
-        CorrelatedReadoutError,
-        runner.program_data['qubits']
-    )
 
-@register_post
-def qubits_assignment_error(runner, experiment_data):
-    qubits = tuple(experiment_data.metadata['physical_qubits'])
-    mitigator = experiment_data.analysis_results('Correlated Readout Mitigator', block=False).value
-    prog_data = runner.program_data.setdefault('readout_assignment_matrices', {})
-    for combination in [qubits[0:1], qubits[1:2], qubits[2:3], qubits[:2], qubits[1:3], qubits]:
-        prog_data[combination] = mitigator.assignment_matrix(combination)
+@register_exp
+@wraps(qubits_assignment_error)
+def qubits_assignment_error_func(runner):
+    return qubits_assignment_error(runner, runner.program_data['qubits'])
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
