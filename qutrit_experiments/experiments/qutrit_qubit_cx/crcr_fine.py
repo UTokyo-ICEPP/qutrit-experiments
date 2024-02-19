@@ -63,9 +63,14 @@ class CycledRepeatedCRPingPong(MapToPhysicalQubits, BaseExperiment):
 
         for add_x in [0, 1]:
             circuit = QuantumCircuit(2, 1)
-            self._prep_circuit(circuit)
+            if self._control_state != 0:
+                circuit.x(0)
+            if self._control_state == 2:
+                circuit.append(X12Gate(), [0])
             if add_x == 1:
                 circuit.x(1)
+            if self._control_state == 2:
+                circuit.append(X12Gate(), [0]) # restore qubit space
             circuit.measure(1, 0)
             circuit.metadata = {
                 'qubits': self._physical_qubits,
@@ -85,6 +90,8 @@ class CycledRepeatedCRPingPong(MapToPhysicalQubits, BaseExperiment):
                 circuit.compose(self._crcr_circuit, inplace=True)
                 if self._control_state != 1:
                     circuit.x(1)
+            if self._control_state == 2:
+                circuit.append(X12Gate(), [0]) # restore qubit space
             circuit.measure(1, 0)
             circuit.metadata = {
                 'qubits': self._physical_qubits,
