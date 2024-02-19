@@ -13,6 +13,7 @@ from qiskit_experiments.visualization import MplDrawer, IQPlotter
 from ..calibrations import get_qutrit_pulse_gate
 from ..data_processing import LinearDiscriminator, ReadoutMitigation
 from ..experiment_config import ExperimentConfig
+from .common import add_readout_mitigation
 
 logger = logging.getLogger(__name__)
 
@@ -39,34 +40,6 @@ def add_iq_discriminator(gen):
         return config
 
     return converted_gen
-
-def add_readout_mitigation(gen):
-    """Decorator to add a readout error mitigation node to the DataProcessor."""
-    @wraps(gen)
-    def converted_gen(runner, qubit):
-        config = gen(runner, qubit)
-        if config.run_options.get('meas_level', MeasLevel.CLASSIFIED) != MeasLevel.CLASSIFIED:
-            logger.warning('MeasLevel is not CLASSIFIED; no readout mitigation for qubit %d',
-                           qubit)
-            return config
-        if (matrix := runner.program_data.get('qubit_assignment_matrix', {}).get(qubit)) is None:
-            logger.warning('Assignment matrix missing; no readout mitigation for qubit %d',
-                           qubit)
-            return config
-
-        if (processor := config.analysis_options.get('data_processor')) is None:
-            config.analysis_options['data_processor'] = DataProcessor('counts', [
-                ReadoutMitigation(matrix),
-                Probability(config.analysis_options.get('outcome', '1'))
-            ])
-        else:
-            probability_pos = next(i for i, node in enumerate(processor._nodes)
-                                   if isinstance(node, Probability))
-            processor._nodes.insert(probability_pos, ReadoutMitigation(matrix))
-        return config
-
-    return converted_gen
-
 
 def qutrit_rough_frequency(runner, qubit):
     """EF frequency measurement based on spectroscopy."""
@@ -145,7 +118,7 @@ def qubit_assignment_error(runner, qubit):
 def qubit_assignment_error_post(runner, experiment_data):
     qubit = experiment_data.metadata['physical_qubits'][0]
     mitigator = experiment_data.analysis_results('Correlated Readout Mitigator', block=False).value
-    runner.program_data.setdefault('qubit_assignment_matrix', {})[qubit] = \
+    runner.program_data.setdefault('qubit_assignment_matrix', {})[(qubit,)] = \
         mitigator.assignment_matrix([qubit])
 
 @add_readout_mitigation
