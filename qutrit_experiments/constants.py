@@ -22,3 +22,8 @@ LO_SIGN = 1.
 H_d = Re[e^{LO_SIGN * i omega t} r(t)] (b + bdag). Because RZGate(phi) is scheduled as
 ShiftPhase(-phi), the physical angle of the resulting Rz gate is +phi when LO_SIGN==-1 and -phi when
 LO_SIGN==+1."""
+
+USE_CUSTOM_PULSES = False
+"""Whether to allow use of custom pulses in calibrations. Custom pulses are required for full
+functionalities, but a bug in the backend is making their use impossible for the time being (as of
+Feb 20 2024)."""
