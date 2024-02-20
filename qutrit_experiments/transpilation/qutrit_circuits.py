@@ -247,9 +247,11 @@ class AddQutritCalibrations(TransformationPass):
                     mod_freq = (self.calibrations.get_parameter_value('f12', qubits)
                                 - self.target.qubit_properties[qubits[0]].frequency)
                     modulation_frequencies[qubits[0]] = mod_freq
-                    logger.debug('%s[%d] EF modulation frequency %f', node.op.name, qubits[0], mod_freq)
+                    logger.debug('%s[%d] EF modulation frequency %f', node.op.name, qubits[0],
+                                 mod_freq)
 
-                ef_lo_phase[qubits[0]] = LO_SIGN * node_start_time[node] * twopi * mod_freq
+                ef_lo_phase[qubits[0]] = (LO_SIGN * node_start_time[node] * twopi * mod_freq
+                                          * self.target.dt)
                 resolve_rz = {'ef_rz', 'ef_lo'} & self.resolve_rz
 
                 if (isinstance(node.op, (X12Gate, SX12Gate)) and not resolve_rz
