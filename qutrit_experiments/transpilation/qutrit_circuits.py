@@ -197,9 +197,8 @@ class AddQutritCalibrations(TransformationPass):
                 if qubits[0] in modulation_frequencies:
                     raise TranspilerError('Operation set_f12 must appear before any x12, sx12, and'
                                           ' set_f12 gates in the circuit.')
-                modulation_frequencies[qubits[0]] = (
-                    node.op.params[0] - self.target.qubit_properties[qubits[0]].frequency
-                ) * self.target.dt
+                qubit_props = self.target.qubit_properties[qubits[0]]
+                modulation_frequencies[qubits[0]] = node.op.params[0] - qubit_props.frequency
                 dag.remove_op_node(node)
 
             elif isinstance(node.op, RZGate):
@@ -246,7 +245,7 @@ class AddQutritCalibrations(TransformationPass):
             elif isinstance(node.op, QutritGate):
                 if (mod_freq := modulation_frequencies.get(qubits[0])) is None:
                     mod_freq = (self.calibrations.get_parameter_value('f12', qubits)
-                                - self.target.qubit_properties[qubits[0]].frequency) * self.target.dt
+                                - self.target.qubit_properties[qubits[0]].frequency)
                     modulation_frequencies[qubits[0]] = mod_freq
                     logger.debug('%s[%d] EF modulation frequency %f', node.op.name, qubits[0], mod_freq)
 

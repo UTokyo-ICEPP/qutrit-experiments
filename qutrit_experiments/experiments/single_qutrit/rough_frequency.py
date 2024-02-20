@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from typing import Optional, Union
+from matplotlib.figure import Figure
 import numpy as np
 import lmfit
 
@@ -96,7 +97,7 @@ class GaussianResonanceAnalysis(curve.CurveAnalysis):
 
     def _run_analysis(
         self, experiment_data: ExperimentData
-    ) -> tuple[list[AnalysisResultData], list["pyplot.Figure"]]:
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         if (x0 := self.options.center_frequency):
             for datum in experiment_data.data():
                 datum['metadata']['xval'] -= x0

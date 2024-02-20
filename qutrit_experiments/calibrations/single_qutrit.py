@@ -98,7 +98,8 @@ def add_x12_sx12(
         with pulse.build(name=gate_name) as sched:
             if USE_CUSTOM_PULSES:
                 pulse.play(ModulatedDrag(Parameter('duration'), Parameter('amp'),
-                                         Parameter('sigma'), Parameter('beta'), Parameter('freq'),
+                                         Parameter('sigma'), Parameter('beta'),
+                                         Parameter('freq') * backend.dt,
                                          angle=Parameter('angle'), name=pulse_name),
                            drive_channel)
             else:
@@ -156,8 +157,8 @@ def get_qutrit_pulse_gate(
     assign_params: Optional[dict[str, ParameterValueType]] = None,
     group: str = 'default'
 ) -> ScheduleBlock:
-    freq = (calibrations.get_parameter_value('f12', qubit)
-            - backend.qubit_properties(qubit).frequency) * backend.dt
+    qubit_props = backend.qubit_properties(qubit)
+    freq = calibrations.get_parameter_value('f12', qubit) - qubit_props.frequency
     assign_params_dict = {'freq': freq}
     if assign_params:
         assign_params_dict.update(assign_params)
