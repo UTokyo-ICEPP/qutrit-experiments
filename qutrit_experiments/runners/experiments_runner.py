@@ -33,7 +33,8 @@ from ..framework_overrides.batch_experiment import BatchExperiment
 from ..framework_overrides.composite_analysis import CompositeAnalysis
 from ..framework_overrides.parallel_experiment import ParallelExperiment
 from ..gates import QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES
-from ..transpilation.qutrit_circuits import make_instruction_durations, transpile_qutrit_circuits
+from ..transpilation.qutrit_circuits import (QutritTranspileOptions, make_instruction_durations,
+                                             transpile_qutrit_circuits)
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule
 
@@ -88,8 +89,7 @@ class ExperimentsRunner:
         self.data_taking_only = False
         self.code_test = False
 
-        # resolve_rz option passed to the qutrit transpiler
-        self.transpile_resolve_rz = None
+        self.qutrit_transpile_options = QutritTranspileOptions()
 
         self.program_data = {}
 
@@ -330,7 +330,7 @@ class ExperimentsRunner:
         transpiled_circuits = transpile_qutrit_circuits(transpiled_circuits,
                                                         self._backend, self._calibrations,
                                                         instruction_durations=instruction_durations,
-                                                        resolve_rz=self.transpile_resolve_rz)
+                                                        options=self.qutrit_transpile_options)
         end = time.time()
         logger.debug('Qutrit-specific transpilation took %.1f seconds.', end - start)
         return transpiled_circuits

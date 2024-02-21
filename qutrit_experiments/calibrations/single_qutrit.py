@@ -10,7 +10,6 @@ from qiskit.circuit import Parameter
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 
 from .util import get_operational_qubits
-from ..constants import USE_CUSTOM_PULSES
 from ..pulse_library import ModulatedDrag
 
 logger = logging.getLogger(__name__)
@@ -96,18 +95,10 @@ def add_x12_sx12(
     # Schedules
     for gate_name, pulse_name in [('x12', 'Ξp'), ('sx12', 'Ξ90p')]:
         with pulse.build(name=gate_name) as sched:
-            if USE_CUSTOM_PULSES:
-                pulse.play(ModulatedDrag(Parameter('duration'), Parameter('amp'),
-                                         Parameter('sigma'), Parameter('beta'),
-                                         Parameter('freq') * backend.dt,
-                                         angle=Parameter('angle'), name=pulse_name),
-                           drive_channel)
-            else:
-                with pulse.frequency_offset(Parameter('freq'), drive_channel):
-                    pulse.play(pulse.Drag(Parameter('duration'), Parameter('amp'),
-                                          Parameter('sigma'), Parameter('beta'),
-                                          angle=Parameter('angle'), name=pulse_name),
-                               drive_channel)
+            pulse.play(ModulatedDrag(Parameter('duration'), Parameter('amp'),
+                                     Parameter('sigma'), Parameter('beta'), Parameter('freq'),
+                                     angle=Parameter('angle'), name=pulse_name),
+                       drive_channel)
         calibrations.add_schedule(sched, num_qubits=1)
 
     # Parameter default values

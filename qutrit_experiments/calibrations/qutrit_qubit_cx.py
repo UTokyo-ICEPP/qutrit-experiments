@@ -9,7 +9,6 @@ from qiskit_experiments.calibration_management import Calibrations, ParameterVal
 from qiskit_experiments.exceptions import CalibrationError
 
 from .util import get_default_ecr_schedule
-from ..constants import USE_CUSTOM_PULSES
 from ..pulse_library import ModulatedGaussianSquare
 
 logger = logging.getLogger(__name__)
@@ -38,47 +37,35 @@ def add_qutrit_qubit_cr(
     rsr = Parameter('rsr')
     sigma = Parameter('sigma')
     width = Parameter('width')
+    margin = Parameter('margin')
+    duration = sigma * rsr * 2 + width + margin
+    stark_frequency = Parameter('stark_frequency')
+    stark_detuning = (stark_frequency - Parameter('target_frequency')) * backend.dt
 
     cr_amp = Parameter('cr_amp')
     cr_base_angle = Parameter('cr_base_angle')
     cr_sign_angle = Parameter('cr_sign_angle')
+    cr_stark_amp = Parameter('cr_stark_amp')
+    cr_stark_sign_phase = Parameter('cr_stark_sign_phase')
+    cr_full_amp = cr_amp + cr_stark_amp
+
     counter_amp = Parameter('counter_amp')
     counter_base_angle = Parameter('counter_base_angle')
     counter_sign_angle = Parameter('counter_sign_angle')
+    counter_stark_amp = Parameter('counter_stark_amp')
+    counter_full_amp = counter_amp + counter_stark_amp
 
-    if USE_CUSTOM_PULSES:
-        margin = Parameter('margin')
-        duration = sigma * rsr * 2 + width + margin
-        stark_frequency = Parameter('stark_frequency')
-        stark_detuning = (stark_frequency - Parameter('target_frequency')) * backend.dt
-        cr_stark_amp = Parameter('cr_stark_amp')
-        cr_stark_sign_phase = Parameter('cr_stark_sign_phase')
-        cr_full_amp = cr_amp + cr_stark_amp
-        counter_stark_amp = Parameter('counter_stark_amp')
-        counter_full_amp = counter_amp + counter_stark_amp
-
-        cr_pulse = ModulatedGaussianSquare(duration=duration, amp=cr_full_amp,
-                                           sigma=sigma, freq=(0., stark_detuning),
-                                           fractions=(cr_amp, cr_stark_amp), width=width,
-                                           angle=cr_base_angle + cr_sign_angle,
-                                           risefall_sigma_ratio=rsr,
-                                           phases=(cr_stark_sign_phase,),
-                                           name='CR')
-        counter_pulse = ModulatedGaussianSquare(duration=duration, amp=counter_full_amp,
-                                                sigma=sigma, freq=(0., stark_detuning),
-                                                fractions=(counter_amp, counter_stark_amp),
-                                                width=width,
-                                                angle=counter_base_angle + counter_sign_angle,
-                                                risefall_sigma_ratio=rsr, name='Counter')
-
-    else:
-        cr_pulse = pulse.GaussianSquare(duration=duration, amp=cr_amp, sigma=sigma, width=width,
-                                        angle=cr_base_angle + cr_sign_angle,
-                                        risefall_sigma_ratio=rsr, name='CR')
-        counter_pulse = pulse.GaussianSquare(duration=duration, amp=counter_amp, sigma=sigma,
-                                             width=width,
-                                             angle=counter_base_angle + counter_sign_angle,
-                                             risefall_sigma_ratio=rsr, name='Counter')
+    cr_pulse = ModulatedGaussianSquare(duration=duration, amp=cr_full_amp,
+                                       sigma=sigma, freq=(0., stark_detuning),
+                                       fractions=(cr_amp, cr_stark_amp), width=width,
+                                       angle=cr_base_angle + cr_sign_angle, risefall_sigma_ratio=rsr,
+                                       phases=(cr_stark_sign_phase,),
+                                       name='CR')
+    counter_pulse = ModulatedGaussianSquare(duration=duration, amp=counter_full_amp,
+                                            sigma=sigma, freq=(0., stark_detuning),
+                                            fractions=(counter_amp, counter_stark_amp), width=width,
+                                            angle=counter_base_angle + counter_sign_angle,
+                                            risefall_sigma_ratio=rsr, name='Counter')
 
     with pulse.build(name='cr', default_alignment='left') as sched:
         pulse.play(cr_pulse, pulse.ControlChannel(Parameter('ch0.1')), name='CR')
@@ -116,21 +103,18 @@ def add_qutrit_qubit_cr(
             ('sigma', default_cr.sigma),
             ('width', 0.),
             ('margin', 0.),
+            ('stark_frequency', target_frequency),
+            ('target_frequency', target_frequency),
             ('cr_amp', 0.),
             ('cr_base_angle', default_cr.angle),
             ('cr_sign_angle', 0.),
+            ('cr_stark_amp', 0.),
+            ('cr_stark_sign_phase', 0.),
             ('counter_amp', 0.),
             ('counter_base_angle', 0. if default_rotary is None else default_rotary.angle),
-            ('counter_sign_angle', 0.)
+            ('counter_sign_angle', 0.),
+            ('counter_stark_amp', 0.)
         ]
-        if USE_CUSTOM_PULSES:
-            param_defaults += [
-                ('stark_frequency', target_frequency),
-                ('target_frequency', target_frequency),
-                ('counter_stark_amp', 0.),
-                ('cr_stark_amp', 0.),
-                ('cr_stark_sign_phase', 0.),
-            ]
         for pname, value in param_defaults:
             calibrations.add_parameter_value(ParameterValue(value), pname, qubits=qubits,
                                              schedule='cr')

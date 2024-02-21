@@ -2,6 +2,7 @@
 from collections import defaultdict
 from collections.abc import Sequence
 import copy
+from dataclasses import dataclass
 import logging
 from typing import Optional, Union
 import numpy as np
@@ -11,6 +12,7 @@ from qiskit.circuit.library import RZGate, SXGate, XGate
 from qiskit.dagcircuit import DAGCircuit, DAGOpNode
 from qiskit.providers import Backend
 from qiskit.pulse import Schedule, ScheduleBlock
+from qiskit.qobj.converters.pulse_instruction import ParametricPulseShapes
 from qiskit.transpiler import (AnalysisPass, InstructionDurations, PassManager, Target,
                                TransformationPass, TranspilerError)
 
@@ -25,6 +27,12 @@ from .rz import ConsolidateRZAngle, InvertRZSign
 
 logger = logging.getLogger(__name__)
 twopi = 2. * np.pi
+
+
+@dataclass
+class QutritTranspileOptions:
+    use_waveform: bool = False
+    resolve_rz: Optional[list[str]] = None
 
 
 def make_instruction_durations(
@@ -52,12 +60,14 @@ def transpile_qutrit_circuits(
     backend: Backend,
     calibrations: Calibrations,
     instruction_durations: Optional[InstructionDurations] = None,
-    resolve_rz: Optional[list[str]] = None
+    options: Optional[QutritTranspileOptions] = None
 ) -> list[QuantumCircuit]:
     """Recompute the gate durations, calculate the phase shifts for all qutrit gates, and insert
     AC Stark shift corrections to qubit gates"""
     if instruction_durations is None:
         instruction_durations = make_instruction_durations(backend, calibrations)
+    if options is None:
+        options = QutritTranspileOptions()
 
     def contains_qutrit_gate(property_set):
         return property_set['contains_qutrit_gate']
@@ -67,11 +77,26 @@ def transpile_qutrit_circuits(
     pm.append(ContainsQutritInstruction())
     scheduling = ALAPScheduleAnalysis(instruction_durations)
     add_cal = AddQutritCalibrations(backend.target, backend.configuration().channels,
-                                    resolve_rz=resolve_rz)
+                                    use_waveform=options.use_waveform,
+                                    resolve_rz=options.resolve_rz)
     add_cal.calibrations = calibrations # See the comment in the class for why we do this
     pm.append([scheduling, add_cal], condition=contains_qutrit_gate)
     pm.append(ConsolidateRZAngle())
     return pm.run(circuits)
+
+
+def convert_pulse_to_waveform(schedule_block: ScheduleBlock):
+    # .blocks returns a new container so we don't need to wrap the result further
+    for block in schedule_block.blocks:
+        if isinstance((inst := block), pulse.Play):
+            # Check if the pulse is known by the backend
+            try:
+                ParametricPulseShapes(inst.pulse.pulse_type)
+            except ValueError:
+                waveform_inst = pulse.Play(inst.pulse.get_waveform(), inst.channel, name=inst.name)
+                schedule_block.replace(inst, waveform_inst, inplace=True)
+        elif isinstance(block, ScheduleBlock):
+            convert_pulse_to_waveform(block)
 
 
 class ContainsQutritInstruction(AnalysisPass):
@@ -91,6 +116,7 @@ class AddQutritCalibrations(TransformationPass):
         self,
         target: Target,
         channel_map: dict[str, dict],
+        use_waveform: bool = False,
         resolve_rz: Optional[Union[str, list[str]]] = None
     ):
         super().__init__()
@@ -100,6 +126,7 @@ class AddQutritCalibrations(TransformationPass):
         self.calibrations: Calibrations = None
         self.target = target
         self.channel_map = channel_map
+        self.use_waveform = use_waveform
         if resolve_rz is None:
             self.resolve_rz = set(['ef_lo', 'ef_rz'])
         elif resolve_rz == 'all':
@@ -226,6 +253,7 @@ class AddQutritCalibrations(TransformationPass):
                     dag.substitute_node(node, RZGate(-phi / 2.), inplace=True)
 
             elif isinstance(node.op, (XGate, SXGate)):
+                # Corrections for geometric & Stark phases
                 # X = P2(delta/2 - pi/2) U_x(pi)
                 # SX = P2(delta/2 - pi/4) U_x(pi/2)
                 # See the docstring of add_x12_sx12()
@@ -238,11 +266,13 @@ class AddQutritCalibrations(TransformationPass):
                 cumul_phase_ef[qubits[0]] += offset
                 logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[0], offset)
                 if 'ge_rz' in self.resolve_rz:
+                    # Embed the phase shifts into the pulse as angle
                     self.substitute_node_with_paramgate(dag, node, qubits, node_start_time[node],
                                                         (cumul_phase_ge[qubits[0]],),
                                                         parametrized_schedules)
 
             elif isinstance(node.op, QutritGate):
+                # Do we know the f12 for this qubit?
                 if (mod_freq := modulation_frequencies.get(qubits[0])) is None:
                     mod_freq = (self.calibrations.get_parameter_value('f12', qubits)
                                 - self.target.qubit_properties[qubits[0]].frequency)
@@ -250,19 +280,15 @@ class AddQutritCalibrations(TransformationPass):
                     logger.debug('%s[%d] EF modulation frequency %f', node.op.name, qubits[0],
                                  mod_freq)
 
+                # Absolute phase of the qutrit frame
                 ef_lo_phase[qubits[0]] = (LO_SIGN * node_start_time[node] * twopi * mod_freq
                                           * self.target.dt)
+                # Flags for embedding phase shifts into pulses
                 resolve_rz = {'ef_rz', 'ef_lo'} & self.resolve_rz
 
-                if (isinstance(node.op, (X12Gate, SX12Gate)) and not resolve_rz
-                    and (qubits, ()) not in dag.calibrations.get(node.op.name, {})):
-                    assign_params = {'freq': mod_freq}
-                    sched = self.calibrations.get_schedule(node.op.name, qubits,
-                                                            assign_params=assign_params)
-                    dag.add_calibration(node.op.name, qubits, sched)
-                    logger.debug('%s[%d] Adding calibration', node.op.name, qubits[0])
-
                 if resolve_rz:
+                    # If one or more of types of phase shifts are to be embedded, compute the pulse
+                    # angle and substitute the node with an angled pulse gate
                     lo_angle = ef_lo_phase[qubits[0]] - cumul_phase_ge[qubits[0]]
                     rz_angle = cumul_phase_ef[qubits[0]]
                     sched_angle = 0.
@@ -283,17 +309,31 @@ class AddQutritCalibrations(TransformationPass):
                                                         modulation_frequency=mod_freq)
                     op_duration = dag.calibrations[node.op.name][(qubits, (nst,))].duration
                 else:
+                    if (isinstance(node.op, (X12Gate, SX12Gate))
+                        and (qubits, ()) not in dag.calibrations.get(node.op.name, {})):
+                        # If phase shifts are implemented with Rz, we need to attach the calibration
+                        # for x12 and sx12 only once
+                        assign_params = {'freq': mod_freq}
+                        sched = self.calibrations.get_schedule(node.op.name, qubits,
+                                                               assign_params=assign_params)
+                        if self.use_waveform:
+                            convert_pulse_to_waveform(sched)
+                        dag.add_calibration(node.op.name, qubits, sched)
+                        logger.debug('%s[%d] Adding calibration', node.op.name, qubits[0])
+
                     gate_angle = (cumul_phase_ef[qubits[0]] - cumul_phase_ge[qubits[0]]
                                   + ef_lo_phase[qubits[0]])
                     op_duration = next(s for k, s in dag.calibrations[node.op.name].values()
                                        if k[0] == qubits).duration
 
                 if gate_angle != 0.:
+                    # gate_angle is nonzero if phase shifts are not fully embedded
                     node = insert_rz(node, pre_angle=-gate_angle, post_angle=gate_angle,
                                      op_duration=op_duration)
 
                 # Cannot check isinstance() becaue the op may be substituted with a parametric Gate
                 if node.op.name in ['x12', 'sx12']:
+                    # Corrections for geometric & Stark phases
                     # X12 = P0(delta/2 - pi/2) U_xi(pi)
                     # SX12 = P0(delta/2 - pi/4) U_xi(pi/2)
                     # P0(phi) is effected by ShiftPhase[ge](-LO_SIGN * phi)
@@ -331,10 +371,11 @@ class AddQutritCalibrations(TransformationPass):
             parametrized_schedules[key] = psched
 
         sched, params = psched
+        assigned_sched = sched.assign_parameters(dict(zip(params, phases)), inplace=False)
+        if self.use_waveform:
+            convert_pulse_to_waveform(assigned_sched)
         dag.substitute_node(node, Gate(sched.name, len(qubits), [start_time]), inplace=True)
-        dag.add_calibration(sched.name, qubits,
-                            sched.assign_parameters(dict(zip(params, phases)), inplace=False),
-                            [start_time])
+        dag.add_calibration(sched.name, qubits, assigned_sched, [start_time])
 
     def make_parametrized_schedule(
         self,
@@ -403,4 +444,3 @@ class AddQutritCalibrations(TransformationPass):
 
         # Not all parameters may have been used
         return list(set(angles) & set(schedule_block.parameters))
-
