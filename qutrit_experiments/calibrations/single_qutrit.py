@@ -96,7 +96,8 @@ def add_x12_sx12(
     for gate_name, pulse_name in [('x12', 'Ξp'), ('sx12', 'Ξ90p')]:
         with pulse.build(name=gate_name) as sched:
             pulse.play(ModulatedDrag(Parameter('duration'), Parameter('amp'),
-                                     Parameter('sigma'), Parameter('beta'), Parameter('freq'),
+                                     Parameter('sigma'), Parameter('beta'),
+                                     Parameter('freq') * backend.dt,
                                      angle=Parameter('angle'), name=pulse_name),
                        drive_channel)
         calibrations.add_schedule(sched, num_qubits=1)

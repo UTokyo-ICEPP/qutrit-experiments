@@ -194,12 +194,12 @@ class AddQutritCalibrations(TransformationPass):
         """
         node_start_time = self.property_set['node_start_time']
 
-        modulation_frequencies = {}
+        anharmonicities = {}
         cumul_phase_ge = defaultdict(float) # Phase of g-e (|0>-|1>) drive
         cumul_phase_ef = defaultdict(float) # Phase of e-f (|1>-|2>) drive
         ef_lo_phase = defaultdict(float) # EF LO phase tracker
         self._parametrized_schedules = {} # Clear the cache
-        parametrized_gates = set()
+        replaced_calibrations = set()
 
         def insert_rz(node, pre_angle=0., post_angle=0., op_duration=0):
             subdag = DAGCircuit()
@@ -221,13 +221,20 @@ class AddQutritCalibrations(TransformationPass):
             if post_angle:
                 node_start_time[subst_map[next(op_nodes)._node_id]] = start_time + op_duration
             return new_node
-        
-        def substitute_node_with_paramgate(node, qubits, phases, modulation_frequency=None):
-            # Record the pre-substitution gate details
-            parametrized_gates.add((node.op.name, qubits, tuple(node.op.params)))
+
+        def substitute_node_with_paramgate(node, qubits, phases, anharmonicity=None):
+            # Save the original op name and params before they get replaced
+            op_name = node.op.name
+            op_params = tuple(node.op.params)
             # Embed the phase shifts into the pulse as angle
-            self.substitute_node_with_paramgate(dag, node, qubits, node_start_time[node], phases,
-                                                modulation_frequency=modulation_frequency)
+            from_calib = self.substitute_node_with_paramgate(
+                dag, node, qubits, node_start_time[node], phases,
+                anharmonicity=anharmonicity
+            )
+            if from_calib:
+                # The parametrized gate is derived from an entry in dag.calibrations
+                # -> Need to remove the original from calibrations at the end
+                replaced_calibrations.add((op_name, qubits, op_params))
             # Return the newly created calibration
             # node.op.params is now (start_time,) + original_params
             return dag.calibrations[node.op.name][(qubits, tuple(node.op.params))]
@@ -243,11 +250,11 @@ class AddQutritCalibrations(TransformationPass):
             logger.debug('%s[%d]', node.op.name, qubits[0])
 
             if isinstance(node.op, SetF12Gate):
-                if qubits[0] in modulation_frequencies:
+                if qubits[0] in anharmonicities:
                     raise TranspilerError('Operation set_f12 must appear before any x12, sx12, and'
                                           ' set_f12 gates in the circuit.')
                 qubit_props = self.target.qubit_properties[qubits[0]]
-                modulation_frequencies[qubits[0]] = node.op.params[0] - qubit_props.frequency
+                anharmonicities[qubits[0]] = node.op.params[0] - qubit_props.frequency
                 dag.remove_op_node(node)
 
             elif isinstance(node.op, RZGate):
@@ -289,18 +296,18 @@ class AddQutritCalibrations(TransformationPass):
                 logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[0], offset)
                 if 'ge_rz' in self.resolve_rz:
                     substitute_node_with_paramgate(node, qubits, (cumul_phase_ge[qubits[0]],))
-                                                        
+
             elif isinstance(node.op, QutritGate):
                 # Do we know the f12 for this qubit?
-                if (mod_freq := modulation_frequencies.get(qubits[0])) is None:
-                    mod_freq = (self.calibrations.get_parameter_value('f12', qubits)
-                                - self.target.qubit_properties[qubits[0]].frequency)
-                    modulation_frequencies[qubits[0]] = mod_freq
+                if (anharmonicity := anharmonicities.get(qubits[0])) is None:
+                    anharmonicity = (self.calibrations.get_parameter_value('f12', qubits)
+                                     - self.target.qubit_properties[qubits[0]].frequency)
+                    anharmonicities[qubits[0]] = anharmonicity
                     logger.debug('%s[%d] EF modulation frequency %f', node.op.name, qubits[0],
-                                 mod_freq)
+                                 anharmonicity)
 
                 # Absolute phase of the qutrit frame
-                ef_lo_phase[qubits[0]] = (LO_SIGN * node_start_time[node] * twopi * mod_freq
+                ef_lo_phase[qubits[0]] = (LO_SIGN * node_start_time[node] * twopi * anharmonicity
                                           * self.target.dt)
                 # Flags for embedding phase shifts into pulses
                 resolve_rz = {'ef_rz', 'ef_lo'} & self.resolve_rz
@@ -323,14 +330,15 @@ class AddQutritCalibrations(TransformationPass):
 
                     nst = node_start_time[node]
                     logger.debug('%s[%d] Adding calibration for t=%d', node.op.name, qubits[0], nst)
-                    sched = substitute_node_with_paramgate(node, qubits, (sched_angle,), mod_freq)
+                    sched = substitute_node_with_paramgate(node, qubits, (sched_angle,),
+                                                           anharmonicity)
                     op_duration = sched.duration
                 else:
                     if (isinstance(node.op, (X12Gate, SX12Gate))
                         and (qubits, ()) not in dag.calibrations.get(node.op.name, {})):
                         # If phase shifts are implemented with Rz, we need to attach the calibration
                         # for x12 and sx12 only once
-                        assign_params = {'freq': mod_freq}
+                        assign_params = {'freq': anharmonicity}
                         sched = self.calibrations.get_schedule(node.op.name, qubits,
                                                                assign_params=assign_params)
                         if self.use_waveform:
@@ -370,7 +378,7 @@ class AddQutritCalibrations(TransformationPass):
                 phases = tuple(cumul_phase_ge[q] for q in qubits)
                 substitute_node_with_paramgate(node, qubits, phases)
 
-        for name, qubits, params in parametrized_gates:
+        for name, qubits, params in replaced_calibrations:
             # Remove the original calibrations
             dag.calibrations[name].pop((qubits, params))
             if len(dag.calibrations[name]) == 0:
@@ -386,51 +394,53 @@ class AddQutritCalibrations(TransformationPass):
         qubits: tuple[int, ...],
         start_time: int,
         phases: tuple[float, ...],
-        modulation_frequency: Optional[float] = None
-    ):
-        sched, phase_params = self.get_parametrized_schedule(dag, node.op, qubits,
-                                                             modulation_frequency=modulation_frequency)
+        anharmonicity: Optional[float] = None
+    ) -> bool:
+        sched, phase_params, from_calib = self.get_parametrized_schedule(
+            dag, node.op, qubits, anharmonicity=anharmonicity
+        )
         assigned_sched = sched.assign_parameters(dict(zip(phase_params, phases)), inplace=False)
         if self.use_waveform:
             convert_pulse_to_waveform(assigned_sched)
         gate_params = (start_time,) + tuple(node.op.params)
         dag.substitute_node(node, Gate(sched.name, len(qubits), gate_params), inplace=True)
         dag.add_calibration(sched.name, qubits, assigned_sched, gate_params)
+        return from_calib
 
     def get_parametrized_schedule(
         self,
         dag: DAGCircuit,
         gate: Gate,
         qubits: tuple[int, ...],
-        modulation_frequency: Optional[float] = None
-    ) -> tuple[ScheduleBlock, list[Parameter]]:
+        anharmonicity: Optional[float] = None
+    ) -> tuple[ScheduleBlock, list[Parameter], bool]:
         key = (gate.name, qubits, tuple(gate.params))
         try:
             return self._parametrized_schedules[key]
         except KeyError:
             pass
 
-        if gate.__class__ in QUTRIT_PULSE_GATES:
-            # There are only single-qutrit gates at the moment
-            angle = Parameter('angle')
-            base_angle = self.calibrations.get_parameter_value('angle', qubits, gate.name)
-            assign_params = {'angle': angle + base_angle, 'freq': modulation_frequency}
-            return (self.calibrations.get_schedule(gate.name, qubits, assign_params=assign_params),
-                    [angle])
         try:
             schedule = dag.calibrations[gate.name][(qubits, tuple(gate.params))]
         except KeyError:
-            schedule = self.target.instruction_schedule_map().get(gate.name, qubits)
-
-        if isinstance(schedule, Schedule):
-            schedule = schedule_to_block(schedule)
+            from_dag_calibrations = False
+            if gate.__class__ in QUTRIT_PULSE_GATES:
+                # There are only single-qutrit gates at the moment
+                assign_params = {'freq': anharmonicity}
+                schedule = self.calibrations.get_schedule(gate.name, qubits,
+                                                          assign_params=assign_params)
+            else:
+                schedule = self.target.instruction_schedule_map().get(gate.name, qubits)
+                if isinstance(schedule, Schedule):
+                    schedule = schedule_to_block(schedule)
         else:
             schedule = copy.deepcopy(schedule)
+            from_dag_calibrations = True
 
         angles = self.parametrize_instructions(schedule, qubits)
         # Cache the result
-        self._parametrized_schedules[key] = (schedule, angles)
-        return (schedule, angles)
+        self._parametrized_schedules[key] = (schedule, angles, from_dag_calibrations)
+        return (schedule, angles, from_dag_calibrations)
 
     def parametrize_instructions(
         self,
