@@ -151,17 +151,16 @@ class AddQutritCalibrations(TransformationPass):
         """Assign pulse implementations of qutrit gates.
 
         This class perform all of the following simultaneously:
-        - Track the phase shifts on the "qutrit channel" from the Rz and Rz12 gates and the AC Stark
-          shift corrections from X and SX gates.
+        - Track the phase shifts in the EF space from the Rz and Rz12 gates and the AC Stark shift
+          corrections from X and SX gates.
         - For each X12 or SX12 gate, instantiate a schedule with the calculated phase shift, attach
           it to the circuit as calibration, replace the node with the parametrized version, and
           insert the geometric phase and AC Stark shift correction nodes.
-        - Invert the sign of Rz and Rz12 angles if LO_SIGN>0
 
         Notes about Rz and ShiftPhase
         - In Qiskit, RZGate(phi) is scheduled as ShiftPhase(-phi).
         - For each qutrit gate at time t0, we need to fast-forward the pulse phase to
-          LO_SIGN*omega12*t0 + qutrit_phase, where qutrit_phase is the cumululated phase shift from
+          LO_SIGN*omega12*t0 + qutrit_phase, where qutrit_phase is the cumululative phase shift from
           Rz, Rz12, and AC Stark corrections on the X12/SX12 pulse. Since the default phase is
           LO_SIGN*omega01*t0 + qubit_phase, we apply
           ShiftPhase(LO_SIGN*(omega12-omega01)*t0 + qutrit_phase - qubit_phase)
@@ -311,27 +310,28 @@ class AddQutritCalibrations(TransformationPass):
                 # Phase of the EF frame relative to the GE frame
                 ef_lo_phase[qubits[0]] = (LO_SIGN * node_start_time[node] * twopi * anharmonicity
                                           * self.target.dt)
-                # Flags for embedding phase shifts into pulses
-                resolve_rz = {'ef_rz', 'ef_lo'} & self.resolve_rz
 
-                if resolve_rz:
+                if {'ef_rz', 'ef_lo'} & self.resolve_rz:
                     # If one or more of types of phase shifts are to be embedded, compute the pulse
                     # angle and substitute the node with an angled pulse gate
-                    lo_angle = ef_lo_phase[qubits[0]] - cumul_phase_ge[qubits[0]]
+                    lo_angle = ef_lo_phase[qubits[0]]
+                    if 'ge_rz' not in self.resolve_rz:
+                        # All GE phase has been expressed as Rz gates already; must cancel them
+                        lo_angle -= cumul_phase_ge[qubits[0]]
                     rz_angle = cumul_phase_ef[qubits[0]]
                     sched_angle = 0.
                     gate_angle = 0.
-                    if 'ef_rz' in resolve_rz:
+                    if 'ef_rz' in self.resolve_rz:
                         sched_angle += rz_angle
                     else:
                         gate_angle += rz_angle
-                    if 'ef_lo' in resolve_rz:
+                    if 'ef_lo' in self.resolve_rz:
                         sched_angle += lo_angle
                     else:
                         gate_angle += lo_angle
 
-                    nst = node_start_time[node]
-                    logger.debug('%s[%d] Adding calibration for t=%d', node.op.name, qubits[0], nst)
+                    logger.debug('%s[%d] Adding calibration for t=%d', node.op.name, qubits[0],
+                                 node_start_time[node])
                     sched = substitute_node_with_paramgate(node, qubits, (sched_angle,),
                                                            anharmonicity)
                     op_duration = sched.duration
@@ -348,8 +348,9 @@ class AddQutritCalibrations(TransformationPass):
                         dag.add_calibration(node.op.name, qubits, sched)
                         logger.debug('%s[%d] Adding calibration', node.op.name, qubits[0])
 
-                    gate_angle = (cumul_phase_ef[qubits[0]] - cumul_phase_ge[qubits[0]]
-                                  + ef_lo_phase[qubits[0]])
+                    gate_angle = cumul_phase_ef[qubits[0]] + ef_lo_phase[qubits[0]]
+                    if 'ge_rz' not in self.resolve_rz:
+                        gate_angle -= cumul_phase_ge[qubits[0]]
                     calibration = dag.calibrations[node.op.name][(qubits, tuple(node.op.params))]
                     if self.use_waveform:
                         convert_pulse_to_waveform(calibration)
