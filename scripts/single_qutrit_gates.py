@@ -15,7 +15,7 @@ if __name__ == '__main__':
                                                     setup_backend, setup_data_dir, setup_runner)
     from qutrit_experiments.programs.single_qutrit_gates import (calibrate_single_qutrit_gates,
                                                                  characterize_qutrit)
-    
+
     program_config = get_program_config()
     assert program_config['qubits'] is not None and len(program_config['qubits']) == 1
     print('Starting single_qutrit_gates:', program_config['name'])
@@ -23,6 +23,7 @@ if __name__ == '__main__':
     backend = setup_backend(program_config)
     calibrations = make_single_qutrit_gate_calibrations(backend)
     runner = setup_runner(backend, calibrations, program_config)
+    runner.qutrit_transpile_options.use_waveform = True
     calibrated = load_calibrations(runner, program_config)
 
     runner.program_data['qutrit'] = runner.program_data['qubits'][0]
