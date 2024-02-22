@@ -33,6 +33,7 @@ twopi = 2. * np.pi
 class QutritTranspileOptions:
     use_waveform: bool = False
     resolve_rz: Optional[list[str]] = None
+    consolidate_rz: bool = True
 
 
 def make_instruction_durations(
@@ -81,7 +82,8 @@ def transpile_qutrit_circuits(
                                     resolve_rz=options.resolve_rz)
     add_cal.calibrations = calibrations # See the comment in the class for why we do this
     pm.append([scheduling, add_cal], condition=contains_qutrit_gate)
-    pm.append(ConsolidateRZAngle())
+    if options.consolidate_rz:
+        pm.append(ConsolidateRZAngle())
     return pm.run(circuits)
 
 
@@ -306,7 +308,7 @@ class AddQutritCalibrations(TransformationPass):
                     logger.debug('%s[%d] EF modulation frequency %f', node.op.name, qubits[0],
                                  anharmonicity)
 
-                # Absolute phase of the qutrit frame
+                # Phase of the EF frame relative to the GE frame
                 ef_lo_phase[qubits[0]] = (LO_SIGN * node_start_time[node] * twopi * anharmonicity
                                           * self.target.dt)
                 # Flags for embedding phase shifts into pulses
@@ -364,7 +366,7 @@ class AddQutritCalibrations(TransformationPass):
                     # X12 = P0(delta/2 - pi/2) U_xi(pi)
                     # SX12 = P0(delta/2 - pi/4) U_xi(pi/2)
                     # P0(phi) is effected by ShiftPhase[ge](-LO_SIGN * phi)
-                    geom_phase = np.pi / 2. if isinstance(node.op, X12Gate) else np.pi / 4.
+                    geom_phase = np.pi / 2. if node.op.name == 'x12' else np.pi / 4.
                     delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubits)
                     logger.debug('%s[%d] Geometric phase %f, AC Stark correction %f',
                                  node.op.name, qubits[0], geom_phase, delta / 2.)
