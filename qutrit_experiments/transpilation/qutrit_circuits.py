@@ -32,6 +32,7 @@ twopi = 2. * np.pi
 @dataclass
 class QutritTranspileOptions:
     use_waveform: bool = False
+    remove_custom_pulses: bool = False
     resolve_rz: Optional[list[str]] = None
     consolidate_rz: bool = True
 
@@ -82,6 +83,8 @@ def transpile_qutrit_circuits(
                                     resolve_rz=options.resolve_rz)
     add_cal.calibrations = calibrations # See the comment in the class for why we do this
     pm.append([scheduling, add_cal], condition=contains_qutrit_gate)
+    if options.remove_custom_pulses:
+        pm.append(RemoveCustomPulses())
     if options.consolidate_rz:
         pm.append(ConsolidateRZAngle())
     return pm.run(circuits)
@@ -99,7 +102,7 @@ def convert_pulse_to_waveform(schedule_block: ScheduleBlock):
     """Replace custom pulses to waveforms in place."""
     # .blocks returns a new container so we don't need to wrap the result further
     for block in schedule_block.blocks:
-        if isinstance((inst := block), pulse.Play):
+        if isinstance((inst := block), pulse.Play) and isinstance(inst.pulse, pulse.SymbolicPulse):
             # Check if the pulse is known by the backend
             try:
                 ParametricPulseShapes(inst.pulse.pulse_type)
@@ -236,9 +239,6 @@ class AddQutritCalibrations(TransformationPass):
                 # The parametrized gate is derived from an entry in dag.calibrations
                 # -> Need to remove the original from calibrations at the end
                 replaced_calibrations.add((op_name, qubits, op_params))
-            # Return the newly created calibration
-            # node.op.params is now (start_time,) + original_params
-            return dag.calibrations[node.op.name][(qubits, tuple(node.op.params))]
 
         for node in list(dag.topological_op_nodes()):
             if node not in node_start_time:
@@ -332,8 +332,8 @@ class AddQutritCalibrations(TransformationPass):
 
                     logger.debug('%s[%d] Adding calibration for t=%d', node.op.name, qubits[0],
                                  node_start_time[node])
-                    sched = substitute_node_with_paramgate(node, qubits, (sched_angle,),
-                                                           anharmonicity)
+                    substitute_node_with_paramgate(node, qubits, (sched_angle,), anharmonicity)
+                    sched = dag.calibrations[node.op.name][(qubits, tuple(node.op.params))]
                     op_duration = sched.duration
                 else:
                     if (isinstance(node.op, (X12Gate, SX12Gate))
@@ -481,3 +481,44 @@ class AddQutritCalibrations(TransformationPass):
 
         # Not all parameters may have been used
         return list(set(angles) & set(schedule_block.parameters))
+
+
+class RemoveCustomPulses(TransformationPass):
+    """Check for calibrations containing custom pulses and remove them if not used."""
+    def run(self, dag: DAGCircuit) -> DAGCircuit:
+        def has_custom_pulse(schedule_block):
+            for block in schedule_block.blocks:
+                if isinstance(block, pulse.Play) and isinstance(block.pulse, pulse.SymbolicPulse):
+                    # Check if the pulse is known by the backend
+                    try:
+                        ParametricPulseShapes(block.pulse.pulse_type)
+                    except ValueError:
+                        return True
+                elif isinstance(block, ScheduleBlock):
+                    if has_custom_pulse(block):
+                        return True
+            return False
+
+        calib_keys = None
+        for gate_name, instance_map in list(dag.calibrations.items()):
+            for instance_key, sched in list(instance_map.items()):
+                if not has_custom_pulse(sched):
+                    continue
+
+                if calib_keys is None:
+                    calib_keys = set()
+                    for node in list(dag.topological_op_nodes()):
+                        qubits = tuple(dag.find_bit(q).index for q in node.qargs)
+                        calib_keys.add((node.op.name, qubits, tuple(node.op.params)))
+
+                if (gate_name,) + instance_key in calib_keys:
+                    raise TranspilerError(f'Gate {gate_name} {instance_key} uses custom pulses')
+                else:
+                    logger.warning(f'Gate {gate_name} {instance_key} uses custom pulses')
+                    instance_map.pop(instance_key)
+
+            if len(instance_map) == 0:
+                dag.calibrations = {key: value
+                                    for key, value in dag.calibrations.items() if key != gate_name}
+
+        return dag
