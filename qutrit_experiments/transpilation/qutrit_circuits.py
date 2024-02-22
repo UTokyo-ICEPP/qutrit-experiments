@@ -315,10 +315,10 @@ class AddQutritCalibrations(TransformationPass):
                     # If one or more of types of phase shifts are to be embedded, compute the pulse
                     # angle and substitute the node with an angled pulse gate
                     lo_angle = ef_lo_phase[qubits[0]]
+                    rz_angle = cumul_phase_ef[qubits[0]]
                     if 'ge_rz' not in self.resolve_rz:
                         # All GE phase has been expressed as Rz gates already; must cancel them
-                        lo_angle -= cumul_phase_ge[qubits[0]]
-                    rz_angle = cumul_phase_ef[qubits[0]]
+                        rz_angle -= cumul_phase_ge[qubits[0]]
                     sched_angle = 0.
                     gate_angle = 0.
                     if 'ef_rz' in self.resolve_rz:
@@ -406,8 +406,8 @@ class AddQutritCalibrations(TransformationPass):
         if self.use_waveform:
             convert_pulse_to_waveform(assigned_sched)
         gate_params = (start_time,) + tuple(node.op.params)
-        dag.substitute_node(node, Gate(sched.name, len(qubits), gate_params), inplace=True)
-        dag.add_calibration(sched.name, qubits, assigned_sched, gate_params)
+        dag.substitute_node(node, Gate(node.op.name, len(qubits), gate_params), inplace=True)
+        dag.add_calibration(node.op.name, qubits, assigned_sched, gate_params)
         return from_calib
 
     def get_parametrized_schedule(
