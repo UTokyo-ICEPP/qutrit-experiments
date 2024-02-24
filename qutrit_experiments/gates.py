@@ -1,5 +1,6 @@
 """Qutrit gates."""
 
+from collections.abc import Sequence
 from typing import Optional
 import numpy as np
 from qiskit import QuantumCircuit, QuantumRegister
@@ -70,6 +71,12 @@ class U12Gate(QutritGate, gate_name='u12', gate_type='composite'):
         :math:`U(\theta,\phi,\lambda)^{\dagger} =U(-\theta,-\lambda,-\phi)`)
         """
         return U12Gate(-self.params[0], -self.params[2], -self.params[1])
+
+
+class CrossResonanceGate(Gate):
+    """CR gate with a control qutrit and target qubit."""
+    def __init__(self, angles: Sequence[ParameterValueType], label: Optional[str] = None):
+        super().__init__('cr', 2, list(angles), label=label)
 
 
 q = QuantumRegister(1, "q")
