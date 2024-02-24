@@ -32,7 +32,7 @@ twopi = 2. * np.pi
 @dataclass
 class QutritTranspileOptions:
     use_waveform: bool = False
-    remove_custom_pulses: bool = False
+    remove_custom_pulses: bool = True
     resolve_rz: Optional[list[str]] = None
     consolidate_rz: bool = True
 
@@ -79,12 +79,11 @@ def transpile_qutrit_circuits(
     pm.append(ContainsQutritInstruction())
     scheduling = ALAPScheduleAnalysis(instruction_durations)
     add_cal = AddQutritCalibrations(backend.target, backend.configuration().channels,
-                                    use_waveform=options.use_waveform,
                                     resolve_rz=options.resolve_rz)
     add_cal.calibrations = calibrations # See the comment in the class for why we do this
     pm.append([scheduling, add_cal], condition=contains_qutrit_gate)
-    if options.remove_custom_pulses:
-        pm.append(RemoveCustomPulses())
+    if options.use_waveform:
+        pm.append(ConvertCustomPulses(options.remove_custom_pulses))
     if options.consolidate_rz:
         pm.append(ConsolidateRZAngle())
     return pm.run(circuits)
@@ -130,7 +129,6 @@ class AddQutritCalibrations(TransformationPass):
         self,
         target: Target,
         channel_map: dict[str, dict],
-        use_waveform: bool = False,
         resolve_rz: Optional[Union[str, list[str]]] = None
     ):
         super().__init__()
@@ -140,7 +138,6 @@ class AddQutritCalibrations(TransformationPass):
         self.calibrations: Calibrations = None
         self.target = target
         self.channel_map = channel_map
-        self.use_waveform = use_waveform
         if resolve_rz is None:
             self.resolve_rz = set(['ef_lo', 'ef_rz'])
         elif resolve_rz == 'all':
@@ -343,8 +340,6 @@ class AddQutritCalibrations(TransformationPass):
                         assign_params = {'freq': anharmonicity}
                         sched = self.calibrations.get_schedule(node.op.name, qubits,
                                                                assign_params=assign_params)
-                        if self.use_waveform:
-                            convert_pulse_to_waveform(sched)
                         dag.add_calibration(node.op.name, qubits, sched)
                         logger.debug('%s[%d] Adding calibration', node.op.name, qubits[0])
 
@@ -352,8 +347,6 @@ class AddQutritCalibrations(TransformationPass):
                     if 'ge_rz' not in self.resolve_rz:
                         gate_angle -= cumul_phase_ge[qubits[0]]
                     calibration = dag.calibrations[node.op.name][(qubits, tuple(node.op.params))]
-                    if self.use_waveform:
-                        convert_pulse_to_waveform(calibration)
                     op_duration = calibration.duration
 
                 if gate_angle != 0.:
@@ -403,8 +396,6 @@ class AddQutritCalibrations(TransformationPass):
             dag, node.op, qubits, anharmonicity=anharmonicity
         )
         assigned_sched = sched.assign_parameters(dict(zip(phase_params, phases)), inplace=False)
-        if self.use_waveform:
-            convert_pulse_to_waveform(assigned_sched)
         gate_params = (start_time,) + tuple(node.op.params)
         dag.substitute_node(node, Gate(node.op.name, len(qubits), gate_params), inplace=True)
         dag.add_calibration(node.op.name, qubits, assigned_sched, gate_params)
@@ -483,42 +474,34 @@ class AddQutritCalibrations(TransformationPass):
         return list(set(angles) & set(schedule_block.parameters))
 
 
-class RemoveCustomPulses(TransformationPass):
+class ConvertCustomPulses(TransformationPass):
     """Check for calibrations containing custom pulses and remove them if not used."""
+    def __init__(self, remove_unused: bool):
+        super().__init__()
+        self.remove_unused = remove_unused
+
     def run(self, dag: DAGCircuit) -> DAGCircuit:
-        def has_custom_pulse(schedule_block):
-            for block in schedule_block.blocks:
-                if isinstance(block, pulse.Play) and isinstance(block.pulse, pulse.SymbolicPulse):
-                    # Check if the pulse is known by the backend
-                    try:
-                        ParametricPulseShapes(block.pulse.pulse_type)
-                    except ValueError:
-                        return True
-                elif isinstance(block, ScheduleBlock):
-                    if has_custom_pulse(block):
-                        return True
-            return False
+        # Calibrations used in the circuit
+        calib_keys = defaultdict(set)
+        for node in dag.topological_op_nodes():
+            qubits = tuple(dag.find_bit(q).index for q in node.qargs)
+            calib_keys[node.op.name].add((qubits, tuple(node.op.params)))
 
-        calib_keys = None
-        for gate_name, instance_map in list(dag.calibrations.items()):
+        unused_gates = []
+        for gate_name, instance_map in dag.calibrations.items():
+            used_keys = calib_keys[gate_name]
             for instance_key, sched in list(instance_map.items()):
-                if not has_custom_pulse(sched):
-                    continue
-
-                if calib_keys is None:
-                    calib_keys = set()
-                    for node in list(dag.topological_op_nodes()):
-                        qubits = tuple(dag.find_bit(q).index for q in node.qargs)
-                        calib_keys.add((node.op.name, qubits, tuple(node.op.params)))
-
-                if (gate_name,) + instance_key in calib_keys:
-                    raise TranspilerError(f'Gate {gate_name} {instance_key} uses custom pulses')
-                else:
-                    logger.warning(f'Gate {gate_name} {instance_key} uses custom pulses')
+                if self.remove_unused and instance_key not in used_keys:
                     instance_map.pop(instance_key)
+                else:
+                    convert_pulse_to_waveform(sched)
 
             if len(instance_map) == 0:
-                dag.calibrations = {key: value
-                                    for key, value in dag.calibrations.items() if key != gate_name}
+                unused_gates.append(gate_name)
+
+        if unused_gates:
+            calibs = dag.calibrations
+            dag.calibrations = {key: value
+                                for key, value in calibs.items() if key not in unused_gates}
 
         return dag
