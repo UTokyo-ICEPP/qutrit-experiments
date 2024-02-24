@@ -65,5 +65,8 @@ def qubits_assignment_error_post(runner, experiment_data):
     qubits = tuple(experiment_data.metadata['physical_qubits'])
     mitigator = experiment_data.analysis_results('Correlated Readout Mitigator', block=False).value
     prog_data = runner.program_data.setdefault('readout_assignment_matrices', {})
-    for combination in [qubits[0:1], qubits[1:2], qubits[2:3], qubits[:2], qubits[1:3], qubits]:
-        prog_data[combination] = mitigator.assignment_matrix(combination)
+    # All possible contiguous combinations
+    for num_qubits in range(1, len(qubits) + 1):
+        for ifirst in range(len(qubits) - num_qubits + 1):
+            combination = qubits[ifirst:ifirst + num_qubits]
+            prog_data[combination] = mitigator.assignment_matrix(combination)
