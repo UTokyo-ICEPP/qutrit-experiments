@@ -26,6 +26,8 @@ if __name__ == '__main__':
     calibrations = make_single_qutrit_gate_calibrations(backend)
     calibrations = make_qutrit_qubit_cx_calibrations(backend, calibrations)
     runner = setup_runner(backend, calibrations, program_config)
+    runner.qutrit_transpile_options.use_waveform = True
+    runner.qutrit_transpile_options.remove_custom_pulses = True
     calibrated = load_calibrations(runner, program_config)
 
     calibrate_single_qutrit_gates(runner, calibrated)
