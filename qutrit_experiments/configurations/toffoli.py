@@ -8,7 +8,7 @@ from uncertainties import unumpy as unp
 from ..experiment_config import ExperimentConfig, register_exp, register_post
 from ..experiments.qutrit_qubit_cx.util import RCRType, make_crcr_circuit
 from ..util.pulse_area import rabi_freq_per_amp, grounded_gauss_area
-from .common import add_readout_mitigation, qubits_assignment_error
+from .common import add_readout_mitigation, qubits_assignment_error, qubits_assignment_error_post
 from .qutrit import (
     qutrit_rough_frequency,
     qutrit_rough_amplitude,
@@ -21,6 +21,7 @@ from .qutrit import (
     qutrit_fine_x_amplitude,
     qutrit_fine_x_drag,
     qutrit_x12_stark_shift,
+    qutrit_sx12_stark_shift,
     qutrit_x_stark_shift,
     qutrit_sx_stark_shift,
     qutrit_rotary_stark_shift
@@ -49,6 +50,7 @@ qutrit_functions = [
     qutrit_fine_x_amplitude,
     qutrit_fine_x_drag,
     qutrit_x12_stark_shift,
+    qutrit_sx12_stark_shift,
     qutrit_x_stark_shift,
     qutrit_sx_stark_shift,
     qutrit_rotary_stark_shift
@@ -61,6 +63,8 @@ for func in qutrit_functions:
 @wraps(qubits_assignment_error)
 def qubits_assignment_error_func(runner):
     return qubits_assignment_error(runner, runner.program_data['qubits'])
+
+register_post(qubits_assignment_error_post, exp_type='qubits_assignment_error')
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
@@ -224,14 +228,7 @@ def c2t_crcr_validation(runner):
     from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
 
     qubits = tuple(runner.program_data['qubits'][1:])
-    cr_schedules = [runner.calibrations.get_schedule('cr', qubits)]
-    # Stark phase is relative to the CR angle, and we want to keep it the same for CRp and CRm
-    assign_params = {pname: np.pi for pname in
-                    ['cr_sign_angle', 'counter_sign_angle', 'cr_stark_sign_phase']}
-    cr_schedules.append(runner.calibrations.get_schedule('cr', qubits, assign_params=assign_params))
-    rx_schedule = runner.calibrations.get_schedule('offset_rx', qubits[1])
-    rcr_type = RCRType(runner.calibrations.get_parameter_value('rcr_type', qubits))
-    crcr_circuit = make_crcr_circuit(qubits, cr_schedules, rx_schedule, rcr_type)
+    crcr_circuit = make_crcr_circuit(qubits, runner.calibrations)
 
     return ExperimentConfig(
         QutritQubitTomography,
