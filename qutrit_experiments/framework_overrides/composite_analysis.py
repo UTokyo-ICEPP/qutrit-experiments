@@ -156,7 +156,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                          parent_task_id)
             start = time.time()
 
-            if callable(analysis._run_additional_analysis_threaded):
+            if callable(getattr(analysis, '_run_additional_analysis_threaded', None)):
                 try:
                     thread_output = analysis._run_additional_analysis_threaded(parent_data)
                 except Exception as exc:
