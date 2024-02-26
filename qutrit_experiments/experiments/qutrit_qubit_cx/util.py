@@ -92,13 +92,13 @@ def make_crcr_circuit(
         # [X+]-[RCR-]
         if rx_schedule is not None:
             crcr_circuit.append(Gate('offset_rx', 1, rx_params), [1])
-        crcr_circuit.append(X12Gate())
+        crcr_circuit.append(X12Gate(), [0])
         crcr_circuit.append(CrossResonanceMinusGate(crm_params), [0, 1])
         crcr_circuit.x(0)
         crcr_circuit.append(CrossResonanceMinusGate(crm_params), [0, 1])
         # [X+]-[RCR+] x 2
         for _ in range(2):
-            crcr_circuit.append(X12Gate())
+            crcr_circuit.append(X12Gate(), [0])
             crcr_circuit.append(CrossResonancePlusGate(crp_params), [0, 1])
             crcr_circuit.x(0)
             crcr_circuit.append(CrossResonancePlusGate(crp_params), [0, 1])

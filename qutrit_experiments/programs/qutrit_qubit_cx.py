@@ -69,7 +69,7 @@ def fine_tune_cr(omega_z: np.ndarray, runner: ExperimentsRunner):
     runner.run_experiment('c2t_sizzle_t_amp_scan')
     cr_amp = runner.calibrations.get_parameter_value('cr_amp', qubits, 'cr')
     counter_stark_amp = runner.calibrations.get_parameter_value('counter_stark_amp', qubits, 'cr')
-    if sizzle_params['c_amp'] * sizzle_params['t_amp'] / counter_stark_amp < cr_amp:
+    if sizzle_params['c_amp'] * sizzle_params['t_amp'] / counter_stark_amp < 1. - cr_amp:
         runner.run_experiment('c2t_sizzle_c2_amp_scan')
 
 
