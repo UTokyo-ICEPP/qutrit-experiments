@@ -9,7 +9,7 @@ from qiskit.providers import Backend
 from qiskit_experiments.calibration_management import Calibrations
 from qiskit_experiments.framework import BackendData, BackendTiming
 
-from ...gates import X12Gate
+from ...gates import CrossResonanceGate, CrossResonanceMinusGate, CrossResonancePlusGate, X12Gate
 
 twopi = 2. * np.pi
 
@@ -30,9 +30,9 @@ def make_cr_circuit(
 
     params = cr_schedule.parameters
     circuit = QuantumCircuit(2)
-    circuit.append(Gate('cr', 2, params), [0, 1])
-    circuit.add_calibration('cr', physical_qubits, cr_schedule, params)
-    
+    circuit.append(CrossResonanceGate(params), [0, 1])
+    circuit.add_calibration(CrossResonanceGate.gate_name, physical_qubits, cr_schedule, params)
+
     return circuit
 
 
@@ -46,21 +46,21 @@ def make_rcr_circuit(
         rcr_type = RCRType(arg.get_parameter_value('rcr_type', physical_qubits))
     else:
         cr_schedule = arg
-        
+
     params = cr_schedule.parameters
     rcr_circuit = QuantumCircuit(2)
     if rcr_type == RCRType.X:
         rcr_circuit.x(0)
-        rcr_circuit.append(Gate('cr', 2, params), [0, 1])
+        rcr_circuit.append(CrossResonanceGate(params), [0, 1])
         rcr_circuit.x(0)
-        rcr_circuit.append(Gate('cr', 2, params), [0, 1])
+        rcr_circuit.append(CrossResonanceGate(params), [0, 1])
     else:
-        rcr_circuit.append(Gate('cr', 2, params), [0, 1])
+        rcr_circuit.append(CrossResonanceGate(params), [0, 1])
         rcr_circuit.append(X12Gate(), [0])
-        rcr_circuit.append(Gate('cr', 2, params), [0, 1])
+        rcr_circuit.append(CrossResonanceGate(params), [0, 1])
         rcr_circuit.append(X12Gate(), [0])
 
-    rcr_circuit.add_calibration('cr', physical_qubits, cr_schedule, params)
+    rcr_circuit.add_calibration(CrossResonanceGate.gate_name, physical_qubits, cr_schedule, params)
 
     return rcr_circuit
 
@@ -93,32 +93,34 @@ def make_crcr_circuit(
         if rx_schedule is not None:
             crcr_circuit.append(Gate('offset_rx', 1, rx_params), [1])
         crcr_circuit.append(X12Gate())
-        crcr_circuit.append(Gate('crm', 2, crm_params), [0, 1])
+        crcr_circuit.append(CrossResonanceMinusGate(crm_params), [0, 1])
         crcr_circuit.x(0)
-        crcr_circuit.append(Gate('crm', 2, crm_params), [0, 1])
+        crcr_circuit.append(CrossResonanceMinusGate(crm_params), [0, 1])
         # [X+]-[RCR+] x 2
         for _ in range(2):
             crcr_circuit.append(X12Gate())
-            crcr_circuit.append(Gate('crp', 2, crp_params), [0, 1])
+            crcr_circuit.append(CrossResonancePlusGate(crp_params), [0, 1])
             crcr_circuit.x(0)
-            crcr_circuit.append(Gate('crp', 2, crp_params), [0, 1])
+            crcr_circuit.append(CrossResonancePlusGate(crp_params), [0, 1])
     else:
         # [RCR+]-[X+] x 2
         for _ in range(2):
-            crcr_circuit.append(Gate('crp', 2, crp_params), [0, 1])
+            crcr_circuit.append(CrossResonancePlusGate(crp_params), [0, 1])
             crcr_circuit.append(X12Gate(), [0])
-            crcr_circuit.append(Gate('crp', 2, crp_params), [0, 1])
+            crcr_circuit.append(CrossResonancePlusGate(crp_params), [0, 1])
             crcr_circuit.x(0)
         # [RCR-]-[X+]
-        crcr_circuit.append(Gate('crm', 2, crm_params), [0, 1])
+        crcr_circuit.append(CrossResonanceMinusGate(crm_params), [0, 1])
         crcr_circuit.append(X12Gate(), [0])
-        crcr_circuit.append(Gate('crm', 2, crm_params), [0, 1])
+        crcr_circuit.append(CrossResonanceMinusGate(crm_params), [0, 1])
         crcr_circuit.x(0)
         if rx_schedule is not None:
             crcr_circuit.append(Gate('offset_rx', 1, rx_params), [1])
 
-    crcr_circuit.add_calibration('crp', physical_qubits, cr_schedules[0], crp_params)
-    crcr_circuit.add_calibration('crm', physical_qubits, cr_schedules[1], crm_params)
+    crcr_circuit.add_calibration(CrossResonancePlusGate.gate_name, physical_qubits,
+                                 cr_schedules[0], crp_params)
+    crcr_circuit.add_calibration(CrossResonanceMinusGate.gate_name, physical_qubits,
+                                 cr_schedules[1], crm_params)
     if rx_schedule is not None:
         crcr_circuit.add_calibration('offset_rx', (physical_qubits[1],), rx_schedule, rx_params)
 

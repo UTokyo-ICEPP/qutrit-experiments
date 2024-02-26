@@ -75,8 +75,30 @@ class U12Gate(QutritGate, gate_name='u12', gate_type='composite'):
 
 class CrossResonanceGate(Gate):
     """CR gate with a control qutrit and target qubit."""
-    def __init__(self, angles: Sequence[ParameterValueType], label: Optional[str] = None):
-        super().__init__('cr', 2, list(angles), label=label)
+    gate_name = 'cr'
+
+    def __init__(
+        self,
+        params: Optional[Sequence[ParameterValueType]] = None,
+        block_unitaries: Optional[np.ndarray] = None,
+        label: Optional[str] = None
+    ):
+        if params is None:
+            params = []
+        else:
+            params = list(params)
+        super().__init__(self.gate_name, 2, params, label=label)
+        self.block_unitaries = block_unitaries
+
+
+class CrossResonancePlusGate(CrossResonanceGate):
+    """CR+ gate."""
+    gate_name = 'crp'
+
+
+class CrossResonanceMinusGate(CrossResonanceGate):
+    """CR- gate."""
+    gate_name = 'crm'
 
 
 q = QuantumRegister(1, "q")
