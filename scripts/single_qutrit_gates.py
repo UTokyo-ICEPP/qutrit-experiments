@@ -2,7 +2,13 @@
 
 if __name__ == '__main__':
     import os
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    try:
+        import gpustat
+    except ImportError:
+        gpu_id = 0
+    else:
+        gpu_id = min(gpustat.new_query(), key=lambda g: g.memory_free).index
+    os.environ['CUDA_VISIBLE_DEVICES'] = f'{gpu_id}'
     import sys
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     import logging
