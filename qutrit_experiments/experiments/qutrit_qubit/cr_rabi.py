@@ -51,7 +51,7 @@ class CRRabi(GSRabi):
         if self.experiment_options.control_state == 2:
             circuit.append(X12Gate(), [0])
         return circuit
-    
+
     def _post_circuit(self) -> QuantumCircuit:
         circuit = super()._post_circuit()
         if self.experiment_options.control_state == 2:
@@ -64,5 +64,10 @@ class CRRabi(GSRabi):
         return metadata
 
 
-def cr_rabi_init(control_state: int):
-    return partial(CRRabi, control_state=control_state)
+def cr_rabi_init(control_state: int, measured_logical_qubit: int = 1):
+    def expgen(*args, **kwargs):
+        kwargs['control_state'] = control_state
+        exp = CRRabi(*args, **kwargs)
+        exp.set_experiment_options(measured_logical_qubit=measured_logical_qubit)
+        return exp
+    return expgen

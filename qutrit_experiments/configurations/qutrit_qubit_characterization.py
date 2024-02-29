@@ -164,6 +164,7 @@ def hcr_singlestate_template(runner, exp_type):
     instantiated.
     """
     from ..experiments.hamiltonian_tomography import HamiltonianTomography
+    from ..experiments.gs_rabi import GSRabi
 
     control2, target = runner.program_data['qubits'][1:]
     counter_amp = 2. / 2048 / runner.backend.dt / rabi_freq_per_amp(runner.backend, target)
@@ -180,13 +181,18 @@ def hcr_singlestate_template(runner, exp_type):
     }
     schedule = runner.calibrations.get_schedule('cr', qubits=[control2, target],
                                                 assign_params=assign_params)
+
+    def rabi_init(*args, **kwargs):
+        exp = GSRabi(*args, **kwargs)
+        exp.set_experiment_options(measured_logical_qubit=1)
+        return exp
+
     return ExperimentConfig(
         HamiltonianTomography,
         [control2, target],
         args={
             'schedule': schedule,
-            'rabi_init': None,
-            'measured_logical_qubit': 1
+            'rabi_init': rabi_init
         },
         exp_type=exp_type
     )
