@@ -361,12 +361,12 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         psi = np.array([fit_params[ic][2].n for ic in range(3)])
         phi = np.array([fit_params[ic][3].n for ic in range(3)])
         # XY Hamiltonian expressed in control-state basis
-        hxy_cb = (slope * np.sin(psi))[:, None] * np.array([np.cos(phi), np.sin(phi)]).T
+        hxy_cb = (slope * np.sin(psi))[:, None] * np.stack([np.cos(phi), np.sin(phi)], axis=1)
         # XY Hamiltonian in operation (I, z, ζ) basis
         hxy_ob = np.linalg.inv([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) @ hxy_cb
         # Calculate the angle overshoot from zy/zx
         current_angle = self._cals.get_parameter_value(self._param_name[1], self.physical_qubits,
-                                                    self._sched_name[1])
+                                                       self._sched_name[1])
         dphi = np.arctan2(hxy_ob[1, 1], hxy_ob[1, 0])
         cr_base_angle = (current_angle - dphi) % twopi
 

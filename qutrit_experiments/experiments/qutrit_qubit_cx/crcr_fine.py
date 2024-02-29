@@ -55,7 +55,8 @@ class CycledRepeatedCRPingPong(MapToPhysicalQubits, BaseExperiment):
             fixed_parameters={
                 "angle_per_gate": np.pi,
                 "phase_offset": np.pi / 2 * cx_sign,
-            }
+            },
+            outcome='1'
         )
 
     def circuits(self) -> list[QuantumCircuit]:
@@ -180,7 +181,7 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
         # dθ_i = a_i dw + b_i + c dA
         # -> (dw, dA)^T = ([a_0 c], [a_1 c])^{-1} (dθ_0 - b_0, dθ_1 - b_1)^T
         mat = np.stack([self.width_rate_params[:, 0], np.full(2, self.amp_rate)], axis=1)
-        d_width, d_amp = np.linspace.inv(mat) @ (d_thetas - self.width_rate_params[:, 1])
+        d_width, d_amp = np.linalg.inv(mat) @ (d_thetas - self.width_rate_params[:, 1])
 
         # Calculate the new width
         current_width = self._cals.get_parameter_value(self._param_name[0], self.physical_qubits,
@@ -191,16 +192,15 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
                                                    assign_params=assign_params)
         margin = get_margin(null_width_sched.duration, width, self._backend)
 
-        for pname, value in zip(self._param_name, [width, margin]):
+        for pname, sname, value in zip(self._param_name[:2], self._sched_name[:2], [width, margin]):
             param_value = ParameterValue(
                 value=value,
                 date_time=BaseUpdater._time_stamp(experiment_data),
                 group=self.experiment_options.group,
                 exp_id=experiment_data.experiment_id,
             )
-            self._cals.add_parameter_value(param_value, pname, self.physical_qubits,
-                                           self._sched_name[0])
-
+            self._cals.add_parameter_value(param_value, pname, self.physical_qubits, sname)
+                                           
         # Calculate the new Rx amplitude
         current_amp = self._cals.get_parameter_value(self._param_name[2], self.physical_qubits[1],
                                                      schedule=self._sched_name[2])
@@ -211,13 +211,13 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
 
         amp = current_amp - d_amp
         sign_angle = 0. if amp > 0. else np.pi
-        for pname, value in zip(self._param_name, [abs(amp), sign_angle]):
+        for pname, sname, value in zip(self._param_name[2:], self._sched_name[2:],
+                                       [abs(amp), sign_angle]):
             param_value = ParameterValue(
                 value=value,
                 date_time=BaseUpdater._time_stamp(experiment_data),
                 group=self.experiment_options.group,
                 exp_id=experiment_data.experiment_id,
             )
-            self._cals.add_parameter_value(param_value, pname, self.physical_qubits[1],
-                                           self._sched_name[2])
+            self._cals.add_parameter_value(param_value, pname, self.physical_qubits[1], sname)
        
