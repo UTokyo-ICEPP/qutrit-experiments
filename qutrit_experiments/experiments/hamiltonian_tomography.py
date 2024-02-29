@@ -206,7 +206,6 @@ class HamiltonianTomography(BatchExperiment):
         physical_qubits: Sequence[int],
         schedule: ScheduleBlock,
         rabi_init: Optional[Callable] = None,
-        measured_logical_qubit: Optional[int] = None,
         widths: Optional[Iterable[float]] = None,
         time_unit: Optional[float] = None,
         backend: Optional[Backend] = None
@@ -223,9 +222,6 @@ class HamiltonianTomography(BatchExperiment):
                             backend=backend)
             exp.extra_metadata['init'] = init
             exp.extra_metadata['meas_basis'] = meas_basis
-            if measured_logical_qubit is not None:
-                exp.set_experiment_options(measured_logical_qubit=measured_logical_qubit)
-
             # Bound the frequency to be unsigned. To allow the fit value of 0 comfortably, the lower
             # bound is set slightly negative.
             exp.analysis.options.bounds['freq'] = (-1.e+3, np.inf)
@@ -473,7 +469,7 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
 
 
 class HamiltonianTomographyScan(BatchExperiment):
-    """Batched HamiltonianTomography scanning a variables."""
+    """Batched HamiltonianTomography scanning a variable."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
