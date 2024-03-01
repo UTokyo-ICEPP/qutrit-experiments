@@ -5,10 +5,9 @@ import jax
 import jax.numpy as jnp
 import jaxopt
 import numpy as np
-import scipy.optimize as sciopt
-from uncertainties import correlated_values, ufloat, unumpy as unp
+from uncertainties import correlated_values, unumpy as unp
 from qiskit import QuantumCircuit
-from qiskit.circuit import Gate, Parameter
+from qiskit.circuit import Parameter
 from qiskit.pulse import ScheduleBlock
 from qiskit.providers import Backend, Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
@@ -32,7 +31,7 @@ class CRRoughWidth(QutritQubitTomographyScan):
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
-        options.parameter_values = [np.linspace(128., 256., 3)]
+        options.parameter_values = [np.linspace(128., 320., 4)]
         return options
 
     def __init__(
@@ -51,6 +50,12 @@ class CRRoughWidth(QutritQubitTomographyScan):
                          width_param_name, widths, measure_preparations=measure_preparations,
                          backend=backend)
         self.analysis = CRWidthAnalysis([exp.analysis for exp in self._experiments])
+        self.extra_metadata = {}
+
+    def _metadata(self) -> dict[str, Any]:
+        metadata = super()._metadata()
+        metadata.update(self.extra_metadata)
+        return metadata
 
 
 class CycledRepeatedCRWidth(QutritQubitTomographyScan):
@@ -357,23 +362,31 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
     def update_calibrations(self, experiment_data: ExperimentData):
         fit_params = experiment_data.analysis_results('unitary_linear_fit_params',
                                                       block=False).value
-        slope = np.array([fit_params[ic][0].n for ic in range(3)])
-        psi = np.array([fit_params[ic][2].n for ic in range(3)])
-        phi = np.array([fit_params[ic][3].n for ic in range(3)])
+        slope, _, psi, phi = np.stack([unp.nominal_values(fit_params[ic]) for ic in range(3)],
+                                      axis=1)
         # XY Hamiltonian expressed in control-state basis
-        hxy_cb = (slope * np.sin(psi))[:, None] * np.stack([np.cos(phi), np.sin(phi)], axis=1)
-        # XY Hamiltonian in operation (I, z, ζ) basis
-        hxy_ob = np.linalg.inv([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) @ hxy_cb
+        hxy = (slope * np.sin(psi))[:, None] * np.stack([np.cos(phi), np.sin(phi)], axis=1)
+        # Although not a very justified procedure, take the quadrature sums of x and y components
+        # This lets us determine the observed angle from more reliable control states
+        hxy_avg = np.sqrt(np.sum(np.square(hxy), axis=0))
+        observed_axis_angle = np.arctan2(hxy_avg[1], hxy_avg[0])
         # Calculate the angle overshoot from zy/zx
+        # Pulse angle is equivalent to ShiftPhase(phi), which rotates the state vector by phi
+        # Rotation axis therefore points towards -phi
         current_angle = self._cals.get_parameter_value(self._param_name[1], self.physical_qubits,
                                                        self._sched_name[1])
-        dphi = np.arctan2(hxy_ob[1, 1], hxy_ob[1, 0])
-        cr_base_angle = (current_angle - dphi) % twopi
+        # New angle parameter value to minimize the observed angle
+        # φ0 = physical axis angle when driven with angle=0
+        # φd = drive angle parameter value
+        # φ0 - φd = φobs  ->  φnewd = φd + φobs
+        cr_base_angle = current_angle + observed_axis_angle
 
         # Approximate angular rate at which the Rabi phase difference accummulates between 0/2 and
         # 1 blocks (assuming all blocks are ~pure X rotations after base angle adjustment)
-        rotation = np.array([[np.cos(dphi), np.sin(dphi)], [-np.sin(dphi), np.cos(dphi)]])
-        omega_x = np.einsum('ij,cj->ci', rotation, hxy_cb)[:, 0]
+        omega_x = ((slope * np.sin(psi))[:, None]
+                    * np.stack([
+                        np.cos(phi - observed_axis_angle),
+                        np.sin(phi - observed_axis_angle)], axis=1))[:, 0]
         # Angle per CR width of block 0 of CRCR for two RCR types
         crcr_omega_0 = 2. * np.array([omega_x[2], omega_x[0]])
         # Angle per CR width of block 2 of CRCR for two RCR types
