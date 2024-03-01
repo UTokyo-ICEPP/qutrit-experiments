@@ -1,115 +1,24 @@
-"""Functions and transpiler passes to transpile qutrit circuits."""
+"""Transpiler passes to transpile qutrit circuits."""
 from collections import defaultdict
 from collections.abc import Sequence
 import copy
-from dataclasses import dataclass
 import logging
 from typing import Optional, Union
 import numpy as np
-from qiskit import QuantumCircuit, QuantumRegister, pulse
+from qiskit import QuantumRegister, pulse
 from qiskit.circuit import Gate, Parameter
 from qiskit.circuit.library import RZGate, SXGate, XGate
 from qiskit.dagcircuit import DAGCircuit, DAGOpNode
-from qiskit.providers import Backend
 from qiskit.pulse import Schedule, ScheduleBlock
-from qiskit.qobj.converters.pulse_instruction import ParametricPulseShapes
-from qiskit.transpiler import (AnalysisPass, InstructionDurations, PassManager, Target,
-                               TransformationPass, TranspilerError)
-
-from qiskit.transpiler.passes import ALAPScheduleAnalysis
+from qiskit.transpiler import AnalysisPass, Target, TransformationPass, TranspilerError
 from qiskit_experiments.calibration_management import Calibrations
-import rustworkx as rx
 
 from ..constants import LO_SIGN
-from ..gates import (QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES, QutritGate, RZ12Gate, SetF12Gate,
-                     SX12Gate, X12Gate)
-from .rz import ConsolidateRZAngle, InvertRZSign
+from ..gates import QUTRIT_PULSE_GATES, QutritGate, RZ12Gate, SetF12Gate, SX12Gate, X12Gate
+from ..util.transforms import schedule_to_block
 
 logger = logging.getLogger(__name__)
 twopi = 2. * np.pi
-
-
-@dataclass
-class QutritTranspileOptions:
-    use_waveform: bool = False
-    remove_custom_pulses: bool = True
-    resolve_rz: Optional[list[str]] = None
-    consolidate_rz: bool = True
-
-
-def make_instruction_durations(
-    backend: Backend,
-    calibrations: Calibrations,
-    qubits: Optional[Sequence[int]] = None
-) -> InstructionDurations:
-    """Construct an InstructionDurations object including qutrit gate durations."""
-    if qubits is None:
-        qubits = set(range(backend.num_qubits)) - set(backend.properties().faulty_qubits())
-
-    instruction_durations = InstructionDurations(backend.instruction_durations, dt=backend.dt)
-    for inst in QUTRIT_PULSE_GATES:
-        durations = [(inst.gate_name, qubit,
-                      calibrations.get_schedule(inst.gate_name, qubit).duration)
-                     for qubit in qubits]
-        instruction_durations.update(durations)
-    for inst in QUTRIT_VIRTUAL_GATES:
-        instruction_durations.update([(inst.gate_name, qubit, 0) for qubit in qubits])
-    return instruction_durations
-
-
-def transpile_qutrit_circuits(
-    circuits: Union[QuantumCircuit, list[QuantumCircuit]],
-    backend: Backend,
-    calibrations: Calibrations,
-    instruction_durations: Optional[InstructionDurations] = None,
-    options: Optional[QutritTranspileOptions] = None
-) -> list[QuantumCircuit]:
-    """Recompute the gate durations, calculate the phase shifts for all qutrit gates, and insert
-    AC Stark shift corrections to qubit gates"""
-    if instruction_durations is None:
-        instruction_durations = make_instruction_durations(backend, calibrations)
-    if options is None:
-        options = QutritTranspileOptions()
-
-    def contains_qutrit_gate(property_set):
-        return property_set['contains_qutrit_gate']
-
-    pm = PassManager()
-    pm.append(InvertRZSign())
-    pm.append(ContainsQutritInstruction())
-    scheduling = ALAPScheduleAnalysis(instruction_durations)
-    add_cal = AddQutritCalibrations(backend.target, backend.configuration().channels,
-                                    resolve_rz=options.resolve_rz)
-    add_cal.calibrations = calibrations # See the comment in the class for why we do this
-    pm.append([scheduling, add_cal], condition=contains_qutrit_gate)
-    if options.use_waveform:
-        pm.append(ConvertCustomPulses(options.remove_custom_pulses))
-    if options.consolidate_rz:
-        pm.append(ConsolidateRZAngle())
-    return pm.run(circuits)
-
-
-def schedule_to_block(schedule: Schedule):
-    """Convert a Schedule to ScheduleBlock. Am I sure this doesn't exist in Qiskit proper?"""
-    # Convert to ScheduleBlock
-    with pulse.build(name=schedule.name) as schedule_block:
-        pulse.call(schedule)
-    return schedule_block
-
-
-def convert_pulse_to_waveform(schedule_block: ScheduleBlock):
-    """Replace custom pulses to waveforms in place."""
-    # .blocks returns a new container so we don't need to wrap the result further
-    for block in schedule_block.blocks:
-        if isinstance((inst := block), pulse.Play) and isinstance(inst.pulse, pulse.SymbolicPulse):
-            # Check if the pulse is known by the backend
-            try:
-                ParametricPulseShapes(inst.pulse.pulse_type)
-            except ValueError:
-                waveform_inst = pulse.Play(inst.pulse.get_waveform(), inst.channel, name=inst.name)
-                schedule_block.replace(inst, waveform_inst, inplace=True)
-        elif isinstance(block, ScheduleBlock):
-            convert_pulse_to_waveform(block)
 
 
 class ContainsQutritInstruction(AnalysisPass):
@@ -472,36 +381,3 @@ class AddQutritCalibrations(TransformationPass):
 
         # Not all parameters may have been used
         return list(set(angles) & set(schedule_block.parameters))
-
-
-class ConvertCustomPulses(TransformationPass):
-    """Check for calibrations containing custom pulses and remove them if not used."""
-    def __init__(self, remove_unused: bool):
-        super().__init__()
-        self.remove_unused = remove_unused
-
-    def run(self, dag: DAGCircuit) -> DAGCircuit:
-        # Calibrations used in the circuit
-        calib_keys = defaultdict(set)
-        for node in dag.topological_op_nodes():
-            qubits = tuple(dag.find_bit(q).index for q in node.qargs)
-            calib_keys[node.op.name].add((qubits, tuple(node.op.params)))
-
-        unused_gates = []
-        for gate_name, instance_map in dag.calibrations.items():
-            used_keys = calib_keys[gate_name]
-            for instance_key, sched in list(instance_map.items()):
-                if self.remove_unused and instance_key not in used_keys:
-                    instance_map.pop(instance_key)
-                else:
-                    convert_pulse_to_waveform(sched)
-
-            if len(instance_map) == 0:
-                unused_gates.append(gate_name)
-
-        if unused_gates:
-            calibs = dag.calibrations
-            dag.calibrations = {key: value
-                                for key, value in calibs.items() if key not in unused_gates}
-
-        return dag

@@ -13,8 +13,8 @@ from ..gates import RZ12Gate
 twopi = 2. * np.pi
 
 
-class InvertRZSign(TransformationPass):
-    """Transpiler pass to invert all RZGate and RZ12Gate signs."""
+class CorrectRZSign(TransformationPass):
+    """Transpiler pass to correct the signs of all RZ and RZ12 gates."""
     def run(self, dag: DAGCircuit) -> DAGCircuit:
         for node in list(dag.topological_op_nodes()):
             if isinstance(node.op, (RZGate, RZ12Gate)):
