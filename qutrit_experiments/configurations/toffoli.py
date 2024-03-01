@@ -178,14 +178,18 @@ def c2t_crcr_rotary(runner):
 
 @register_post
 def c2t_crcr_rotary(runner, experiment_data):
+    """Identify the target Rx angle for offset_rx."""
     qubits = tuple(runner.program_data['qubits'][1:])
-    rotary_amp = runner.calibrations.get_parameter_value('counter_amp', qubits, 'cr')
-    if runner.calibrations.get_parameter_value('counter_sign_angle', qubits, 'cr') != 0.:
-        rotary_amp *= -1.
-    rotary_idx = int(np.argmin(np.abs(runner.program_data['crcr_rotary_test_angles'] - rotary_amp)))
-    child_0 = experiment_data.child_data(rotary_idx).child_data(0)
-    fit_params = child_0.analysis_results('unitary_fit_params').value
-    runner.program_data['rx_target_angle'] = -fit_params[0].n
+    # Which test amplitude was selected?
+    rotary_amp = experiment_data.analysis_results('rotary_amp', block=False).value
+    selected_amp_idx = int(np.argmin(
+        np.abs(experiment_data.metadata['scan_values'][0] - rotary_amp)
+    ))
+    # Take the control=0 data at the selected amplitude
+    data_c0 = experiment_data.child_data(selected_amp_idx).child_data(0)
+    # Set offset_rx_target_angle to -theta_x of control=0
+    fit_params = data_c0.analysis_results('unitary_fit_params').value
+    runner.program_data['offset_rx_target_angle'] = -fit_params[0].n
 
 @register_exp
 @add_readout_mitigation
@@ -199,7 +203,7 @@ def c2t_crcr_rx_amp(runner):
         SimpleRxAmplitudeCal,
         qubits,
         args={
-            'target_angle': runner.program_data['rx_target_angle'],
+            'target_angle': runner.program_data['offset_rx_target_angle'],
             'amplitudes': np.linspace(-pi_amp, pi_amp, 32)
         }
     )

@@ -135,7 +135,28 @@ class CycledRepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
         super().__init__(physical_qubits,
                          make_crcr_circuit(physical_qubits, cr_schedules, None, rcr_type),
                          amp_param_name, amplitudes, angle_param_name=angle_param_name,
-                         measure_preparations=measure_preparations, backend=backend)
+                         measure_preparations=measure_preparations, backend=backend,
+                         analysis_cls=CycledRepeatedCRRotaryAmplitudeAnalysis)
+
+
+class CycledRepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
+    def _run_additional_analysis(
+        self,
+        experiment_data: ExperimentData,
+        analysis_results: list[AnalysisResultData],
+        figures: list[Figure]
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
+        analysis_results, figures = super()._run_additional_analysis(experiment_data,
+                                                                     analysis_results, figures)
+
+        # Pick the rotary value with the smallest chisq?
+        chisq = next(res for res in analysis_results if res.name == 'chisq').value
+        bestfit_idx = np.argmin(np.sum(chisq, axis=1))
+        amplitude = np.array(experiment_data.metadata['scan_values'][0])[bestfit_idx]
+        analysis_results.append(
+            AnalysisResultData(name='rotary_amp', value=amplitude)
+        )
+        return analysis_results, figures
 
 
 class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, RepeatedCRRotaryAmplitude):
@@ -235,9 +256,7 @@ class CycledRepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment,
 
     def update_calibrations(self, experiment_data: ExperimentData):
         # Pick the rotary value with the smallest chisq?
-        chisq = experiment_data.analysis_results('chisq', block=False).value
-        bestfit_idx = np.argmin(np.sum(chisq, axis=1))
-        amplitude = self.experiment_options.parameter_values[0][bestfit_idx]
+        amplitude = experiment_data.analysis_results('rotary_amp', block=False).value
         angle = 0.
         if amplitude < 0.:
             amplitude *= -1.
@@ -245,6 +264,6 @@ class CycledRepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment,
 
         for pname, value in zip(self._param_name, [amplitude, angle]):
             BaseUpdater.add_parameter_value(
-                    self._cals, experiment_data, value, pname, schedule=self._sched_name,
-                    group=self.experiment_options.group
-                )
+                self._cals, experiment_data, value, pname, schedule=self._sched_name,
+                group=self.experiment_options.group
+            )
