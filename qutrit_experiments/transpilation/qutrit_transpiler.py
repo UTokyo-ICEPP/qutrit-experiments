@@ -8,10 +8,11 @@ from qiskit.transpiler import InstructionDurations, PassManager
 from qiskit.transpiler.passes import ALAPScheduleAnalysis
 from qiskit_experiments.calibration_management import Calibrations
 
+from ..constants import LO_SIGN
 from ..gates import QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES
 from .custom_pulses import ConvertCustomPulses
 from .qutrit_circuits import ContainsQutritInstruction, AddQutritCalibrations
-from .rz import ConsolidateRZAngle, CorrectRZSign
+from .rz import CastRZToAngle, ConsolidateRZAngle, InvertRZSign
 
 
 @dataclass
@@ -19,9 +20,12 @@ class QutritTranspileOptions:
     """Options for qutrit transpilation."""
     use_waveform: bool = False
     remove_custom_pulses: bool = True
-    resolve_rz: Optional[list[str]] = None
+    rz_casted_gates: list[str] = None
     consolidate_rz: bool = True
 
+    def __post_init__(self):
+        if self.rz_casted_gates is None:
+            self.rz_casted_gates = []
 
 def make_instruction_durations(
     backend: Backend,
@@ -61,15 +65,18 @@ def transpile_qutrit_circuits(
         return property_set['contains_qutrit_gate']
 
     pm = PassManager()
-    pm.append(CorrectRZSign())
     pm.append(ContainsQutritInstruction())
     scheduling = ALAPScheduleAnalysis(instruction_durations)
-    add_cal = AddQutritCalibrations(backend.target, backend.configuration().channels,
-                                    resolve_rz=options.resolve_rz)
+    add_cal = AddQutritCalibrations(backend.target)
     add_cal.calibrations = calibrations # See the comment in the class for why we do this
     pm.append([scheduling, add_cal], condition=contains_qutrit_gate)
-    if options.use_waveform:
-        pm.append(ConvertCustomPulses(options.remove_custom_pulses))
+    if LO_SIGN > 0.:
+        pm.append(InvertRZSign())
+    if options.rz_casted_gates:
+        pm.append(CastRZToAngle(backend.configuration().channels, options.rz_casted_gates))
     if options.consolidate_rz:
         pm.append(ConsolidateRZAngle())
+    if options.use_waveform:
+        pm.append(ConvertCustomPulses(options.remove_custom_pulses))
+
     return pm.run(circuits)

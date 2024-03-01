@@ -33,8 +33,8 @@ from ..framework_overrides.batch_experiment import BatchExperiment
 from ..framework_overrides.composite_analysis import CompositeAnalysis
 from ..framework_overrides.parallel_experiment import ParallelExperiment
 from ..gates import QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES
-from ..transpilation.qutrit_circuits import (QutritTranspileOptions, make_instruction_durations,
-                                             transpile_qutrit_circuits)
+from ..transpilation.qutrit_transpiler import (QutritTranspileOptions, make_instruction_durations,
+                                               transpile_qutrit_circuits)
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule
 

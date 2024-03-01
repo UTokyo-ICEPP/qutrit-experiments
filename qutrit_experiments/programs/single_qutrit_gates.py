@@ -35,5 +35,5 @@ def characterize_qutrit(runner: ExperimentsRunner):
     for exp_type in ['qutrit_assignment_error', 'qutrit_t1']:
         runner.run_experiment(exp_type)
 
-    runner.transpile_resolve_rz = 'all'
+    runner.qutrit_transpile_options.rz_casted_gates = 'all'
     runner.run_experiment('qutrit_x12_irb')
