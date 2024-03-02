@@ -10,7 +10,7 @@ from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.calibration_management import (BaseCalibrationExperiment, Calibrations,
                                                        ParameterValue)
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
-from qiskit_experiments.framework.experiment_data import ExperimentData
+from qiskit_experiments.framework import ExperimentData
 from qiskit_experiments.library.characterization.analysis import FineAmplitudeAnalysis
 from qiskit_experiments.framework import BaseExperiment
 
@@ -50,7 +50,7 @@ class CycledRepeatedCRPingPong(MapToPhysicalQubits, BaseExperiment):
         # sign for control=1
         if control_state == 1 and cx_sign is None:
             raise RuntimeError('cx_sign is required for control_state=1')
-        
+
         self.analysis.set_options(
             fixed_parameters={
                 "angle_per_gate": np.pi,
@@ -102,7 +102,7 @@ class CycledRepeatedCRPingPong(MapToPhysicalQubits, BaseExperiment):
             circuits.append(circuit)
 
         return circuits
-    
+
 
 class CycledRepeatedCRFine(BatchExperiment):
     """Perform CycledRepeatedCRPingPong for control state 0 and 1 to calibrate width and rx amp."""
@@ -132,7 +132,7 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
         options.calibration_qubit_index = {(pname, 'offset_rx'): [1]
                                            for pname in ['amp', 'sign_angle']}
         return options
-    
+
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -200,7 +200,7 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
                 exp_id=experiment_data.experiment_id,
             )
             self._cals.add_parameter_value(param_value, pname, self.physical_qubits, sname)
-                                           
+
         # Calculate the new Rx amplitude
         current_amp = self._cals.get_parameter_value(self._param_name[2], self.physical_qubits[1],
                                                      schedule=self._sched_name[2])
@@ -220,4 +220,3 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
                 exp_id=experiment_data.experiment_id,
             )
             self._cals.add_parameter_value(param_value, pname, self.physical_qubits[1], sname)
-       

@@ -23,67 +23,6 @@ def setup_data_dir(program_config: dict[str, Any]) -> str:
     return data_dir
 
 
-def setup_backend(program_config: dict[str, Any]) -> Backend:
-    if (backend := _load_backend(program_config)) is None:
-        runtime_service = QiskitRuntimeService(channel='ibm_quantum',
-                                               instance=program_config['instance'])
-        backend = runtime_service.get_backend(program_config['backend'],
-                                              instance=program_config['instance'])
-
-        _save_backend(backend, program_config)
-
-    return backend
-
-
-def _load_backend(program_config: dict[str, Any]):
-    file_name = os.path.join(
-        program_config['base_dir'],
-        'backend_configurations',
-        f'{program_config["backend"]}-{program_config["instance"].replace("/", "_")}.pkl'
-    )
-    if not os.path.exists(file_name):
-        return None
-
-    with open(file_name, 'rb') as source:
-        client_params, backend_config, defaults, properties, target = pickle.load(source)
-
-    backend = IBMBackend(instance=program_config['instance'],
-                         configuration=backend_config,
-                         api_client=RuntimeClient(client_params),
-                         service=None)
-    backend._defaults = defaults
-    backend._properties = properties
-    backend._target = target
-    return backend
-
-
-def _save_backend(backend: Backend, program_config: dict[str, Any]):
-    backend.defaults()
-    backend.properties()
-    backend.target
-
-    file_name = os.path.join(
-        program_config['base_dir'],
-        'backend_configurations',
-        f'{program_config["backend"]}-{program_config["instance"].replace("/", "_")}.pkl'
-    )
-
-    try:
-        os.makedirs(os.path.dirname(file_name))
-    except FileExistsError:
-        pass
-    
-    with open(file_name, 'wb') as out:
-        data = (
-            backend.service._client_params,
-            backend.service._backend_configs[program_config['backend']],
-            backend.defaults(),
-            backend.properties(),
-            backend.target
-        )
-        pickle.dump(data, out)
-
-
 def setup_runner(
     backend: Backend,
     calibrations: Calibrations,
@@ -99,15 +38,19 @@ def setup_runner(
             pass
         shutil.copytree(source, data_dir)
 
-    runner = ExperimentsRunner(backend, calibrations=calibrations, data_dir=data_dir)
+    # Submit or retrieve circuit jobs in a single process
+    if program_config['session_id']:
+        # Session.from_id is not for ibm_quantum channel
+        runtime_session = Session(service=backend._service, backend=backend)
+        runtime_session._session_id = program_config['session_id']
+    else:
+        runtime_session = None
+
+    runner = ExperimentsRunner(backend, calibrations=calibrations, data_dir=data_dir,
+                               runtime_session=runtime_session)
 
     if (qubits := program_config.get('qubits')) is not None:
         runner.program_data['qubits'] = tuple(qubits)
-
-    # Submit or retrieve circuit jobs in a single process
-    if program_config['session_id']:
-        runner.runtime_session = Session.from_id(program_config['session_id'],
-                                                 backend=program_config['backend'])
 
     return runner
 
@@ -165,9 +108,9 @@ def get_program_config(program_config: Optional[dict[str, Any]] = None) -> dict[
                             ' the calibrations to disk.', dest='read_only')
         parser.add_argument('--dry-run', action='store_true', help='Do not submit experiment jobs; run'
                             ' the experiments with dummy data.', dest='dry_run')
-        
+
         options = parser.parse_args()
-    
+
         if options.config_file is not None:
             with open(options.config_file, 'r') as source:
                 program_config = yaml.safe_load(source)
@@ -176,11 +119,11 @@ def get_program_config(program_config: Optional[dict[str, Any]] = None) -> dict[
                     program_config[key] = value
         else:
             program_config = vars(options)
-    
+
     if any(value is None for key, value in program_config.items() if key in static_required):
         raise RuntimeError('One or more of the following options are missing:'
                            f' {["config_file"] + static_required}')
-    
+
     if not program_config['name']:
         program_config['name'] = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
         program_config['name'] += f'_{program_config["backend"]}'

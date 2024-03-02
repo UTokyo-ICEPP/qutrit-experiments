@@ -82,8 +82,7 @@ class ExperimentsRunner:
         if runtime_session is not None:
             self._runtime_session = runtime_session
         elif not getattr(self._backend, 'simulator', True):
-            self._runtime_session = Session(service=self._backend.service,
-                                            backend=self._backend.name)
+            self._runtime_session = Session(service=self._backend.service, backend=self._backend)
         else:
             self._runtime_session = None
 
@@ -103,8 +102,7 @@ class ExperimentsRunner:
     def runtime_session(self):
         if (session := self._runtime_session) is not None and session.status() == 'Closed':
             session.close()
-            self._runtime_session = Session(service=session.service,
-                                            backend=session.backend())
+            self._runtime_session = Session(service=self._backend.service, backend=self._backend)
         return self._runtime_session
 
     @runtime_session.setter
