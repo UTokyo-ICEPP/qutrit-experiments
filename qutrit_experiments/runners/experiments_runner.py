@@ -24,6 +24,7 @@ from qiskit_experiments.framework import (AnalysisStatus, BaseExperiment,
                                           ExperimentData)
 from qiskit_experiments.framework.composite.composite_experiment import CompositeExperiment
 from qiskit_ibm_runtime import RuntimeJob, Session
+from qiskit_ibm_runtime.exceptions import IBMRuntimeError
 
 from ..constants import DEFAULT_REP_DELAY, DEFAULT_SHOTS, RESTLESS_REP_DELAY
 from ..experiment_config import (CompositeExperimentConfig, ExperimentConfigBase,
@@ -88,6 +89,7 @@ class ExperimentsRunner:
 
         self.data_taking_only = False
         self.code_test = False
+        self.job_retry_interval = -1.
 
         self.qutrit_transpile_options = QutritTranspileOptions()
 
@@ -550,7 +552,18 @@ class ExperimentsRunner:
                 for _ in range(5):
                     options = {'instance': self._backend._instance, 'job_tags': job_tags}
                     inputs = {'circuits': circs, 'skip_transpilation': True, **run_opts}
-                    job = self.runtime_session.run('circuit-runner', inputs, options=options)
+                    while True:
+                        try:
+                            job = self.runtime_session.run('circuit-runner', inputs,
+                                                           options=options)
+                            break
+                        except IBMRuntimeError as ex:
+                            if self.job_retry_interval < 0.:
+                                raise
+                            else:
+                                logger.error('IBMRuntimeError during job submission: %s', ex.message)
+
+                        time.sleep(self.job_retry_interval)
 
                     if job.job_id():
                         jobs.append(job)
