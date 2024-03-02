@@ -48,13 +48,20 @@ class CycledRepeatedCRPingPong(MapToPhysicalQubits, BaseExperiment):
         # Fit function is P(1) = A/2*cos(n*(apg + dθ) - po) + B
         # -> With an initial SX, phase offset is always π/2 for control=0/2 but dependent on the CX
         # sign for control=1
-        if control_state == 1 and cx_sign is None:
-            raise RuntimeError('cx_sign is required for control_state=1')
+        match control_state:
+            case 0 | 2:
+                phase_offset = np.pi / 2.
+            case 1:
+                if cx_sign is None:
+                    raise RuntimeError('cx_sign is required for control_state=1')
+                phase_offset = np.pi / 2. * cx_sign
+            case _:
+                raise ValueError(f'Invalid control state {control_state}')
 
         self.analysis.set_options(
             fixed_parameters={
                 "angle_per_gate": np.pi,
-                "phase_offset": np.pi / 2 * cx_sign,
+                "phase_offset": phase_offset
             },
             outcome='1'
         )
