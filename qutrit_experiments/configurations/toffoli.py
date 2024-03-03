@@ -4,9 +4,16 @@ from functools import wraps
 import logging
 import numpy as np
 from uncertainties import unumpy as unp
+from qiskit import QuantumCircuit, transpile
+from qiskit.circuit import Parameter
+
 
 from ..experiment_config import ExperimentConfig, register_exp, register_post
-from ..experiments.qutrit_qubit_cx.util import RCRType, make_crcr_circuit
+from ..experiments.qutrit_qubit_cx.util import RCRType, get_cr_schedules, make_crcr_circuit
+from ..gates import QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES, RZ12Gate, X12Gate
+from ..transpilation.layout_and_translation import generate_translation_passmanager
+from ..transpilation.qutrit_transpiler import make_instruction_durations
+from ..transpilation.rz import ConsolidateRZAngle
 from ..util.pulse_area import rabi_freq_per_amp, grounded_gauss_area
 from .common import add_readout_mitigation, qubits_assignment_error, qubits_assignment_error_post
 from .qutrit import (
@@ -119,15 +126,6 @@ def c2t_crcr_cr_width(runner):
         }
     )
 
-@register_post
-def c2t_crcr_cr_width(runner, experiment_data):
-    # d|θ_1x - θ_0x|/dt
-    fit_params = experiment_data.analysis_results('unitary_linear_fit_params', block=False).value
-    params = [unp.nominal_values(fit_params[ic]) for ic in range(2)]
-    runner.program_data['crcr_width_rate_params'] = np.array(
-        [np.array([p[0], p[1]]) * np.sin(p[2]) * np.cos(p[3]) for p in params]
-    )
-
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_rcr_rotary(runner):
@@ -192,6 +190,42 @@ def c2t_crcr_rotary(runner, experiment_data):
     runner.program_data['offset_rx_target_angle'] = -fit_params[0].n
 
 @register_exp
+@add_readout_mitigation(logical_qubits=[1], expval=True)
+def c2t_crcr_angle_width_rate(runner):
+    """Measure the X rotation angles in 0 and 1 with the rotary."""
+    from ..experiments.qutrit_qubit_cx.cr_width import CycledRepeatedCRWidth
+    qubits = runner.program_data['qubits'][1:]
+
+    cr_schedules = get_cr_schedules(runner.calibrations, qubits,
+                                    free_parameters=['width', 'margin'])
+    rcr_type = RCRType(runner.calibraitons.get_parameter_value('rcr_type', qubits))
+
+    current_width = runner.calibrations.get_parameter_value('width', qubits, schedule='cr')
+    if current_width != 0.:
+        widths = np.linspace(current_width - 32, current_width + 32, 5)
+        while widths[0] < 0.:
+            widths += 16.
+    else:
+        widths = None
+
+    return ExperimentConfig(
+        CycledRepeatedCRWidth,
+        runner.program_data['qubits'][1:],
+        args={
+            'cr_schedules': cr_schedules,
+            'rcr_type': rcr_type,
+            'widths': widths,
+        }
+    )
+
+@register_post
+def c2t_crcr_angle_width_rate(runner, experiment_data):
+    # d|θ_1x - θ_0x|/dt
+    fit_params = experiment_data.analysis_results('unitary_linear_fit_params', block=False).value
+    slope, _, psi, phi = np.stack([unp.nominal_values(fit_params[ic]) for ic in range(2)], axis=1)
+    runner.program_data['crcr_angle_per_width'] = slope * np.sin(psi) * np.cos(phi)
+
+@register_exp
 @add_readout_mitigation
 def c2t_crcr_rx_amp(runner):
     from ..experiments.qutrit_qubit_cx.rx_amp import SimpleRxAmplitudeCal
@@ -221,7 +255,7 @@ def c2t_crcr_fine(runner):
         CycledRepeatedCRFineCal,
         runner.program_data['qubits'][1:],
         args={
-            'width_rate_params': runner.program_data['crcr_width_rate_params'],
+            'width_rate': runner.program_data['crcr_angle_per_width'],
             'amp_rate': runner.program_data['crcr_angle_per_rx_amp']
         }
     )

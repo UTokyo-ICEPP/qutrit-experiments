@@ -14,7 +14,7 @@ from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Opt
 
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
-from .util import RCRType, make_crcr_circuit, make_rcr_circuit
+from .util import RCRType, get_cr_schedules, make_crcr_circuit, make_rcr_circuit
 
 
 class RepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
@@ -224,17 +224,13 @@ class CycledRepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment,
         measure_preparations: bool = True,
         auto_update: bool = True
     ):
-        assign_params = {pname: Parameter(pname) for pname in cal_parameter_name}
         if width is not None:
-            assign_params['width'] = width
-        cr_schedules = [calibrations.get_schedule(schedule_name, physical_qubits,
-                                                  assign_params=assign_params)]
-        for pname in ['cr_sign_angle', 'cr_stark_sign_phase']:
-            # Stark phase is relative to the CR angle, and we want to keep it the same for CRp and CRm
-            assign_params[pname] = np.pi
-        assign_params[cal_parameter_name[1]] += np.pi
-        cr_schedules.append(calibrations.get_schedule(schedule_name, physical_qubits,
-                                                      assign_params=assign_params))
+            assign_params = {'width': width}
+        else:
+            assign_params = None
+        cr_schedules = get_cr_schedules(calibrations, physical_qubits,
+                                        free_parameters=cal_parameter_name,
+                                        assign_params=assign_params)
 
         super().__init__(
             calibrations,

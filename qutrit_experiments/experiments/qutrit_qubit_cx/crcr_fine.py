@@ -17,7 +17,7 @@ from qiskit_experiments.framework import BaseExperiment
 from ...experiment_mixins import MapToPhysicalQubits
 from ...framework_overrides.batch_experiment import BatchExperiment
 from ...gates import X12Gate
-from .util import RCRType, get_margin, make_crcr_circuit
+from .util import RCRType, get_cr_schedules, get_margin, make_crcr_circuit
 
 
 class CycledRepeatedCRPingPong(MapToPhysicalQubits, BaseExperiment):
@@ -144,7 +144,7 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
         self,
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
-        width_rate_params: np.ndarray,
+        width_rate: np.ndarray,
         amp_rate: float,
         backend: Optional[Backend] = None,
         cal_parameter_name: list[str] = ['width', 'margin', 'amp', 'sign_angle'],
@@ -152,12 +152,7 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
         repetitions: Optional[Sequence[int]] = None,
         auto_update: bool = True
     ):
-        cr_schedules = [calibrations.get_schedule('cr', physical_qubits)]
-        # Stark phase is relative to the CR angle, and we want to keep it the same for CRp and CRm
-        assign_params = {pname: np.pi for pname in
-                         ['cr_sign_angle', 'counter_sign_angle', 'cr_stark_sign_phase']}
-        cr_schedules.append(calibrations.get_schedule('cr', physical_qubits,
-                                                      assign_params=assign_params))
+        cr_schedules = get_cr_schedules(calibrations, physical_qubits)
         rx_schedule = calibrations.get_schedule('offset_rx', physical_qubits[1])
 
         super().__init__(
@@ -173,7 +168,7 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
             auto_update=auto_update,
             repetitions=repetitions
         )
-        self.width_rate_params = np.array(width_rate_params)
+        self.width_rate = width_rate
         self.amp_rate = amp_rate
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
@@ -185,10 +180,10 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
             experiment_data.child_data(idx).analysis_results('d_theta').value.n
             for idx in component_index
         ])
-        # dθ_i = a_i dw + b_i + c dA
-        # -> (dw, dA)^T = ([a_0 c], [a_1 c])^{-1} (dθ_0 - b_0, dθ_1 - b_1)^T
-        mat = np.stack([self.width_rate_params[:, 0], np.full(2, self.amp_rate)], axis=1)
-        d_width, d_amp = np.linalg.inv(mat) @ (d_thetas - self.width_rate_params[:, 1])
+        # dθ_i = a_i dw + c dA
+        # -> (dw, dA)^T = ([a_0 c], [a_1 c])^{-1} (dθ_0, dθ_1)^T
+        mat = np.stack([self.width_rate, np.full(2, self.amp_rate)], axis=1)
+        d_width, d_amp = np.linalg.inv(mat) @ d_thetas
 
         # Calculate the new width
         current_width = self._cals.get_parameter_value(self._param_name[0], self.physical_qubits,

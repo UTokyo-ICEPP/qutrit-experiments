@@ -21,7 +21,7 @@ from ...util.bloch import so3_cartesian, so3_cartesian_axnorm, so3_cartesian_par
 from ...util.pulse_area import grounded_gauss_area
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
-from .util import RCRType, get_margin, make_cr_circuit, make_crcr_circuit
+from .util import RCRType, get_cr_schedules, get_margin, make_cr_circuit, make_crcr_circuit
 
 twopi = 2. * np.pi
 
@@ -90,10 +90,12 @@ class CycledRepeatedCRWidth(QutritQubitTomographyScan):
         margins = get_margin(risefall_duration, widths, backend)
 
         # Rename the CR parameters to distinguish crp and crm
-        for idx, (prefix, sched) in enumerate(zip(['crp', 'crm'], cr_schedules)):
+        reparametrized = []
+        for prefix, sched in zip(['crp', 'crm'], cr_schedules):
             assign_params = {sched.get_parameters(pname)[0]: Parameter(f'{prefix}_{pname}')
                              for pname in [width_param_name, margin_param_name]}
-            cr_schedules[idx] = sched.assign_parameters(assign_params, inplace=False)
+            reparametrized.append(sched.assign_parameters(assign_params, inplace=False))
+        cr_schedules = tuple(reparametrized)
 
         param_names = [f'{prefix}_{pname}'
                        for prefix in ['crp', 'crm']
@@ -425,15 +427,8 @@ class CycledRepeatedCRWidthCal(BaseCalibrationExperiment, CycledRepeatedCRWidth)
         measure_preparations: bool = True,
         auto_update: bool = True
     ):
-        assign_params = {pname: Parameter(pname) for pname in cal_parameter_name[:2]}
-        cr_schedules = [calibrations.get_schedule(schedule_name[0], physical_qubits,
-                                                  assign_params=assign_params)]
-        for pname in ['cr_sign_angle', 'counter_sign_angle', 'cr_stark_sign_phase']:
-            # Stark phase is relative to the CR angle, and we want to keep it the same for CRp and CRm
-            assign_params[pname] = np.pi
-        cr_schedules.append(calibrations.get_schedule(schedule_name[0], physical_qubits,
-                                                      assign_params=assign_params))
-
+        cr_schedules = get_cr_schedules(calibrations, physical_qubits,
+                                        free_parameters=cal_parameter_name[:2])
         super().__init__(
             calibrations,
             physical_qubits,

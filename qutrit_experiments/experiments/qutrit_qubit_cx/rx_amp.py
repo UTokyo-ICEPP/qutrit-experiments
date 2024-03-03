@@ -17,7 +17,7 @@ from qiskit_experiments.visualization import MplDrawer
 
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
-from .util import RCRType, make_crcr_circuit
+from .util import RCRType, get_cr_schedules, make_crcr_circuit
 
 twopi = 2. * np.pi
 
@@ -106,11 +106,7 @@ class CycledRepeatedCRRxAmplitudeCal(BaseCalibrationExperiment, CycledRepeatedCR
         measure_preparations: bool = True,
         auto_update: bool = True
     ):
-        cr_schedules = [calibrations.get_schedule('cr', physical_qubits)]
-        assign_params = {pname: np.pi
-                         for pname in ['cr_sign_angle', 'counter_sign_angle', 'cr_stark_sign_phase']}
-        cr_schedules.append(calibrations.get_schedule('cr', physical_qubits,
-                                                      assign_params=assign_params))
+        cr_schedules = get_cr_schedules(calibrations, physical_qubits)
         assign_params = {pname: Parameter(pname) for pname in cal_parameter_name}
         rx_schedule = calibrations.get_schedule(schedule_name, physical_qubits[1],
                                                 assign_params=assign_params)

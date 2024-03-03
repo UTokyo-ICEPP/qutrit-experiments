@@ -1,9 +1,9 @@
 from collections.abc import Sequence
 from enum import IntEnum
-from typing import Optional, Union
+from typing import Any, Optional, Union
 import numpy as np
 from qiskit import QuantumCircuit
-from qiskit.circuit import Gate
+from qiskit.circuit import Gate, Parameter
 from qiskit.pulse import ScheduleBlock
 from qiskit.providers import Backend
 from qiskit_experiments.calibration_management import Calibrations
@@ -72,11 +72,7 @@ def make_crcr_circuit(
     rcr_type: Optional[RCRType] = None
 ) -> QuantumCircuit:
     if isinstance(arg, Calibrations):
-        cr_schedules = [arg.get_schedule('cr', physical_qubits)]
-        # Stark phase is relative to the CR angle, and we want to keep it the same for CRp and CRm
-        assign_params = {pname: np.pi for pname in
-                         ['cr_sign_angle', 'counter_sign_angle', 'cr_stark_sign_phase']}
-        cr_schedules.append(arg.get_schedule('cr', physical_qubits, assign_params=assign_params))
+        cr_schedules = get_cr_schedules(arg, physical_qubits)
         rx_schedule = arg.get_schedule('offset_rx', physical_qubits[1])
         rcr_type = RCRType(arg.get_parameter_value('rcr_type', physical_qubits))
     else:
@@ -145,3 +141,28 @@ def get_margin(
         return margins[0]
     else:
         return margins
+
+
+def get_cr_schedules(
+    calibrations: Calibrations,
+    qubits: Sequence[int],
+    free_parameters: Optional[list[str]] = None,
+    assign_params: Optional[dict[str, Any]] = None
+) -> tuple[ScheduleBlock, ScheduleBlock]:
+    """Return a tuple of crp and crm schedules with optional free parameters"""
+    if assign_params is None:
+        assign_params = {}
+    else:
+        assign_params = dict(assign_params)
+    if free_parameters is not None:
+        assign_params.update({pname: Parameter(pname) for pname in free_parameters})
+
+    cr_schedules = [calibrations.get_schedule('cr', qubits, assign_params=assign_params)]
+
+    for pname in ['cr_sign_angle', 'counter_sign_angle', 'cr_stark_sign_phase']:
+        # Stark phase is relative to the CR angle, and we want to keep it the same for CRp and CRm
+        assign_params.setdefault(pname, 0.)
+        assign_params[pname] += np.pi
+    cr_schedules.append(calibrations.get_schedule('cr', qubits, assign_params=assign_params))
+
+    return tuple(cr_schedules)
