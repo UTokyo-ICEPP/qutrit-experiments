@@ -6,7 +6,8 @@ import jax
 import jax.numpy as jnp
 import jaxopt
 import numpy as np
-from uncertainties import correlated_values, unumpy as unp
+from numpy.linalg import LinAlgError
+from uncertainties import correlated_values, ufloat, unumpy as unp
 from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 
@@ -95,8 +96,12 @@ def fit_unitary_to_expval(
     # Renormalize the rotation parameters so that the norm fits within [0, pi].
     popt = rescale_axis(fit_result.params[iopt])
 
-    pcov = np.linalg.inv(jax.hessian(objective)(popt) * 0.5)
-    popt_ufloats = correlated_values(nom_values=popt, covariance_mat=pcov, tags=['x', 'y', 'z'])
+    try:
+        pcov = np.linalg.inv(jax.hessian(objective)(popt) * 0.5)
+        popt_ufloats = correlated_values(nom_values=popt, covariance_mat=pcov, tags=['x', 'y', 'z'])
+    except LinAlgError:
+        logger.warning('Invalid covariance encountered. Setting paramater uncertainties to inf')
+        popt_ufloats = tuple(ufloat(p, np.inf) for p in popt)
 
     # state is a namedtuple
     values = []
