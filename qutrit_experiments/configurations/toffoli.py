@@ -128,31 +128,6 @@ def c2t_crcr_cr_width(runner):
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
-def c2t_rcr_rotary(runner):
-    """Fine-tuning the rotary amplitude to squeeze out the y component in RCR. Unused."""
-    from ..experiments.qutrit_qubit_cx.rotary import RepeatedCRRotaryAmplitudeCal
-    qubits = runner.program_data['qubits'][1:]
-
-    sigma = runner.calibrations.get_parameter_value('sigma', qubits, 'cr')
-    rsr = runner.calibrations.get_parameter_value('rsr', qubits, 'cr')
-    width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
-    gs_area = grounded_gauss_area(sigma, rsr, gs_factor=True) + width
-    angle_per_amp = (rabi_freq_per_amp(runner.backend, qubits[1]) * twopi * runner.backend.dt
-                     * gs_area)
-    angle_per_amp *= 2. # Un-understood empirical factor 2
-    if (angles := runner.program_data.get('rcr_rotary_test_angles')) is None:
-        # Scan rotary amplitudes expected to generate +-1 rad rotations within one CR pulse
-        angles = np.linspace(-1., 1., 8)
-
-    return ExperimentConfig(
-        RepeatedCRRotaryAmplitudeCal,
-        runner.program_data['qubits'][1:],
-        args={'amplitudes': angles / angle_per_amp},
-        analysis_options={'thetax_per_amp': angle_per_amp}
-    )
-
-@register_exp
-@add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_crcr_rotary(runner):
     from ..experiments.qutrit_qubit_cx.rotary import CycledRepeatedCRRotaryAmplitudeCal
     qubits = runner.program_data['qubits'][1:]
@@ -164,6 +139,7 @@ def c2t_crcr_rotary(runner):
     angle_per_amp = (rabi_freq_per_amp(runner.backend, qubits[1]) * twopi * runner.backend.dt
                      * gs_area)
     angle_per_amp *= 2. # Un-understood empirical factor 2
+    # crcr_rotary_test_angles are the rotary angles with the current CR parameters
     if (angles := runner.program_data.get('crcr_rotary_test_angles')) is None:
         # Scan rotary amplitudes expected to generate +-1 rad rotations within one CR pulse
         angles = np.linspace(-1., 1., 8)
@@ -177,17 +153,15 @@ def c2t_crcr_rotary(runner):
 @register_post
 def c2t_crcr_rotary(runner, experiment_data):
     """Identify the target Rx angle for offset_rx."""
-    qubits = tuple(runner.program_data['qubits'][1:])
     # Which test amplitude was selected?
     rotary_amp = experiment_data.analysis_results('rotary_amp', block=False).value
     selected_amp_idx = int(np.argmin(
         np.abs(experiment_data.metadata['scan_values'][0] - rotary_amp)
     ))
-    # Take the control=0 data at the selected amplitude
-    data_c0 = experiment_data.child_data(selected_amp_idx).child_data(0)
-    # Set offset_rx_target_angle to -theta_x of control=0
-    fit_params = data_c0.analysis_results('unitary_fit_params').value
-    runner.program_data['offset_rx_target_angle'] = -fit_params[0].n
+    unitaries = unp.nominal_values(
+        experiment_data.analysis_results('unitary_parameters', block=False).value[selected_amp_idx]
+    )
+    runner.program_data['crcr_unitaries_rough'] = unitaries
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
@@ -198,15 +172,17 @@ def c2t_crcr_angle_width_rate(runner):
 
     cr_schedules = get_cr_schedules(runner.calibrations, qubits,
                                     free_parameters=['width', 'margin'])
-    rcr_type = RCRType(runner.calibraitons.get_parameter_value('rcr_type', qubits))
+    rcr_type = RCRType(runner.calibrations.get_parameter_value('rcr_type', qubits))
 
+    # Frequency (cycles / clock) from the rotary tone (should dominate)
+    rotary_amp = runner.calibrations.get_parameter_value('counter_amp', qubits, 'cr')
+    rotary_freq = rabi_freq_per_amp(runner.backend, qubits[1]) * runner.backend.dt * rotary_amp
+    # CRCR frequency is roughly (rotary+rotary)*(1+1-1) = 2*rotary
+    # Aim for the width scan range of +-0.4 cycles
     current_width = runner.calibrations.get_parameter_value('width', qubits, schedule='cr')
-    if current_width != 0.:
-        widths = np.linspace(current_width - 32, current_width + 32, 5)
-        while widths[0] < 0.:
-            widths += 16.
-    else:
-        widths = None
+    widths = np.linspace(current_width - 0.2 / rotary_freq, current_width + 0.2 / rotary_freq, 5)
+    if widths[0] < 0.:
+        widths += -widths[0]
 
     return ExperimentConfig(
         CycledRepeatedCRWidth,
@@ -237,7 +213,7 @@ def c2t_crcr_rx_amp(runner):
         SimpleRxAmplitudeCal,
         qubits,
         args={
-            'target_angle': runner.program_data['offset_rx_target_angle'],
+            'target_angle': -runner.program_data['crcr_unitaries_rough'][0, 0], # X of c=0
             'amplitudes': np.linspace(-pi_amp, pi_amp, 32)
         }
     )
@@ -272,4 +248,108 @@ def c2t_crcr_validation(runner):
         QutritQubitTomography,
         qubits,
         args={'circuit': crcr_circuit}
+    )
+
+@register_exp
+@add_readout_mitigation
+def toffoli_qpt_default(runner):
+    from ..experiments.process_tomography import CircuitTomography
+
+    circuit = QuantumCircuit(3)
+    circuit.ccx(0, 1, 2)
+
+    return ExperimentConfig(
+        CircuitTomography,
+        runner.program_data['qubits'],
+        args={'circuit': circuit, 'target_circuit': circuit},
+        experiment_options={'need_translation': True}
+    )
+
+@register_exp
+@add_readout_mitigation
+def toffoli_qpt_bare(runner):
+    from ..experiments.process_tomography import CircuitTomography
+
+    # Assuming ECR acts on c1->c2 (no layout applied; translator assumes q0 is the control)
+    cx_circuit = QuantumCircuit(2)
+    cx_circuit.cx(0, 1)
+    pm = generate_translation_passmanager(runner.backend.operation_names)
+    pm.append(ConsolidateRZAngle())
+    cx_circuit = pm.run(cx_circuit)
+
+    c2t = tuple(runner.program_data['qubits'][1:])
+    cx_sign = runner.calibrations.get_parameter_value('qutrit_qubit_cx_sign', c2t)
+
+    circuit = QuantumCircuit(3)
+    circuit.x(1)
+    circuit.append(X12Gate(), [1])
+    circuit.compose(cx_circuit, [0, 1], inplace=True)
+    circuit.compose(make_crcr_circuit(c2t, runner.calibrations), [1, 2], inplace=True)
+    circuit.rz(cx_sign * np.pi / 3., 1)
+    circuit.append(RZ12Gate(-cx_sign * np.pi / 3.), [1])
+    circuit.compose(cx_circuit, [0, 1], inplace=True)
+    circuit.append(X12Gate(), [1])
+    circuit.x(1)
+
+    target_circuit = QuantumCircuit(3)
+    target_circuit.ccx(0, 1, 2)
+
+    return ExperimentConfig(
+        CircuitTomography,
+        runner.program_data['qubits'],
+        args={'circuit': circuit, 'target_circuit': target_circuit}
+    )
+
+@register_exp
+@add_readout_mitigation
+def toffoli_qpt_bc(runner):
+    from ..experiments.process_tomography import CircuitTomography
+    qubits = tuple(runner.program_data['qubits'])
+
+    # Assuming ECR acts on c1->c2 (no layout applied; translator assumes q0 is the control)
+    cx_circuit = QuantumCircuit(2)
+    cx_circuit.cx(0, 1)
+    pm = generate_translation_passmanager(runner.backend.operation_names)
+    pm.append(ConsolidateRZAngle())
+    cx_circuit = pm.run(cx_circuit)
+
+    c2t = qubits[1:]
+    cx_sign = runner.calibrations.get_parameter_value('qutrit_qubit_cx_sign', c2t)
+
+    u_qutrit = QuantumCircuit(3)
+    u_qutrit.compose(cx_circuit, [0, 1], inplace=True)
+    u_qutrit.compose(make_crcr_circuit(c2t, runner.calibrations), [1, 2], inplace=True)
+    u_qutrit.rz(cx_sign * np.pi / 3., 1)
+    u_qutrit.append(RZ12Gate(-cx_sign * np.pi / 3.), [1])
+    u_qutrit.compose(cx_circuit, [0, 1], inplace=True)
+
+    instruction_durations = make_instruction_durations(runner.backend, runner.calibrations,
+                                                       qubits=qubits)
+    basis_gates = runner.backend.basis_gates + [
+        inst.gate_name for inst in QUTRIT_PULSE_GATES + QUTRIT_VIRTUAL_GATES
+    ]
+    u_qutrit = transpile(u_qutrit, runner.backend, initial_layout=qubits, optimization_level=0,
+                         basis_gates=basis_gates, scheduling_method='alap',
+                         instruction_durations=instruction_durations)
+
+    # Define a placeholder gate and implement delay-setting as a transpilation pass
+
+
+    circuit = QuantumCircuit(3)
+    circuit.append(X12Gate(), [1])
+    circuit.x(1)
+    circuit.delay(Parameter('qutrit_refocusing_delay'))
+    circuit.append(X12Gate(), [1])
+    circuit.x(1)
+
+    circuit.append(X12Gate(), [1])
+    circuit.x(1)
+
+    target_circuit = QuantumCircuit(3)
+    target_circuit.ccx(0, 1, 2)
+
+    return ExperimentConfig(
+        CircuitTomography,
+        runner.program_data['qubits'],
+        args={'circuit': circuit, 'target_circuit': target_circuit}
     )

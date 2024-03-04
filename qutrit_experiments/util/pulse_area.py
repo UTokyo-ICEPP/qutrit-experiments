@@ -22,7 +22,7 @@ def grounded_gauss_area(sigma: float, rsr: float, gs_factor: bool = False) -> fl
 
 
 def rabi_freq_per_amp(backend: Backend, qubit: int) -> float:
-    """Estimate the Rabi frequency from a GaussianSquare pulse."""
+    """Estimate the Rabi frequency (cycles per second) from a GaussianSquare pulse."""
     x_sched = backend.defaults().instruction_schedule_map.get('x', qubit)
     x_pulse = next(inst.pulse for _, inst in x_sched.instructions if isinstance(inst, pulse.Play))
     x_area = grounded_gauss_area(x_pulse.sigma, x_pulse.duration / x_pulse.sigma / 2.,

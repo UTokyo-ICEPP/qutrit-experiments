@@ -542,7 +542,8 @@ class HamiltonianTomographyScanAnalysis(CompoundAnalysis):
     def _default_options(cls) -> Options:
         options = super()._default_options()
         options.plot = True
-        options.poly_orders: Optional[tuple[PolynomialOrder, PolynomialOrder, PolynomialOrder]] = None
+        # (PolynomialOrder, PolynomialOrder, PolynomialOrder)
+        options.poly_orders = None
         return options
 
     def _run_additional_analysis(

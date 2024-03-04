@@ -128,7 +128,8 @@ def frequency_intervals(runner):
 
 
 def get_rotary_guess(cr_params: np.ndarray, runner: ExperimentsRunner):
-    """Find the rotary amp that is expected to minimize y and z on CRCR."""
+    """Find the rotary angle for the current CR parameters that is expected to minimize y and z on
+    CRCR."""
     qubits = tuple(runner.program_data['qubits'][1:])
     rcr_type = runner.calibrations.get_parameter_value('rcr_type', qubits)
 
