@@ -24,7 +24,7 @@ from qiskit_experiments.framework import (AnalysisStatus, BaseExperiment,
                                           ExperimentData)
 from qiskit_experiments.framework.composite.composite_experiment import CompositeExperiment
 from qiskit_ibm_runtime import RuntimeJob, Session
-from qiskit_ibm_runtime.exceptions import IBMRuntimeError
+from qiskit_ibm_runtime.exceptions import IBMNotAuthorizedError, IBMRuntimeError
 
 from ..constants import DEFAULT_REP_DELAY, DEFAULT_SHOTS, RESTLESS_REP_DELAY
 from ..experiment_config import (CompositeExperimentConfig, ExperimentConfigBase,
@@ -476,7 +476,7 @@ class ExperimentsRunner:
                 continue
 
             logger.debug('Tagging calibration parameter %s:%s:%s from experiment %s',
-                        pname, sname, qubits, exp_type)
+                         pname, sname, qubits, exp_type)
             self.pass_parameter_value(pname, qubits, from_schedule=sname, from_group='default',
                                       to_group=exp_type)
 
@@ -555,7 +555,7 @@ class ExperimentsRunner:
                             job = self.runtime_session.run('circuit-runner', inputs,
                                                            options=options)
                             break
-                        except IBMRuntimeError as ex:
+                        except (IBMRuntimeError, IBMNotAuthorizedError) as ex:
                             if self.job_retry_interval < 0.:
                                 raise
                             else:

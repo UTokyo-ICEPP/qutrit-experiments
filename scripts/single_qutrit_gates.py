@@ -15,6 +15,8 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger('qutrit_experiments').setLevel(logging.INFO)
 
+    from qiskit_ibm_runtime import QiskitRuntimeService
+    from qiskit_ibm_runtime.exceptions import IBMNotAuthorizedError
     from qutrit_experiments.calibrations import make_single_qutrit_gate_calibrations
     import qutrit_experiments.configurations.single_qutrit
     from qutrit_experiments.programs.common import (get_program_config, load_calibrations,
@@ -23,17 +25,26 @@ if __name__ == '__main__':
                                                                  characterize_qutrit)
 
     program_config = get_program_config()
+    setup_data_dir(program_config)
+    while True:
+        try:
+            service = QiskitRuntimeService(channel='ibm_quantum', instance=program_config['instance'])
+            backend = service.backend(program_config['backend'], instance=program_config['instance'])
+        except IBMNotAuthorizedError:
+            continue
+        break
+
     assert program_config['qubits'] is not None and len(program_config['qubits']) == 1
     print('Starting single_qutrit_gates:', program_config['name'])
-    setup_data_dir(program_config)
-    backend = setup_backend(program_config)
     calibrations = make_single_qutrit_gate_calibrations(backend)
     runner = setup_runner(backend, calibrations, program_config)
     runner.qutrit_transpile_options.use_waveform = True
     runner.qutrit_transpile_options.remove_custom_pulses = True
+    runner.job_retry_interval = 120
     calibrated = load_calibrations(runner, program_config)
 
     runner.program_data['qutrit'] = runner.program_data['qubits'][0]
 
-    calibrate_single_qutrit_gates(runner, calibrated)
+    calibrate_single_qutrit_gates(runner, refresh_readout_error=program_config['refresh_readout'],
+                                  calibrated=calibrated)
     characterize_qutrit(runner)
