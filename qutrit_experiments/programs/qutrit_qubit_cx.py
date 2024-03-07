@@ -2,7 +2,10 @@ import logging
 import numpy as np
 import scipy.optimize as sciopt
 from uncertainties import unumpy as unp
+from qiskit_experiments.framework import ExperimentData
 
+from ..experiment_config import experiments
+from ..experiments.qutrit_qubit_cx.rotary import rotary_angle_per_amp
 from ..experiments.qutrit_qubit_cx.util import RCRType
 from ..runners import ExperimentsRunner
 from ..util.bloch import so3_cartesian, so3_cartesian_params
@@ -13,56 +16,85 @@ logger = logging.getLogger(__name__)
 
 def calibrate_qutrit_qubit_cx(
     runner: ExperimentsRunner,
-    initial_cr_amp: float = 0.8
+    initial_cr_amp: float = 0.8,
+    refresh_readout_error: bool = True
 ):
     qubits = runner.program_data['qubits'][1:]
 
-    runner.calibrations.add_parameter_value(initial_cr_amp, 'cr_amp', qubits, 'cr')
+    if 'readout_assignment_matrices' not in runner.program_data:
+        # Construct the error mitigation matrix and find the rough CR pulse width
+        runner.run_experiment('qubits_assignment_error', force_resubmit=refresh_readout_error)
 
-    # Construct the error mitigation matrix and find the rough CR pulse width
-    runner.run_experiment('qubits_assignment_error')
-    data = runner.run_experiment('c2t_cr_rough_width')
-    fit_params = data.analysis_results('unitary_linear_fit_params').value
-    slope, intercept, psi, phi = np.stack([fit_params[ic] for ic in range(3)], axis=1)
-    omega_z = (np.linalg.inv([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) @ (slope * unp.cos(psi))
-               / runner.backend.dt)
+    runner.calibrations.add_parameter_value(initial_cr_amp, 'cr_amp', qubits, 'cr')
+    rough_width_data = runner.run_experiment('c2t_cr_rough_width')
 
     # Check the Z components of the CR Hamiltonian and decide whether to tune down the amplitude or
     # introduce siZZle
-    fine_tune_cr(omega_z, runner)
+    # Add rotary based on a rough guess
+    setup_cr(rough_width_data, runner)
 
     runner.run_experiment('c2t_crcr_cr_width')
 
-    cr_width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
-    cr_params = unp.nominal_values(
-        (slope * cr_width + intercept)[..., None]
-        * np.stack(
-            [unp.sin(psi) * unp.cos(phi), unp.sin(psi) * unp.sin(phi), unp.cos(psi)],
-            axis=-1
-        )
-    )
-    rotary_guess = get_rotary_guess(cr_params, runner)
-    runner.program_data['crcr_rotary_test_angles'] = np.linspace(
-        rotary_guess - np.pi / 8., rotary_guess + np.pi / 8., 6
-    )
-    runner.run_experiment('c2t_crcr_rotary')
+    config = experiments['c2t_cr_unitaries'](runner)
+    config.exp_type += '_postwidth'
+    data = runner.run_experiment(config)
+    cr_params = unp.nominal_values(data.analysis_results('unitary_parameters').value)
 
-    for exp_type in ['c2t_crcr_rx_amp', 'c2t_crcr_fine']:
+    rotary_angle = get_rotary_guess(cr_params, runner)
+    runner.program_data['crcr_rotary_test_angles'] = np.linspace(
+        rotary_angle - np.pi / 6., rotary_angle + np.pi / 6., 6
+    )
+
+    for exp_type in [
+        'c2t_crcr_rotary',
+        'c2t_crcr_angle_width_rate',
+        'c2t_crcr_rx_amp',
+        'c2t_crcr_fine',
+        'c2t_crcr_unitaries'
+    ]:
         runner.run_experiment(exp_type)
 
-    runner.run_experiment('c2t_crcr_validation')
 
-
-def fine_tune_cr(omega_z: np.ndarray, runner: ExperimentsRunner):
+def setup_cr(rough_width_data: ExperimentData, runner: ExperimentsRunner):
     qubits = tuple(runner.program_data['qubits'][1:])
 
+    fit_params = rough_width_data.analysis_results('unitary_linear_fit_params').value
+    slope, intercept, psi, phi = np.stack([fit_params[ic] for ic in range(3)],
+                                          axis=1)
+
+    cr_width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
+    unitary_axes = np.stack([unp.sin(psi) * unp.cos(phi), unp.sin(psi) * unp.sin(phi), unp.cos(psi)],
+                            axis=-1)
+    cr_params = unp.nominal_values((slope * cr_width + intercept)[..., None] * unitary_axes)
+
+    omega_z = (np.linalg.inv([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) @ (slope * unp.cos(psi))
+               / runner.backend.dt)
+
+    if setup_sizzle(omega_z, runner):
+        config = experiments['c2t_cr_unitaries'](runner)
+        config.exp_type += '_postsizzle'
+        data = runner.run_experiment(config)
+        cr_params = unp.nominal_values(data.analysis_results('unitary_parameters').value)
+
+    rotary_angle = get_rotary_guess(cr_params, runner)
+    rotary_amp = rotary_angle / rotary_angle_per_amp(runner.backend, runner.calibrations, qubits)
+    sign_angle = 0.
+    if rotary_amp < 0.:
+        sign_angle = np.pi
+        rotary_amp *= -1.
+    runner.calibrations.add_parameter_value(rotary_amp, 'counter_amp', qubits, schedule='cr')
+    runner.calibrations.add_parameter_value(sign_angle, 'counter_sign_angle', qubits, schedule='cr')
+
+
+def setup_sizzle(omega_z: np.ndarray, runner: ExperimentsRunner) -> bool:
+    qubits = tuple(runner.program_data['qubits'][1:])
     # If |omega_Iz| < 3σ(omega_Iz), no need to try siZZle
     if np.abs(omega_z[0].n) < 3. * omega_z[0].std_dev:
-        return
+        return False
 
     # Try siZZle to cancel the Z components
     if (sizzle_params := get_sizzle_params(unp.nominal_values(omega_z), runner)) is None:
-        return
+        return False
 
     runner.calibrations.add_parameter_value(sizzle_params['frequency'], 'stark_frequency', qubits,
                                             'cr')
@@ -71,6 +103,8 @@ def fine_tune_cr(omega_z: np.ndarray, runner: ExperimentsRunner):
     counter_stark_amp = runner.calibrations.get_parameter_value('counter_stark_amp', qubits, 'cr')
     if abs(sizzle_params['c_amp'] * sizzle_params['t_amp'] / counter_stark_amp) < 1. - cr_amp:
         runner.run_experiment('c2t_sizzle_c2_amp_scan')
+
+    return True
 
 
 def get_sizzle_params(z_comps, runner):

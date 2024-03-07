@@ -12,9 +12,22 @@ from qiskit_experiments.calibration_management import BaseCalibrationExperiment,
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 
+from ...util.pulse_area import grounded_gauss_area, rabi_freq_per_amp
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
 from .util import RCRType, get_cr_schedules, make_crcr_circuit, make_rcr_circuit
+
+twopi = 2. * np.pi
+
+
+def rotary_angle_per_amp(backend: Backend, calibrations: Calibrations, qubits: tuple[int, int]):
+    sigma = calibrations.get_parameter_value('sigma', qubits, 'cr')
+    rsr = calibrations.get_parameter_value('rsr', qubits, 'cr')
+    width = calibrations.get_parameter_value('width', qubits, 'cr')
+    gs_area = grounded_gauss_area(sigma, rsr, gs_factor=True) + width
+    angle_per_amp = rabi_freq_per_amp(backend, qubits[1]) * twopi * backend.dt * gs_area
+    angle_per_amp *= 2. # Un-understood empirical factor 2
+    return angle_per_amp
 
 
 class RepeatedCRRotaryAmplitude(QutritQubitTomographyScan):

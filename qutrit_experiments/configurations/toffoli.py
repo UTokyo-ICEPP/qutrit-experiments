@@ -9,12 +9,13 @@ from qiskit.circuit import Parameter
 
 
 from ..experiment_config import ExperimentConfig, register_exp, register_post
-from ..experiments.qutrit_qubit_cx.util import RCRType, get_cr_schedules, make_crcr_circuit
+from ..experiments.qutrit_qubit_cx.util import (RCRType, get_cr_schedules, make_cr_circuit,
+                                                make_crcr_circuit)
 from ..gates import QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES, RZ12Gate, X12Gate
 from ..transpilation.layout_and_translation import generate_translation_passmanager
 from ..transpilation.qutrit_transpiler import make_instruction_durations
 from ..transpilation.rz import ConsolidateRZAngle
-from ..util.pulse_area import rabi_freq_per_amp, grounded_gauss_area
+from ..util.pulse_area import rabi_freq_per_amp
 from .common import add_readout_mitigation, qubits_assignment_error, qubits_assignment_error_post
 from .qutrit import (
     qutrit_rough_frequency,
@@ -75,6 +76,34 @@ register_post(qubits_assignment_error_post, exp_type='qubits_assignment_error')
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
+def c2t_cr_unitaries(runner):
+    from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
+
+    qubits = runner.program_data['qubits'][1:]
+    cr_circuit = make_cr_circuit(qubits, runner.calibrations)
+
+    return ExperimentConfig(
+        QutritQubitTomography,
+        qubits,
+        args={'circuit': cr_circuit}
+    )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1], expval=True)
+def c2t_crcr_unitaries(runner):
+    from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
+
+    qubits = tuple(runner.program_data['qubits'][1:])
+    crcr_circuit = make_crcr_circuit(qubits, runner.calibrations)
+
+    return ExperimentConfig(
+        QutritQubitTomography,
+        qubits,
+        args={'circuit': crcr_circuit}
+    )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_cr_rough_width(runner):
     """Few-sample CR UT to measure ωx to find a rough estimate for the CR width in CRCR."""
     from ..experiments.qutrit_qubit_cx.cr_width import CRRoughWidthCal
@@ -129,16 +158,10 @@ def c2t_crcr_cr_width(runner):
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_crcr_rotary(runner):
-    from ..experiments.qutrit_qubit_cx.rotary import CycledRepeatedCRRotaryAmplitudeCal
+    from ..experiments.qutrit_qubit_cx.rotary import (CycledRepeatedCRRotaryAmplitudeCal,
+                                                      rotary_angle_per_amp)
     qubits = runner.program_data['qubits'][1:]
-
-    sigma = runner.calibrations.get_parameter_value('sigma', qubits, 'cr')
-    rsr = runner.calibrations.get_parameter_value('rsr', qubits, 'cr')
-    width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
-    gs_area = grounded_gauss_area(sigma, rsr, gs_factor=True) + width
-    angle_per_amp = (rabi_freq_per_amp(runner.backend, qubits[1]) * twopi * runner.backend.dt
-                     * gs_area)
-    angle_per_amp *= 2. # Un-understood empirical factor 2
+    angle_per_amp = rotary_angle_per_amp(runner.backend, runner.calibrations, qubits)
     # crcr_rotary_test_angles are the rotary angles with the current CR parameters
     if (angles := runner.program_data.get('crcr_rotary_test_angles')) is None:
         # Scan rotary amplitudes expected to generate +-1 rad rotations within one CR pulse
@@ -234,20 +257,6 @@ def c2t_crcr_fine(runner):
             'width_rate': runner.program_data['crcr_angle_per_width'],
             'amp_rate': runner.program_data['crcr_angle_per_rx_amp']
         }
-    )
-
-@register_exp
-@add_readout_mitigation(logical_qubits=[1], expval=True)
-def c2t_crcr_validation(runner):
-    from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
-
-    qubits = tuple(runner.program_data['qubits'][1:])
-    crcr_circuit = make_crcr_circuit(qubits, runner.calibrations)
-
-    return ExperimentConfig(
-        QutritQubitTomography,
-        qubits,
-        args={'circuit': crcr_circuit}
     )
 
 @register_exp
