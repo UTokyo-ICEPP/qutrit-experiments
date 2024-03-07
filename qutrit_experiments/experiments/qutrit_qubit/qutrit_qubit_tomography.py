@@ -126,6 +126,7 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
         options.figure_names = ['expectation_values']
         options.data_processor = None # Needed to have DP propagated to tomography analysis
         options.plot = True
+        options.parallelize = 0 # This analysis is somehow faster done in serial
         options.prep_unitaries = {}
         options.maxiter = None
         options.tol = None
@@ -355,6 +356,7 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         options.figure_names = ['theta_x', 'theta_y', 'theta_z', 'chisq']
         options.data_processor = None # Needed to have DP propagated to tomography analysis
         options.plot = True
+        options.parallelize = 0 # This analysis is somehow faster done in serial
         options.return_expvals = False
         options.maxiter = None
         options.tol = None

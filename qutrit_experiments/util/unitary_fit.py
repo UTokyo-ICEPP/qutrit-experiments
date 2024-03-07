@@ -68,20 +68,12 @@ def fit_unitary_to_expval(
     if signs is None:
         signs = np.ones_like(initial_states)
 
-    @jax.jit
-    def objective(params):
-        r_elements = so3_cartesian(params, npmod=jnp)[..., meas_bases, initial_states] * signs
-        return jnp.sum(
-            jnp.square((r_elements - unp.nominal_values(expvals)) / unp.std_devs(expvals)),
-            axis=-1
-        )
-
-    options = {}
-    if maxiter:
-        options['maxiter'] = maxiter
-    if tol:
-        options['tol'] = tol
-    solver = jaxopt.GradientDescent(fun=objective, **options)
+    # options = {}
+    # if maxiter:
+    #     options['maxiter'] = maxiter
+    # if tol:
+    #     options['tol'] = tol
+    # solver = jaxopt.GradientDescent(fun=_objective, **options)
 
     p0s = []
     for iax in range(3):
@@ -90,14 +82,16 @@ def fit_unitary_to_expval(
             p0[iax] = np.pi * sign / 2.
             p0s.append(p0)
 
-    fit_result = jax.vmap(solver.run)(jnp.array(p0s))
-    fvals = jax.vmap(objective)(fit_result.params)
+    objective_args = (meas_bases, initial_states, signs, unp.nominal_values(expvals),
+                      unp.std_devs(expvals))
+    fit_result = _vsolve(jnp.array(p0s), *objective_args)
+    fvals = _vobj(fit_result.params, *objective_args)
     iopt = np.argmin(fvals)
     # Renormalize the rotation parameters so that the norm fits within [0, pi].
     popt = rescale_axis(fit_result.params[iopt])
 
     try:
-        pcov = np.linalg.inv(jax.hessian(objective)(popt) * 0.5)
+        pcov = np.linalg.inv(_hessobj(popt, *objective_args) * 0.5)
         popt_ufloats = correlated_values(nom_values=popt, covariance_mat=pcov, tags=['x', 'y', 'z'])
     except LinAlgError:
         logger.warning('Invalid covariance encountered. Setting paramater uncertainties to inf')
@@ -139,3 +133,24 @@ def plot_unitary_fit(
     ax.set_xticks(xvalues, labels=xticks)
     ax.legend()
     return ax.get_figure()
+
+
+@jax.jit
+def _objective(params, meas_bases, initial_states, signs, expvals, expvals_err):
+    r_elements = so3_cartesian(params, npmod=jnp)[..., meas_bases, initial_states] * signs
+    return jnp.sum(
+        jnp.square((r_elements - expvals) / expvals_err),
+        axis=-1
+    )
+
+_hessobj = jax.jit(jax.hessian(_objective))
+_vobj = jax.jit(jax.vmap(_objective, in_axes=[0, None, None, None, None, None]))
+_solver = jaxopt.GradientDescent(fun=_objective, maxiter=10000)
+_vsolve = jax.jit(jax.vmap(_solver.run, in_axes=[0, None, None, None, None, None]))
+# compile
+_args = (jnp.repeat(np.array([0, 1, 2]), 3), jnp.tile(np.array([0, 1, 2]), 3),
+         jnp.ones(9, dtype=int), jnp.zeros(9), jnp.ones(9))
+_objective(jnp.zeros(3), *_args)
+_hessobj(jnp.zeros(3), *_args)
+_vobj(jnp.zeros((6, 3)), *_args)
+_vsolve(jnp.zeros((6, 3)), *_args)
