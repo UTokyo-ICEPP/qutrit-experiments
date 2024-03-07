@@ -104,6 +104,8 @@ def get_program_config(program_config: Optional[dict[str, Any]] = None) -> dict[
                             ' path is given, data is loaded from BASE_DIR/PATH/parameter_values.csv.')
         parser.add_argument('-s', '--session-id', help='Qiskit Runtime Session ID.', metavar='ID',
                             dest='session_id')
+        parser.add_argument('-r', '--refresh-readout', action='store_true', help='Resubmit readout'
+                            ' error measurements.', dest='refresh_readout')
         parser.add_argument('--read-only', action='store_true', help='Run the analyses but do not save'
                             ' the calibrations to disk.', dest='read_only')
         parser.add_argument('--dry-run', action='store_true', help='Do not submit experiment jobs; run'

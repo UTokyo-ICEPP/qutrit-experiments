@@ -4,15 +4,19 @@ from ..runners.experiments_runner import ExperimentsRunner
 
 def calibrate_single_qutrit_gates(
     runner: ExperimentsRunner,
+    refresh_readout_error: bool = True,
     calibrated: Optional[set[str]] = None
 ):
     if calibrated is None:
         calibrated = set()
 
+    if 'readout_assignment_matrices' not in runner.program_data:
+        # Construct the error mitigation matrix and find the rough CR pulse width
+        runner.run_experiment('qubits_assignment_error', force_resubmit=refresh_readout_error)
+
     exp_types = [
         'qutrit_rough_frequency',
         'qutrit_rough_amplitude',
-        'qubits_assignment_error',
         'qutrit_semifine_frequency',
         'qutrit_fine_frequency',
         'qutrit_rough_x_drag',
