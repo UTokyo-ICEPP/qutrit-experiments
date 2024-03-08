@@ -9,6 +9,10 @@ if __name__ == '__main__':
     else:
         gpu_id = max(gpustat.new_query(), key=lambda g: g.memory_free).index
     os.environ['CUDA_VISIBLE_DEVICES'] = f'{gpu_id}'
+    import jax
+    jax.config.update('jax_enable_x64', True)
+    import jax.numpy as jnp
+    jnp.zeros(1)
     import sys
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     import logging
