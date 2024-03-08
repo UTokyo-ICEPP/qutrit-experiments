@@ -1,4 +1,6 @@
 from collections.abc import Sequence
+import logging
+from threading import Lock
 from typing import Any, Optional, Union
 from matplotlib.figure import Figure
 import jax
@@ -24,6 +26,7 @@ from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
 from .util import RCRType, get_cr_schedules, get_margin, make_cr_circuit, make_crcr_circuit
 
 twopi = 2. * np.pi
+logger = logging.getLogger(__name__)
 
 
 class CRRoughWidth(QutritQubitTomographyScan):
@@ -118,7 +121,53 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         options.parallelize_on_thread = True
         options.width_name = 'width'
         options.tol = 1.e-4
+        options.intercept_min = -np.pi / 2.
+        options.intercept_max_wind = 0
         return options
+    
+    @staticmethod
+    def axis_from_params(params, npmod=np):
+        psi, phi = params[2:]
+        return npmod.array([
+            npmod.sin(psi) * npmod.cos(phi),
+            npmod.sin(psi) * npmod.sin(phi),
+            npmod.cos(psi)
+        ])
+    
+    @staticmethod
+    def angle_from_params(params, wval):
+        slope, intercept = params[:2]
+        return wval * slope + intercept
+
+    @classmethod
+    def setup_fitter(cls, params, widths, indices, expvals, expvals_err, prep_unitary):
+        def objective(params, widths, indices, expvals, expvals_err, prep_unitary):
+            axis = cls.axis_from_params(params, npmod=jnp)
+            angles = cls.angle_from_params(params, widths)
+            unitaries = prep_unitary @ so3_cartesian_axnorm(axis, angles, npmod=jnp)
+            r_elements = unitaries[indices]
+            return jnp.sum(jnp.square((r_elements - expvals) / expvals_err))
+        
+        key = (widths.shape[0], expvals.shape[0])
+        args = (widths, indices, expvals, expvals_err, prep_unitary)
+        in_axes = [0] + [None] * len(args)
+        vobj = jax.jit(jax.vmap(objective, in_axes=in_axes)).lower(params, *args).compile()
+        solver = jaxopt.GradientDescent(objective, maxiter=10000, tol=1.e-4)
+        vsolve = jax.jit(jax.vmap(solver.run, in_axes=in_axes)).lower(params, *args).compile()
+        hess = jax.jit(jax.hessian(objective)).lower(params[0], *args).compile()
+        cls._fit_functions[key] = (vobj, vsolve, hess)
+                                   
+    @classmethod
+    def fit_functions(cls, params, widths, indices, expvals, expvals_err, prep_unitary):
+        key = (widths.shape[0], expvals.shape[0])
+        with cls._lock:
+            if (fns := cls._fit_functions.get(key)) is None:
+                cls.setup_fitter(params, widths, indices, expvals, expvals_err, prep_unitary)
+                fns = cls._fit_functions[key]
+        return fns
+    
+    _lock = Lock()
+    _fit_functions = {}
 
     def _run_additional_analysis(
         self,
@@ -136,6 +185,9 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         unitary_params_n = unp.nominal_values(unitary_params)
         scan_idx = experiment_data.metadata['scan_parameters'].index(self.options.width_name)
         widths = np.array(experiment_data.metadata['scan_values'][scan_idx])
+        # Use normalized widths throughout
+        widths_norm = widths[-1] - widths[0]
+        norm_widths = widths / widths_norm
 
         # Use the first child data for control state information
         first = experiment_data.child_data(0)
@@ -174,44 +226,10 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
             meas_bases[control_state].append(axes.index(ut_metadata['meas_basis']))
 
         # Fit in the unitary space
-        def axis_from_params(params, npmod=np):
-            psi, phi = params[2:]
-            return npmod.array([
-                npmod.sin(psi) * npmod.cos(phi),
-                npmod.sin(psi) * npmod.sin(phi),
-                npmod.cos(psi)
-            ])
-
-        slope_norm = 1. / (widths[-1] - widths[0])
-
-        def angle_from_params(params, wval):
-            slope, intercept = params[:2]
-            return wval * slope * slope_norm + intercept
-
-        def make_objective(ic):
-            prep_unitary = prep_unitaries.get(ic, np.eye(3))
-            std_devs = unp.std_devs(expvals[ic])
-            @jax.jit
-            def objective(params, std_devs_scale):
-                r_elements = (prep_unitary @ so3_cartesian_axnorm(
-                    axis_from_params(params, npmod=jnp),
-                    angle_from_params(params, widths),
-                    npmod=jnp
-                ))[iwidths[ic], meas_bases[ic], initial_states[ic]]
-                return jnp.sum(
-                    jnp.square((r_elements - unp.nominal_values(expvals[ic]))
-                               / (std_devs / std_devs_scale))
-                )
-            return objective
-
         popts = {}
         popt_ufloats = {}
-
-        for ic in control_states:
-            objective = make_objective(ic)
-            solver = jaxopt.GradientDescent(objective, maxiter=10000, tol=1.e-4)
-
-            axes = unitary_params_n[:, ic].copy()
+        for control_state in control_states:
+            axes = unitary_params_n[:, control_state].copy()
             axes /= np.sqrt(np.sum(np.square(axes), axis=-1))[:, None]
             # Align along a single orientation and take the mean
             mean_ax = np.mean(axes * np.where(axes @ axes[0] < 0., -1., 1.)[:, None], axis=0)
@@ -220,7 +238,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
             phi = np.arctan2(mean_ax[1], mean_ax[0])
 
             # Make a mesh of slope and intercept values as initial value candidates
-            slopes = np.linspace(0., np.pi, 4) # slope will be scaled in angle_from_params
+            slopes = np.linspace(0., np.pi, 4)
             intercepts = np.linspace(0., twopi, 4, endpoint=False)
             islope, iint = np.ogrid[:len(slopes), :len(intercepts)]
             p0s = np.empty((2, len(slopes), len(intercepts), 4))
@@ -229,28 +247,44 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
             # Use both orientations
             p0s[0, ..., 2:] = [psi, phi]
             p0s[1, ..., 2:] = [np.pi - psi, np.pi + phi]
+            p0s = p0s.reshape(-1, 4)
 
-            std_devs_scale = np.mean(unp.std_devs(expvals[ic]))
+            indices = (iwidths[control_state], meas_bases[control_state],
+                       initial_states[control_state])
+            expvals_n = unp.nominal_values(expvals[control_state])
+            expvals_e = unp.std_devs(expvals[control_state])
+            fit_args = (norm_widths, indices, expvals_n, expvals_e / np.mean(expvals_e),
+                        prep_unitaries.get(control_state, np.eye(3)))
 
-            fit_result = jax.vmap(solver.run, in_axes=[0, None])(p0s.reshape(-1, 4), std_devs_scale)
-            fvals = jax.vmap(objective, in_axes=[0, None])(fit_result.params, std_devs_scale)
+            vobj, vsolve, hess = self.fit_functions(p0s, *fit_args)
+
+            fit_result = vsolve(p0s, *fit_args)
+            fvals = vobj(fit_result.params, *fit_args)
             iopt = np.argmin(fvals)
             popt = np.array(fit_result.params[iopt])
+            logger.debug('Control state %d optimal parameters %s', control_state, popt)
+            
             if popt[0] < 0.:
                 # Slope must be positive - invert the sign and the axis orientation
                 popt[0:2] *= -1.
                 popt[2] = np.pi - popt[2]
                 popt[3] += np.pi
-            # Intercept must be in [0, 2pi]
-            popt[1] %= twopi
+            # Keep the intercept within the maximum winding number
+            # Intercept must be positive in principle but we allow some slack
+            if popt[1] < self.options.intercept_min or popt[1] > 0.:
+                popt[1] %= twopi * (self.options.intercept_max_wind + 1)
             # Keep phi in [-pi, pi]
             popt[3] = (popt[3] + np.pi) % twopi - np.pi
-            popts[ic] = popt
+            popts[control_state] = popt
+            
+            logger.debug('Control state %d adjusted parameters %s', control_state, popt)
 
-            pcov = np.linalg.inv(jax.hessian(objective)(popt, 1.))
-            popt_ufloats[ic] = np.array(correlated_values(nom_values=popt, covariance_mat=pcov,
-                                        tags=['slope', 'intercept', 'psi', 'phi']))
-            popt_ufloats[ic][0] *= slope_norm
+            hess_args = (norm_widths, indices, expvals_n, expvals_e,
+                         prep_unitaries.get(control_state, np.eye(3)))
+            pcov = np.linalg.inv(hess(popt, *hess_args))
+            popt_ufloats[control_state] = np.array(correlated_values(popt, pcov))
+            popt_ufloats[control_state][0] /= widths_norm
+            popt[0] /= widths_norm
 
         analysis_results.append(
             AnalysisResultData('unitary_linear_fit_params', value=popt_ufloats)
@@ -261,8 +295,8 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
             xyz_preds = {
                 ic: so3_cartesian_params(
                     so3_cartesian_axnorm(
-                        axis_from_params(popts[ic]),
-                        angle_from_params(popts[ic], x_interp)
+                        self.axis_from_params(popts[ic]),
+                        self.angle_from_params(popts[ic], x_interp)
                     )
                 )
                 for ic in control_states
