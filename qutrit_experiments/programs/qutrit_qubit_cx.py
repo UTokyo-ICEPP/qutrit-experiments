@@ -38,7 +38,8 @@ def calibrate_qutrit_qubit_cx(
     config = experiments['c2t_cr_unitaries'](runner)
     config.exp_type += '_postwidth'
     data = runner.run_experiment(config)
-    cr_params = unp.nominal_values(data.analysis_results('unitary_parameters').value)
+    unitary_params = data.analysis_results('unitary_parameters').value
+    cr_params = np.array([unp.nominal_values(unitary_params[ic]) for ic in range(3)])
 
     rotary_angle = get_rotary_guess(cr_params, runner)
     runner.program_data['crcr_rotary_test_angles'] = np.linspace(
@@ -49,7 +50,9 @@ def calibrate_qutrit_qubit_cx(
         'c2t_crcr_rotary',
         'c2t_crcr_angle_width_rate',
         'c2t_crcr_rx_amp',
-        'c2t_crcr_fine',
+        'c2t_crcr_fine_iter1',
+        'c2t_crcr_fine_iter2',
+        'c2t_crcr_fine_iterrx',
         'c2t_crcr_unitaries'
     ]:
         runner.run_experiment(exp_type)
@@ -59,8 +62,7 @@ def setup_cr(rough_width_data: ExperimentData, runner: ExperimentsRunner):
     qubits = tuple(runner.program_data['qubits'][1:])
 
     fit_params = rough_width_data.analysis_results('unitary_linear_fit_params').value
-    slope, intercept, psi, phi = np.stack([fit_params[ic] for ic in range(3)],
-                                          axis=1)
+    slope, intercept, psi, phi = np.stack([fit_params[ic] for ic in range(3)], axis=1)
 
     cr_width = runner.calibrations.get_parameter_value('width', qubits, 'cr')
     unitary_axes = np.stack([unp.sin(psi) * unp.cos(phi), unp.sin(psi) * unp.sin(phi), unp.cos(psi)],
@@ -74,7 +76,8 @@ def setup_cr(rough_width_data: ExperimentData, runner: ExperimentsRunner):
         config = experiments['c2t_cr_unitaries'](runner)
         config.exp_type += '_postsizzle'
         data = runner.run_experiment(config)
-        cr_params = unp.nominal_values(data.analysis_results('unitary_parameters').value)
+        unitary_params = data.analysis_results('unitary_parameters').value
+        cr_params = np.array([unp.nominal_values(unitary_params[ic]) for ic in range(3)])
 
     rotary_angle = get_rotary_guess(cr_params, runner)
     rotary_amp = rotary_angle / rotary_angle_per_amp(runner.backend, runner.calibrations, qubits)
@@ -99,8 +102,11 @@ def setup_sizzle(omega_z: np.ndarray, runner: ExperimentsRunner) -> bool:
     runner.calibrations.add_parameter_value(sizzle_params['frequency'], 'stark_frequency', qubits,
                                             'cr')
     runner.run_experiment('c2t_sizzle_t_amp_scan')
-    cr_amp = runner.calibrations.get_parameter_value('cr_amp', qubits, 'cr')
     counter_stark_amp = runner.calibrations.get_parameter_value('counter_stark_amp', qubits, 'cr')
+    if counter_stark_amp == 0.:
+        return False
+    
+    cr_amp = runner.calibrations.get_parameter_value('cr_amp', qubits, 'cr')
     if abs(sizzle_params['c_amp'] * sizzle_params['t_amp'] / counter_stark_amp) < 1. - cr_amp:
         runner.run_experiment('c2t_sizzle_c2_amp_scan')
 

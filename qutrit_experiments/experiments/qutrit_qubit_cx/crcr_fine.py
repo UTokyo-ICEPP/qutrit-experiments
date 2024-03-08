@@ -221,3 +221,73 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
                 exp_id=experiment_data.experiment_id,
             )
             self._cals.add_parameter_value(param_value, pname, self.physical_qubits[1], sname)
+
+
+class CycledRepeatedCRFineRxAmpCal(BaseCalibrationExperiment, CycledRepeatedCRPingPong):
+    """Calibration experiment for Rx amplitude only."""
+    @classmethod
+    def _default_experiment_options(cls) -> Options:
+        options = super()._default_experiment_options()
+        options.calibration_qubit_index = {(pname, 'offset_rx'): [1]
+                                           for pname in ['amp', 'sign_angle']}
+        return options
+
+    def __init__(
+        self,
+        physical_qubits: Sequence[int],
+        calibrations: Calibrations,
+        amp_rate: float,
+        backend: Optional[Backend] = None,
+        cal_parameter_name: list[str] = ['amp', 'sign_angle'],
+        schedule_name: str = 'offset_rx',
+        current_cal_group: str = 'default',
+        repetitions: Optional[Sequence[int]] = None,
+        auto_update: bool = True
+    ):
+        cr_schedules = get_cr_schedules(calibrations, physical_qubits)
+        rx_schedule = calibrations.get_schedule('offset_rx', physical_qubits[1])
+
+        super().__init__(
+            calibrations,
+            physical_qubits,
+            1,
+            cr_schedules,
+            rx_schedule,
+            RCRType(calibrations.get_parameter_value('rcr_type', physical_qubits)),
+            calibrations.get_parameter_value('qutrit_qubit_cx_sign', physical_qubits),
+            backend=backend,
+            schedule_name=schedule_name,
+            cal_parameter_name=cal_parameter_name,
+            auto_update=auto_update,
+            repetitions=repetitions
+        )
+        self.amp_rate = amp_rate
+        self.current_cal_group = current_cal_group
+
+    def _attach_calibrations(self, circuit: QuantumCircuit):
+        pass
+
+    def update_calibrations(self, experiment_data: ExperimentData):
+        d_theta = experiment_data.analysis_results('d_theta', block=False).value.n
+        d_amp = d_theta / self.amp_rate
+        # Calculate the new Rx amplitude
+        current_amp = self._cals.get_parameter_value(self._param_name[0], self.physical_qubits[1],
+                                                     schedule=self._sched_name,
+                                                     group=self.current_cal_group)
+        sign_angle = self._cals.get_parameter_value(self._param_name[1], self.physical_qubits[1],
+                                                    schedule=self._sched_name,
+                                                    group=self.current_cal_group)
+        if sign_angle != 0.:
+            current_amp *= -1.
+
+        amp = current_amp - d_amp
+        sign_angle = 0. if amp > 0. else np.pi
+        for pname, value in zip(self._param_name, [abs(amp), sign_angle]):
+            param_value = ParameterValue(
+                value=value,
+                date_time=BaseUpdater._time_stamp(experiment_data),
+                group=self.experiment_options.group,
+                exp_id=experiment_data.experiment_id,
+            )
+            self._cals.add_parameter_value(param_value, pname, self.physical_qubits[1],
+                                           self._sched_name)
