@@ -193,11 +193,11 @@ def c2t_crcr_rotary(runner, experiment_data):
 def c2t_crcr_angle_width_rate(runner):
     """Measure the X rotation angles in 0 and 1 with the rotary."""
     from ..experiments.qutrit_qubit_cx.cr_width import CycledRepeatedCRWidth
+    qubits = runner.program_data['qubits'][1:]
 
     current_width = runner.calibrations.get_parameter_value('width', qubits, schedule='cr')
     widths = np.linspace(-10., 10., 5) + current_width
-
-    qubits = runner.program_data['qubits'][1:]
+    
     cr_schedules = get_cr_schedules(runner.calibrations, qubits,
                                     free_parameters=['width', 'margin'])
     rcr_type = RCRType(runner.calibrations.get_parameter_value('rcr_type', qubits))
@@ -243,7 +243,7 @@ def c2t_crcr_rx_amp(runner, experiment_data):
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1])
-def c2t_crcr_fine(runner):
+def c2t_crcr_fine_iter1(runner):
     from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineCal
     return ExperimentConfig(
         CycledRepeatedCRFineCal,
@@ -252,6 +252,33 @@ def c2t_crcr_fine(runner):
             'width_rate': runner.program_data['crcr_angle_per_width'],
             'amp_rate': runner.program_data['crcr_angle_per_rx_amp'],
             'current_cal_groups': ('c2t_crcr_cr_width', 'c2t_crcr_rx_amp')
+        }
+    )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1])
+def c2t_crcr_fine_iter2(runner):
+    from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineCal
+    return ExperimentConfig(
+        CycledRepeatedCRFineCal,
+        runner.program_data['qubits'][1:],
+        args={
+            'width_rate': runner.program_data['crcr_angle_per_width'],
+            'amp_rate': runner.program_data['crcr_angle_per_rx_amp'],
+            'current_cal_groups': ('c2t_crcr_fine_iter1', 'c2t_crcr_fine_iter1')
+        }
+    )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1])
+def c2t_crcr_fine_iterrx(runner):
+    from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineRxAmpCal
+    return ExperimentConfig(
+        CycledRepeatedCRFineRxAmpCal,
+        runner.program_data['qubits'][1:],
+        args={
+            'amp_rate': runner.program_data['crcr_angle_per_rx_amp'],
+            'current_cal_group': 'c2t_crcr_fine_iter2'
         }
     )
 
