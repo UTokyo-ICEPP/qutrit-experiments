@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+import logging
 from typing import Optional
 from matplotlib.figure import Figure
 import numpy as np
@@ -18,9 +19,14 @@ from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
 from .util import RCRType, get_cr_schedules, make_crcr_circuit, make_rcr_circuit
 
 twopi = 2. * np.pi
+logger = logging.getLogger(__name__)
 
 
-def rotary_angle_per_amp(backend: Backend, calibrations: Calibrations, qubits: tuple[int, int]):
+def rotary_angle_per_amp(
+    backend: Backend,
+    calibrations: Calibrations,
+    qubits: tuple[int, int]
+) -> float:
     sigma = calibrations.get_parameter_value('sigma', qubits, 'cr')
     rsr = calibrations.get_parameter_value('rsr', qubits, 'cr')
     width = calibrations.get_parameter_value('width', qubits, 'cr')
@@ -153,6 +159,12 @@ class CycledRepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
 
 
 class CycledRepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
+    @classmethod
+    def _default_options(cls) -> Options:
+        options = super()._default_options()
+        options.chi2_cutoff = 24.
+        return options
+
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
@@ -162,10 +174,19 @@ class CycledRepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis)
         analysis_results, figures = super()._run_additional_analysis(experiment_data,
                                                                      analysis_results, figures)
 
-        # Pick the rotary value with the smallest chisq?
+        # Pick the rotary value with the smallest y^2 + z^2
         chisq = next(res for res in analysis_results if res.name == 'chisq').value
-        bestfit_idx = np.argmin(np.sum(chisq, axis=1))
-        amplitude = np.array(experiment_data.metadata['scan_values'][0])[bestfit_idx]
+        accepted_indices = np.nonzero(np.sum(chisq, axis=1) < self.options.chi2_cutoff)[0]
+        if len(accepted_indices) == 0:
+            logger.warning('No rotary value had sum of chi2 less than %f', self.options.chi2_cutoff)
+            accepted_indices = np.arange(chisq.shape[0])
+        
+        unitary_params = unp.nominal_values(
+            next(res for res in analysis_results if res.name == 'unitary_parameters').value
+        )[accepted_indices]
+        best_accepted_idx = np.argmin(np.sum(np.square(unitary_params[:, :, [1, 2]]), axis=(1, 2)))
+        best_idx = accepted_indices[best_accepted_idx]
+        amplitude = np.array(experiment_data.metadata['scan_values'][0])[best_idx]
         analysis_results.append(
             AnalysisResultData(name='rotary_amp', value=amplitude)
         )
