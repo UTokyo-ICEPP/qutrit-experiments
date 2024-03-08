@@ -410,8 +410,14 @@ class ExperimentsRunner:
 
         # provider.jobs() is a lot faster than calling retrieve_job multiple times
         logger.info('Retrieving runtime job with unique id %s', job_unique_tag)
-        return self._runtime_session.service.jobs(limit=num_jobs, backend_name=self._backend.name,
-                                                  job_tags=[job_unique_tag])
+        while True:
+            try:
+                return self._runtime_session.service.jobs(limit=num_jobs,
+                                                          backend_name=self._backend.name,
+                                                          job_tags=[job_unique_tag])
+            except IBMNotAuthorizedError:
+                continue
+
 
     def update_calibrations(
         self,
