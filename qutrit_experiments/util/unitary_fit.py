@@ -91,7 +91,7 @@ def fit_unitary_to_expval(
     popt = rescale_axis(fit_result.params[iopt])
 
     try:
-        pcov = np.linalg.inv(_hessobj(popt, *objective_args) * 0.5)
+        pcov = np.linalg.inv(_hess(popt, *objective_args) * 0.5)
         popt_ufloats = correlated_values(nom_values=popt, covariance_mat=pcov, tags=['x', 'y', 'z'])
     except LinAlgError:
         logger.warning('Invalid covariance encountered. Setting paramater uncertainties to inf')
@@ -135,7 +135,6 @@ def plot_unitary_fit(
     return ax.get_figure()
 
 
-@jax.jit
 def _objective(params, meas_bases, initial_states, signs, expvals, expvals_err):
     r_elements = so3_cartesian(params, npmod=jnp)[..., meas_bases, initial_states] * signs
     return jnp.sum(
@@ -143,14 +142,11 @@ def _objective(params, meas_bases, initial_states, signs, expvals, expvals_err):
         axis=-1
     )
 
-_hessobj = jax.jit(jax.hessian(_objective))
-_vobj = jax.jit(jax.vmap(_objective, in_axes=[0, None, None, None, None, None]))
-_solver = jaxopt.GradientDescent(fun=_objective, maxiter=10000)
-_vsolve = jax.jit(jax.vmap(_solver.run, in_axes=[0, None, None, None, None, None]))
-# compile
+_vparams = jnp.zeros((6, 3))
 _args = (jnp.repeat(np.array([0, 1, 2]), 3), jnp.tile(np.array([0, 1, 2]), 3),
-         jnp.ones(9, dtype=int), jnp.zeros(9), jnp.ones(9))
-_objective(jnp.zeros(3), *_args)
-_hessobj(jnp.zeros(3), *_args)
-_vobj(jnp.zeros((6, 3)), *_args)
-_vsolve(jnp.zeros((6, 3)), *_args)
+        jnp.ones(9, dtype=int), jnp.zeros(9), jnp.ones(9))
+_in_axes = [0] + ([None] * len(_args))
+_vobj = jax.jit(jax.vmap(_objective, in_axes=_in_axes)).lower(_vparams, *_args).compile()
+_vsolve = jax.jit(jax.vmap(jaxopt.GradientDescent(fun=_objective, maxiter=10000).run,
+                           in_axes=_in_axes)).lower(_vparams, *_args).compile()
+_hess = jax.jit(jax.hessian(_objective)).lower(jnp.zeros(3), *_args).compile()
