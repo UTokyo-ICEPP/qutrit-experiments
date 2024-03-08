@@ -139,17 +139,19 @@ def c2t_crcr_cr_width(runner):
     from ..experiments.qutrit_qubit_cx.cr_width import CycledRepeatedCRWidthCal
     qubits = runner.program_data['qubits'][1:]
 
+    # Frequency (cycles / clock) from the rotary tone (should dominate)
+    rotary_amp = runner.calibrations.get_parameter_value('counter_amp', qubits, 'cr')
+    rotary_freq = rabi_freq_per_amp(runner.backend, qubits[1]) * runner.backend.dt * rotary_amp
+    # CRCR frequency is roughly (rotary+rotary)*(1+1-1) = 2*rotary
+    # Aim for the width scan range of +-0.4 cycles
     current_width = runner.calibrations.get_parameter_value('width', qubits, schedule='cr')
-    if current_width != 0.:
-        widths = np.linspace(current_width - 128, current_width + 128, 5)
-        while widths[0] < 0.:
-            widths += 16.
-    else:
-        widths = None
+    widths = np.linspace(current_width - 0.2 / rotary_freq, current_width + 0.2 / rotary_freq, 5)
+    if widths[0] < 0.:
+        widths += -widths[0]
 
     return ExperimentConfig(
         CycledRepeatedCRWidthCal,
-        runner.program_data['qubits'][1:],
+        qubits,
         args={
             'widths': widths,
         }
@@ -191,25 +193,18 @@ def c2t_crcr_rotary(runner, experiment_data):
 def c2t_crcr_angle_width_rate(runner):
     """Measure the X rotation angles in 0 and 1 with the rotary."""
     from ..experiments.qutrit_qubit_cx.cr_width import CycledRepeatedCRWidth
-    qubits = runner.program_data['qubits'][1:]
 
+    current_width = runner.calibrations.get_parameter_value('width', qubits, schedule='cr')
+    widths = np.linspace(-10., 10., 5) + current_width
+
+    qubits = runner.program_data['qubits'][1:]
     cr_schedules = get_cr_schedules(runner.calibrations, qubits,
                                     free_parameters=['width', 'margin'])
     rcr_type = RCRType(runner.calibrations.get_parameter_value('rcr_type', qubits))
 
-    # Frequency (cycles / clock) from the rotary tone (should dominate)
-    rotary_amp = runner.calibrations.get_parameter_value('counter_amp', qubits, 'cr')
-    rotary_freq = rabi_freq_per_amp(runner.backend, qubits[1]) * runner.backend.dt * rotary_amp
-    # CRCR frequency is roughly (rotary+rotary)*(1+1-1) = 2*rotary
-    # Aim for the width scan range of +-0.4 cycles
-    current_width = runner.calibrations.get_parameter_value('width', qubits, schedule='cr')
-    widths = np.linspace(current_width - 0.2 / rotary_freq, current_width + 0.2 / rotary_freq, 5)
-    if widths[0] < 0.:
-        widths += -widths[0]
-
     return ExperimentConfig(
         CycledRepeatedCRWidth,
-        runner.program_data['qubits'][1:],
+        qubits,
         args={
             'cr_schedules': cr_schedules,
             'rcr_type': rcr_type,
@@ -255,7 +250,8 @@ def c2t_crcr_fine(runner):
         runner.program_data['qubits'][1:],
         args={
             'width_rate': runner.program_data['crcr_angle_per_width'],
-            'amp_rate': runner.program_data['crcr_angle_per_rx_amp']
+            'amp_rate': runner.program_data['crcr_angle_per_rx_amp'],
+            'current_cal_groups': ('c2t_crcr_cr_width', 'c2t_crcr_rx_amp')
         }
     )
 

@@ -46,22 +46,16 @@ class CycledRepeatedCRPingPong(MapToPhysicalQubits, BaseExperiment):
             self.set_experiment_options(repetitions=repetitions)
 
         # Fit function is P(1) = A/2*cos(n*(apg + dθ) - po) + B
-        # -> With an initial SX, phase offset is always π/2 for control=0/2 but dependent on the CX
-        # sign for control=1
-        match control_state:
-            case 0 | 2:
-                phase_offset = np.pi / 2.
-            case 1:
-                if cx_sign is None:
-                    raise RuntimeError('cx_sign is required for control_state=1')
-                phase_offset = np.pi / 2. * cx_sign
-            case _:
-                raise ValueError(f'Invalid control state {control_state}')
+        # Let Rx(θ) correspond to cos(θ - π)
+        # Phase offset is π/2 with the initial SX. The sign of apg for control=1 depends on cx_sign
+        angle_per_gate = np.pi
+        if control_state == 1:
+            angle_per_gate *= cx_sign
 
         self.analysis.set_options(
             fixed_parameters={
-                "angle_per_gate": np.pi,
-                "phase_offset": phase_offset
+                "angle_per_gate": angle_per_gate,
+                "phase_offset": np.pi / 2.
             },
             outcome='1'
         )
@@ -149,6 +143,7 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
         backend: Optional[Backend] = None,
         cal_parameter_name: list[str] = ['width', 'margin', 'amp', 'sign_angle'],
         schedule_name: list[str] = ['cr', 'cr', 'offset_rx', 'offset_rx'],
+        current_cal_groups: tuple[str, str] = ('default', 'default'),
         repetitions: Optional[Sequence[int]] = None,
         auto_update: bool = True
     ):
@@ -170,6 +165,7 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
         )
         self.width_rate = width_rate
         self.amp_rate = amp_rate
+        self.current_cal_groups = current_cal_groups
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         pass
@@ -187,7 +183,8 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
 
         # Calculate the new width
         current_width = self._cals.get_parameter_value(self._param_name[0], self.physical_qubits,
-                                                       schedule=self._sched_name[0])
+                                                       schedule=self._sched_name[0],
+                                                       group=self.current_cal_groups[0])
         width = current_width - d_width
         assign_params = {p: 0. for p in self._param_name[:2]}
         null_width_sched = self._cals.get_schedule(self._sched_name[0], self.physical_qubits,
@@ -205,9 +202,11 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
 
         # Calculate the new Rx amplitude
         current_amp = self._cals.get_parameter_value(self._param_name[2], self.physical_qubits[1],
-                                                     schedule=self._sched_name[2])
+                                                     schedule=self._sched_name[2],
+                                                     group=self.current_cal_groups[1])
         sign_angle = self._cals.get_parameter_value(self._param_name[3], self.physical_qubits[1],
-                                                    schedule=self._sched_name[3])
+                                                    schedule=self._sched_name[3],
+                                                    group=self.current_cal_groups[1])
         if sign_angle != 0.:
             current_amp *= -1.
 
