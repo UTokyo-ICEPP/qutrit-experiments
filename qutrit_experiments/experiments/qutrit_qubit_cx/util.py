@@ -21,10 +21,16 @@ class RCRType(IntEnum):
 
 def make_cr_circuit(
     physical_qubits: Sequence[int],
-    arg: Union[ScheduleBlock, Calibrations]
+    arg: Union[ScheduleBlock, Calibrations],
+    param_cal_groups: Optional[dict[str, str]] = None
 ) -> QuantumCircuit:
     if isinstance(arg, Calibrations):
-        cr_schedule = arg.get_schedule('cr', physical_qubits)
+        assign_params = None
+        if param_cal_groups:
+            assign_params = {pname: arg.get_parameter_value(pname, physical_qubits, 'cr',
+                                                            group=group)
+                             for pname, group in param_cal_groups.items()}
+        cr_schedule = arg.get_schedule('cr', physical_qubits, assign_params=assign_params)
     else:
         cr_schedule = arg
 
@@ -39,10 +45,16 @@ def make_cr_circuit(
 def make_rcr_circuit(
     physical_qubits: Sequence[int],
     arg: Union[ScheduleBlock, Calibrations],
-    rcr_type: Optional[RCRType] = None
+    rcr_type: Optional[RCRType] = None,
+    param_cal_groups: Optional[dict[str, str]] = None
 ) -> QuantumCircuit:
     if isinstance(arg, Calibrations):
-        cr_schedule = arg.get_schedule('cr', physical_qubits)
+        assign_params = None
+        if param_cal_groups:
+            assign_params = {pname: arg.get_parameter_value(pname, physical_qubits, 'cr',
+                                                            group=group)
+                             for pname, group in param_cal_groups.items()}
+        cr_schedule = arg.get_schedule('cr', physical_qubits, assign_params=assign_params)
         rcr_type = RCRType(arg.get_parameter_value('rcr_type', physical_qubits))
     else:
         cr_schedule = arg
@@ -68,26 +80,37 @@ def make_rcr_circuit(
 def make_crcr_circuit(
     physical_qubits: Sequence[int],
     arg: Union[tuple[ScheduleBlock, ScheduleBlock], Calibrations],
-    rx_schedule: Optional[ScheduleBlock] = None,
-    rcr_type: Optional[RCRType] = None
+    rx_angle: Optional[float] = None,
+    rcr_type: Optional[RCRType] = None,
+    param_cal_groups: Optional[dict[str, str]] = None
 ) -> QuantumCircuit:
     if isinstance(arg, Calibrations):
-        cr_schedules = get_cr_schedules(arg, physical_qubits)
-        rx_schedule = arg.get_schedule('offset_rx', physical_qubits[1])
+        rx_group = 'default'
+        if param_cal_groups:
+            param_cal_groups = dict(param_cal_groups)
+            try:
+                rx_group = param_cal_groups.pop('qutrit_qubit_cx_offsetrx')
+            except KeyError:
+                pass
+        cr_schedules = get_cr_schedules(arg, physical_qubits, param_cal_groups=param_cal_groups)
+        rx_angle = arg.get_parameter_value('qutrit_qubit_cx_offsetrx', physical_qubits[1],
+                                           group=rx_group)
         rcr_type = RCRType(arg.get_parameter_value('rcr_type', physical_qubits))
     else:
         cr_schedules = arg
 
     crp_params = cr_schedules[0].parameters
     crm_params = cr_schedules[1].parameters
-    if rx_schedule is not None:
-        rx_params = rx_schedule.parameters
 
     crcr_circuit = QuantumCircuit(2)
     if rcr_type == RCRType.X:
         # [X+]-[RCR-]
-        if rx_schedule is not None:
-            crcr_circuit.append(Gate('offset_rx', 1, rx_params), [1])
+        if rx_angle:
+            crcr_circuit.rz(np.pi / 2., 1)
+            crcr_circuit.sx(1)
+            crcr_circuit.rz(rx_angle + np.pi, 1)
+            crcr_circuit.sx(1)
+            crcr_circuit.rz(np.pi / 2., 1)
         crcr_circuit.append(X12Gate(), [0])
         crcr_circuit.append(CrossResonanceMinusGate(crm_params), [0, 1])
         crcr_circuit.x(0)
@@ -110,15 +133,17 @@ def make_crcr_circuit(
         crcr_circuit.append(X12Gate(), [0])
         crcr_circuit.append(CrossResonanceMinusGate(crm_params), [0, 1])
         crcr_circuit.x(0)
-        if rx_schedule is not None:
-            crcr_circuit.append(Gate('offset_rx', 1, rx_params), [1])
+        if rx_angle:
+            crcr_circuit.rz(np.pi / 2., 1)
+            crcr_circuit.sx(1)
+            crcr_circuit.rz(rx_angle + np.pi, 1)
+            crcr_circuit.sx(1)
+            crcr_circuit.rz(np.pi / 2., 1)
 
     crcr_circuit.add_calibration(CrossResonancePlusGate.gate_name, physical_qubits,
                                  cr_schedules[0], crp_params)
     crcr_circuit.add_calibration(CrossResonanceMinusGate.gate_name, physical_qubits,
                                  cr_schedules[1], crm_params)
-    if rx_schedule is not None:
-        crcr_circuit.add_calibration('offset_rx', (physical_qubits[1],), rx_schedule, rx_params)
 
     return crcr_circuit
 
@@ -147,15 +172,20 @@ def get_cr_schedules(
     calibrations: Calibrations,
     qubits: Sequence[int],
     free_parameters: Optional[list[str]] = None,
-    assign_params: Optional[dict[str, Any]] = None
+    assign_params: Optional[dict[str, Any]] = None,
+    param_cal_groups: Optional[dict[str, str]] = None
 ) -> tuple[ScheduleBlock, ScheduleBlock]:
     """Return a tuple of crp and crm schedules with optional free parameters"""
-    if assign_params is None:
-        assign_params = {}
-    else:
+    if assign_params:
         assign_params = dict(assign_params)
-    if free_parameters is not None:
+    else:
+        assign_params = {}
+    if free_parameters:
         assign_params.update({pname: Parameter(pname) for pname in free_parameters})
+    if param_cal_groups:
+        assign_params.update({pname: calibrations.get_parameter_value(pname, qubits, 'cr',
+                                                                      group=group)
+                              for pname, group in param_cal_groups.items()})
 
     cr_schedules = [calibrations.get_schedule('cr', qubits, assign_params=assign_params)]
 

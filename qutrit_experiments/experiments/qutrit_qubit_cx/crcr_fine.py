@@ -33,7 +33,7 @@ class CycledRepeatedCRPingPong(MapToPhysicalQubits, BaseExperiment):
         physical_qubits: Sequence[int],
         control_state: int,
         cr_schedules: tuple[ScheduleBlock, ScheduleBlock],
-        rx_schedule: ScheduleBlock,
+        rx_angle: float,
         rcr_type: RCRType,
         cx_sign: Optional[Number] = None,
         repetitions: Optional[Sequence[int]] = None,
@@ -41,7 +41,7 @@ class CycledRepeatedCRPingPong(MapToPhysicalQubits, BaseExperiment):
     ):
         super().__init__(physical_qubits, analysis=FineAmplitudeAnalysis(), backend=backend)
         self._control_state = control_state
-        self._crcr_circuit = make_crcr_circuit(physical_qubits, cr_schedules, rx_schedule, rcr_type)
+        self._crcr_circuit = make_crcr_circuit(physical_qubits, cr_schedules, rx_angle, rcr_type)
         if repetitions is not None:
             self.set_experiment_options(repetitions=repetitions)
 
@@ -111,14 +111,14 @@ class CycledRepeatedCRFine(BatchExperiment):
         self,
         physical_qubits: Sequence[int],
         cr_schedules: tuple[ScheduleBlock, ScheduleBlock],
-        rx_schedule: ScheduleBlock,
+        rx_angle: float,
         rcr_type: RCRType,
         cx_sign: Number,
         repetitions: Optional[Sequence[int]] = None,
         backend: Optional[Backend] = None
     ):
         experiments = [
-            CycledRepeatedCRPingPong(physical_qubits, ic, cr_schedules, rx_schedule, rcr_type,
+            CycledRepeatedCRPingPong(physical_qubits, ic, cr_schedules, rx_angle, rcr_type,
                                      cx_sign=cx_sign, repetitions=repetitions, backend=backend)
             for ic in range(2)
         ]
@@ -130,8 +130,7 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
-        options.calibration_qubit_index = {(pname, 'offset_rx'): [1]
-                                           for pname in ['amp', 'sign_angle']}
+        options.calibration_qubit_index = {}
         return options
 
     def __init__(
@@ -139,22 +138,24 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         width_rate: np.ndarray,
-        amp_rate: float,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['width', 'margin', 'amp', 'sign_angle'],
-        schedule_name: list[str] = ['cr', 'cr', 'offset_rx', 'offset_rx'],
+        cal_parameter_name: list[str] = ['width', 'margin', 'qutrit_qubit_cx_offsetrx'],
+        schedule_name: list[str] = ['cr', 'cr', None],
         current_cal_groups: tuple[str, str] = ('default', 'default'),
         repetitions: Optional[Sequence[int]] = None,
         auto_update: bool = True
     ):
-        cr_schedules = get_cr_schedules(calibrations, physical_qubits)
-        rx_schedule = calibrations.get_schedule('offset_rx', physical_qubits[1])
+        param_cal_groups = {pname: current_cal_groups[0] for pname in cal_parameter_name[:2]}
+        cr_schedules = get_cr_schedules(calibrations, physical_qubits,
+                                        param_cal_groups=param_cal_groups)
+        rx_angle = calibrations.get_parameter_value(cal_parameter_name[2], physical_qubits[1],
+                                                    group=current_cal_groups[1])
 
         super().__init__(
             calibrations,
             physical_qubits,
             cr_schedules,
-            rx_schedule,
+            rx_angle,
             RCRType(calibrations.get_parameter_value('rcr_type', physical_qubits)),
             calibrations.get_parameter_value('qutrit_qubit_cx_sign', physical_qubits),
             backend=backend,
@@ -164,8 +165,9 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
             repetitions=repetitions
         )
         self.width_rate = width_rate
-        self.amp_rate = amp_rate
         self.current_cal_groups = current_cal_groups
+
+        self.set_experiment_options(calibration_qubit_index={(self._param_name[2], None): [1]})
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         pass
@@ -176,10 +178,11 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
             experiment_data.child_data(idx).analysis_results('d_theta').value.n
             for idx in component_index
         ])
-        # dθ_i = a_i dw + c dA
-        # -> (dw, dA)^T = ([a_0 c], [a_1 c])^{-1} (dθ_0, dθ_1)^T
-        mat = np.stack([self.width_rate, np.full(2, self.amp_rate)], axis=1)
-        d_width, d_amp = np.linalg.inv(mat) @ d_thetas
+        # dθ_i = a_i dw + dx
+        # -> (dw, dx)^T = ([a_0 1], [a_1 1])^{-1} (dθ_0, dθ_1)^T
+        #mat = np.stack([self.width_rate, np.full(2, self.amp_rate)], axis=1)
+        mat = np.stack([self.width_rate, np.ones(2)], axis=1)
+        d_width, d_angle = np.linalg.inv(mat) @ d_thetas
 
         # Calculate the new width
         current_width = self._cals.get_parameter_value(self._param_name[0], self.physical_qubits,
@@ -200,59 +203,47 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
             )
             self._cals.add_parameter_value(param_value, pname, self.physical_qubits, sname)
 
-        # Calculate the new Rx amplitude
-        current_amp = self._cals.get_parameter_value(self._param_name[2], self.physical_qubits[1],
-                                                     schedule=self._sched_name[2],
-                                                     group=self.current_cal_groups[1])
-        sign_angle = self._cals.get_parameter_value(self._param_name[3], self.physical_qubits[1],
-                                                    schedule=self._sched_name[3],
-                                                    group=self.current_cal_groups[1])
-        if sign_angle != 0.:
-            current_amp *= -1.
-
-        amp = current_amp - d_amp
-        sign_angle = 0. if amp > 0. else np.pi
-        for pname, sname, value in zip(self._param_name[2:], self._sched_name[2:],
-                                       [abs(amp), sign_angle]):
-            param_value = ParameterValue(
-                value=value,
-                date_time=BaseUpdater._time_stamp(experiment_data),
-                group=self.experiment_options.group,
-                exp_id=experiment_data.experiment_id,
-            )
-            self._cals.add_parameter_value(param_value, pname, self.physical_qubits[1], sname)
+        current_angle = self._cals.get_parameter_value(self._param_name[2], self.physical_qubits[1],
+                                                       group=self.current_cal_groups[1])
+        angle = current_angle - d_angle
+        param_value = ParameterValue(
+            value=angle,
+            date_time=BaseUpdater._time_stamp(experiment_data),
+            group=self.experiment_options.group,
+            exp_id=experiment_data.experiment_id,
+        )
+        self._cals.add_parameter_value(param_value, self._param_name[2], self.physical_qubits[1])
 
 
-class CycledRepeatedCRFineRxAmpCal(BaseCalibrationExperiment, CycledRepeatedCRPingPong):
+class CycledRepeatedCRFineRxAngleCal(BaseCalibrationExperiment, CycledRepeatedCRPingPong):
     """Calibration experiment for Rx amplitude only."""
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
-        options.calibration_qubit_index = {(pname, 'offset_rx'): [1]
-                                           for pname in ['amp', 'sign_angle']}
+        options.calibration_qubit_index = {}
         return options
 
     def __init__(
         self,
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
-        amp_rate: float,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['amp', 'sign_angle'],
-        schedule_name: str = 'offset_rx',
+        cal_parameter_name: str = 'qutrit_qubit_cx_offsetrx',
+        schedule_name: Optional[str] = None,
         current_cal_group: str = 'default',
         repetitions: Optional[Sequence[int]] = None,
         auto_update: bool = True
     ):
         cr_schedules = get_cr_schedules(calibrations, physical_qubits)
-        rx_schedule = calibrations.get_schedule('offset_rx', physical_qubits[1])
+        rx_angle = calibrations.get_parameter_value(cal_parameter_name, physical_qubits[1],
+                                                    group=current_cal_group)
 
         super().__init__(
             calibrations,
             physical_qubits,
             1,
             cr_schedules,
-            rx_schedule,
+            rx_angle,
             RCRType(calibrations.get_parameter_value('rcr_type', physical_qubits)),
             calibrations.get_parameter_value('qutrit_qubit_cx_sign', physical_qubits),
             backend=backend,
@@ -261,33 +252,20 @@ class CycledRepeatedCRFineRxAmpCal(BaseCalibrationExperiment, CycledRepeatedCRPi
             auto_update=auto_update,
             repetitions=repetitions
         )
-        self.amp_rate = amp_rate
         self.current_cal_group = current_cal_group
+        self.set_experiment_options(calibration_qubit_index={(self._param_name, None): [1]})
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         pass
 
     def update_calibrations(self, experiment_data: ExperimentData):
         d_theta = experiment_data.analysis_results('d_theta', block=False).value.n
-        d_amp = d_theta / self.amp_rate
-        # Calculate the new Rx amplitude
-        current_amp = self._cals.get_parameter_value(self._param_name[0], self.physical_qubits[1],
-                                                     schedule=self._sched_name,
-                                                     group=self.current_cal_group)
-        sign_angle = self._cals.get_parameter_value(self._param_name[1], self.physical_qubits[1],
-                                                    schedule=self._sched_name,
-                                                    group=self.current_cal_group)
-        if sign_angle != 0.:
-            current_amp *= -1.
-
-        amp = current_amp - d_amp
-        sign_angle = 0. if amp > 0. else np.pi
-        for pname, value in zip(self._param_name, [abs(amp), sign_angle]):
-            param_value = ParameterValue(
-                value=value,
-                date_time=BaseUpdater._time_stamp(experiment_data),
-                group=self.experiment_options.group,
-                exp_id=experiment_data.experiment_id,
-            )
-            self._cals.add_parameter_value(param_value, pname, self.physical_qubits[1],
-                                           self._sched_name)
+        current_angle = self._cals.get_parameter_value(self._param_name, self.physical_qubits[1],
+                                                       group=self.current_cal_group)
+        param_value = ParameterValue(
+            value=current_angle - d_theta,
+            date_time=BaseUpdater._time_stamp(experiment_data),
+            group=self.experiment_options.group,
+            exp_id=experiment_data.experiment_id,
+        )
+        self._cals.add_parameter_value(param_value, self._param_name, self.physical_qubits[1])

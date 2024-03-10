@@ -9,11 +9,12 @@ from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
 from qiskit.pulse import ScheduleBlock
 from qiskit.providers import Backend, Options
-from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
+from qiskit_experiments.calibration_management import (BaseCalibrationExperiment, Calibrations,
+                                                       ParameterValue)
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 
-from ...util.pulse_area import grounded_gauss_area, rabi_freq_per_amp
+from ...util.pulse_area import grounded_gauss_area, rabi_cycles_per_area
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
 from .util import RCRType, get_cr_schedules, make_crcr_circuit, make_rcr_circuit
@@ -31,7 +32,7 @@ def rotary_angle_per_amp(
     rsr = calibrations.get_parameter_value('rsr', qubits, 'cr')
     width = calibrations.get_parameter_value('width', qubits, 'cr')
     gs_area = grounded_gauss_area(sigma, rsr, gs_factor=True) + width
-    angle_per_amp = rabi_freq_per_amp(backend, qubits[1]) * twopi * backend.dt * gs_area
+    angle_per_amp = rabi_cycles_per_area(backend, qubits[1]) * twopi * gs_area
     angle_per_amp *= 2. # Un-understood empirical factor 2
     return angle_per_amp
 
@@ -180,7 +181,7 @@ class CycledRepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis)
         if len(accepted_indices) == 0:
             logger.warning('No rotary value had sum of chi2 less than %f', self.options.chi2_cutoff)
             accepted_indices = np.arange(chisq.shape[0])
-        
+
         unitary_params = unp.nominal_values(
             next(res for res in analysis_results if res.name == 'unitary_parameters').value
         )[accepted_indices]
@@ -246,13 +247,21 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, RepeatedCRRotaryAm
 
 class CycledRepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment,
                                          CycledRepeatedCRRotaryAmplitude):
+    """Calibration experiment for CycledRepeatedCRRotaryAmplitude. Additionally calibrates offset Rx
+    angle."""
+    @classmethod
+    def _default_experiment_options(cls) -> Options:
+        options = super()._default_experiment_options()
+        options.calibration_qubit_index = {}
+        return options
+
     def __init__(
         self,
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['counter_amp', 'counter_sign_angle'],
-        schedule_name: str = 'cr',
+        cal_parameter_name: list[str] = ['counter_amp', 'counter_sign_angle', 'qutrit_qubit_cx_offsetrx'],
+        schedule_name: list[str] = ['cr', 'cr', None],
         amplitudes: Optional[Sequence[float]] = None,
         width: Optional[float] = None,
         measure_preparations: bool = True,
@@ -263,7 +272,7 @@ class CycledRepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment,
         else:
             assign_params = None
         cr_schedules = get_cr_schedules(calibrations, physical_qubits,
-                                        free_parameters=cal_parameter_name,
+                                        free_parameters=cal_parameter_name[:2],
                                         assign_params=assign_params)
 
         super().__init__(
@@ -280,20 +289,34 @@ class CycledRepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment,
             amplitudes=amplitudes,
             measure_preparations=measure_preparations
         )
+        self.set_experiment_options(calibration_qubit_index={(self._param_name[2], None): [1]})
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         pass
 
     def update_calibrations(self, experiment_data: ExperimentData):
-        # Pick the rotary value with the smallest chisq?
         amplitude = experiment_data.analysis_results('rotary_amp', block=False).value
         angle = 0.
         if amplitude < 0.:
             amplitude *= -1.
             angle = np.pi
 
-        for pname, value in zip(self._param_name, [amplitude, angle]):
+        for pname, value in zip(self._param_name[:2], [amplitude, angle]):
             BaseUpdater.add_parameter_value(
-                self._cals, experiment_data, value, pname, schedule=self._sched_name,
+                self._cals, experiment_data, value, pname, schedule=self._sched_name[0],
                 group=self.experiment_options.group
             )
+
+        selected_amp_idx = int(np.argmin(
+            np.abs(experiment_data.metadata['scan_values'][0] - amplitude)
+        ))
+        unitaries = experiment_data.analysis_results('unitary_parameters', block=False).value
+        # X angle of control=0
+        rx_angle = -unitaries[selected_amp_idx, 0, 0].n
+        param_value = ParameterValue(
+            value=rx_angle,
+            date_time=BaseUpdater._time_stamp(experiment_data),
+            group=self.experiment_options.group,
+            exp_id=experiment_data.experiment_id,
+        )
+        self._cals.add_parameter_value(param_value, self._param_name[2], self.physical_qubits[1])

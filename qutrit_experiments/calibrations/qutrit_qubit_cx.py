@@ -23,7 +23,10 @@ def make_qutrit_qubit_cx_calibrations(
         calibrations = Calibrations.from_backend(backend)
 
     add_qutrit_qubit_cr(backend, calibrations)
-    add_crcr_elements(backend, calibrations)
+
+    calibrations._register_parameter(Parameter('rcr_type'), ())
+    calibrations._register_parameter(Parameter('qutrit_qubit_cx_sign'), ())
+    calibrations._register_parameter(Parameter('qutrit_qubit_cx_offsetrx'), ())
 
     return calibrations
 
@@ -74,7 +77,6 @@ def add_qutrit_qubit_cr(
 
     for qubits, control_channels in backend.control_channels.items():
         control_channel = control_channels[0]
-        target_channel = backend.drive_channel(qubits[1])
         target_frequency = backend.qubit_properties(qubits[1]).frequency
         ecr_sched = get_default_ecr_schedule(backend, qubits)
         control_instructions = [inst for _, inst in ecr_sched.instructions
@@ -82,21 +84,15 @@ def add_qutrit_qubit_cr(
         if not control_instructions:
             # Reverse CR
             continue
-        target_instructions = [inst for _, inst in ecr_sched.instructions
-                               if isinstance(inst, pulse.Play) and
-                                  inst.channel == target_channel]
         try:
             default_cr = next(inst.pulse for inst in control_instructions
                               if inst.name.startswith('CR90p'))
-            default_rotary = next(inst.pulse for inst in target_instructions
-                                  if inst.name.startswith('CR90p'))
         except StopIteration: # Direct CX
             try:
                 default_cr = next(inst.pulse for inst in control_instructions
                                   if inst.name.startswith('CX'))
             except StopIteration as exc:
                 raise CalibrationError(f'No default CR instruction for qubits {qubits}') from exc
-            default_rotary = None
 
         param_defaults = [
             ('rsr', (default_cr.duration - default_cr.width) / 2. / default_cr.sigma),
@@ -111,46 +107,10 @@ def add_qutrit_qubit_cr(
             ('cr_stark_amp', 0.),
             ('cr_stark_sign_phase', 0.),
             ('counter_amp', 0.),
-            ('counter_base_angle', 0. if default_rotary is None else default_rotary.angle),
+            ('counter_base_angle', 0.),
             ('counter_sign_angle', 0.),
             ('counter_stark_amp', 0.)
         ]
         for pname, value in param_defaults:
             calibrations.add_parameter_value(ParameterValue(value), pname, qubits=qubits,
                                              schedule='cr')
-
-def add_crcr_elements(
-    backend: Backend,
-    calibrations: Calibrations
-) -> None:
-    """Add the parameter for rcr type and the schedule for offset Rx on the target qubit."""
-    calibrations._register_parameter(Parameter('rcr_type'), ())
-    calibrations._register_parameter(Parameter('qutrit_qubit_cx_sign'), ())
-
-    duration = Parameter('duration')
-    amp = Parameter('amp')
-    sigma = Parameter('sigma')
-    base_angle = Parameter('base_angle')
-    sign_angle = Parameter('sign_angle')
-
-    rx_pulse = pulse.Gaussian(duration=duration, amp=amp, sigma=sigma, angle=base_angle + sign_angle,
-                              name='Rx')
-
-    with pulse.build(name='offset_rx') as sched:
-        pulse.play(rx_pulse, pulse.DriveChannel(Parameter('ch0')), name='Rx')
-    calibrations.add_schedule(sched, num_qubits=1)
-
-    for _, qubit in backend.control_channels.keys():
-        x_sched = backend.defaults().instruction_schedule_map.get('x', qubit)
-        x_pulse = next(inst.pulse for _, inst in x_sched.instructions
-                       if isinstance(inst, pulse.Play))
-        param_defaults = [
-            ('duration', x_sched.duration),
-            ('amp', 0.),
-            ('sigma', x_sched.duration / 4),
-            ('base_angle', x_pulse.angle),
-            ('sign_angle', 0.)
-        ]
-        for pname, value in param_defaults:
-            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=[qubit],
-                                             schedule='offset_rx')
