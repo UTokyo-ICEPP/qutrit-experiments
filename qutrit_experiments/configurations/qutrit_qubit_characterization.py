@@ -5,7 +5,7 @@ import numpy as np
 from qiskit import QuantumCircuit, pulse
 from qiskit.circuit import Gate, Parameter
 from ..experiment_config import ExperimentConfig, register_exp, register_post
-from ..util.pulse_area import rabi_freq_per_amp
+from ..util.pulse_area import rabi_cycles_per_area
 from .common import add_readout_mitigation
 
 
@@ -131,7 +131,8 @@ def t_hx(runner):
     sigma = 64
     rsr = 2
     duration = width + sigma * rsr * 2
-    amp = 2. / 2048 / runner.backend.dt / rabi_freq_per_amp(runner.backend, qubit)
+    cycles_per_amp = 2048. * rabi_cycles_per_area(runner.backend, qubit)
+    amp = 2. / cycles_per_amp
     angle = runner.calibrations.get_parameter_value('counter_base_angle',
                                                     runner.program_data['qubits'][1:],
                                                     schedule='cr')
@@ -167,7 +168,8 @@ def hcr_singlestate_template(runner, exp_type):
     from ..experiments.gs_rabi import GSRabi
 
     control2, target = runner.program_data['qubits'][1:]
-    counter_amp = 2. / 2048 / runner.backend.dt / rabi_freq_per_amp(runner.backend, target)
+    cycles_per_amp = 2048. * rabi_cycles_per_area(runner.backend, target)
+    counter_amp = 2. / cycles_per_amp
     assign_params = {
         'width': Parameter('width'),
         'margin': 0.,
