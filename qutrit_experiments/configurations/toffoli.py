@@ -208,28 +208,6 @@ def c2t_crcr_angle_width_rate(runner, experiment_data):
     runner.program_data['crcr_angle_per_width'] = slope * np.sin(psi) * np.cos(phi)
 
 @register_exp
-@add_readout_mitigation
-def c2t_crcr_rx_amp(runner):
-    from ..experiments.qutrit_qubit_cx.rx_amp import SimpleRxAmplitudeCal
-    qubits = (runner.program_data['qubits'][2],)
-    x_sched = runner.backend.defaults().instruction_schedule_map.get('x', qubits)
-    pi_amp = x_sched.instructions[0][1].pulse.amp
-
-    return ExperimentConfig(
-        SimpleRxAmplitudeCal,
-        qubits,
-        args={
-            'target_angle': -runner.program_data['crcr_unitaries_rough'][0, 0], # X of c=0
-            'amplitudes': np.linspace(-pi_amp, pi_amp, 32)
-        }
-    )
-
-@register_post
-def c2t_crcr_rx_amp(runner, experiment_data):
-    angular_rate = experiment_data.analysis_results('rabi_rate', block=False).value.n * twopi
-    runner.program_data['crcr_angle_per_rx_amp'] = angular_rate
-
-@register_exp
 @add_readout_mitigation(logical_qubits=[1])
 def c2t_crcr_fine_iter1(runner):
     from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineCal
@@ -238,8 +216,6 @@ def c2t_crcr_fine_iter1(runner):
         runner.program_data['qubits'][1:],
         args={
             'width_rate': runner.program_data['crcr_angle_per_width'],
-            #'amp_rate': runner.program_data['crcr_angle_per_rx_amp'],
-            #'current_cal_groups': ('c2t_crcr_cr_width', 'c2t_crcr_rx_amp')
             'current_cal_groups': ('c2t_crcr_cr_width', 'c2t_crcr_rotary')
         }
     )
@@ -253,7 +229,6 @@ def c2t_crcr_fine_iter2(runner):
         runner.program_data['qubits'][1:],
         args={
             'width_rate': runner.program_data['crcr_angle_per_width'],
-            #'amp_rate': runner.program_data['crcr_angle_per_rx_amp'],
             'current_cal_groups': ('c2t_crcr_fine_iter1', 'c2t_crcr_fine_iter1')
         }
     )
