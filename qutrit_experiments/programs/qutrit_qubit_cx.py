@@ -49,10 +49,8 @@ def calibrate_qutrit_qubit_cx(
     for exp_type in [
         'c2t_crcr_rotary',
         'c2t_crcr_angle_width_rate',
-        'c2t_crcr_rx_amp',
         'c2t_crcr_fine_iter1',
         'c2t_crcr_fine_iter2',
-        'c2t_crcr_fine_iterrx',
         'c2t_crcr_unitaries'
     ]:
         runner.run_experiment(exp_type)
@@ -105,7 +103,7 @@ def setup_sizzle(omega_z: np.ndarray, runner: ExperimentsRunner) -> bool:
     counter_stark_amp = runner.calibrations.get_parameter_value('counter_stark_amp', qubits, 'cr')
     if counter_stark_amp == 0.:
         return False
-    
+
     cr_amp = runner.calibrations.get_parameter_value('cr_amp', qubits, 'cr')
     if abs(sizzle_params['c_amp'] * sizzle_params['t_amp'] / counter_stark_amp) < 1. - cr_amp:
         runner.run_experiment('c2t_sizzle_c2_amp_scan')
@@ -167,13 +165,17 @@ def frequency_intervals(runner):
     return intervals
 
 
-def get_rotary_guess(cr_params: np.ndarray, runner: ExperimentsRunner):
+def get_rotary_guess(
+    cr_params: np.ndarray,
+    runner: ExperimentsRunner,
+    scan_range: tuple[float, float] = (-6. * np.pi, 6. * np.pi)
+):
     """Find the rotary angle for the current CR parameters that is expected to minimize y and z on
     CRCR."""
     qubits = tuple(runner.program_data['qubits'][1:])
     rcr_type = runner.calibrations.get_parameter_value('rcr_type', qubits)
 
-    rotary_angles = np.linspace(-6. * np.pi, 6. * np.pi, 400)
+    rotary_angles = np.linspace(scan_range[0], scan_range[1], 400)
     rotary = np.stack([rotary_angles] + [np.zeros_like(rotary_angles)] * 2, axis=-1)
     cr_params = cr_params[:, None, :] + rotary[None, ...]
     cr_params = np.stack([cr_params, cr_params * np.array([-1., -1., 1.])], axis=1)
