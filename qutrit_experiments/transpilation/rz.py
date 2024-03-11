@@ -120,7 +120,7 @@ class CastRZToAngle(TransformationPass):
 
         cumul_phase = defaultdict(float)
 
-        for inode, node in enumerate(list(dag.topological_op_nodes())):
+        for node in list(dag.topological_op_nodes()):
             if node_start_time and node not in node_start_time:
                 raise TranspilerError(
                     f"Operation {repr(node)} is likely added after the circuit is scheduled. "
