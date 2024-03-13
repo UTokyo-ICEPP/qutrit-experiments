@@ -366,13 +366,20 @@ class CycledRepeatedCRWidthAnalysis(CRWidthAnalysis):
 
 
 class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
+    """Rough CR width calibration based on pure-X approximationof the CR unitaries.
+    
+    Type X (2):    RCR angles = [θ1+θ0, θ0+θ1, 2θ2]
+                  CRCR angles = [2θ2, 2θ0+2θ1-2θ2, 2θ2]
+    Type X12 (0):  RCR angles = [2θ0, θ2+θ1, θ1+θ2]
+                  CRCR angles = [2θ0, 2θ1+2θ2-2θ0, 2θ0]
+    """
     def __init__(
         self,
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['width', 'cr_base_angle', 'rcr_type'],
-        schedule_name: str = ['cr', 'cr', None],
+        cal_parameter_name: list[str] = ['width', 'rcr_type'],
+        schedule_name: str = ['cr', None],
         auto_update: bool = True,
         widths: Optional[Sequence[float]] = None
     ):
@@ -398,35 +405,15 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
     def update_calibrations(self, experiment_data: ExperimentData):
         fit_params = experiment_data.analysis_results('unitary_linear_fit_params',
                                                       block=False).value
-        slope, _, psi, phi = np.stack([unp.nominal_values(fit_params[ic]) for ic in range(3)],
+        slope, _, psi, _ = np.stack([unp.nominal_values(fit_params[ic]) for ic in range(3)],
                                       axis=1)
-        # XY Hamiltonian expressed in control-state basis
-        hxy = (slope * np.sin(psi))[:, None] * np.stack([np.cos(phi), np.sin(phi)], axis=1)
-        # Although not a very justified procedure, take the quadrature sums of x and y components
-        # This lets us determine the observed angle from more reliable control states
-        hxy_avg = np.sqrt(np.sum(np.square(hxy), axis=0))
-        observed_axis_angle = np.arctan2(hxy_avg[1], hxy_avg[0])
-        # Calculate the angle overshoot from zy/zx
-        # Pulse angle is equivalent to ShiftPhase(phi), which rotates the state vector by phi
-        # Rotation axis therefore points towards -phi
-        current_angle = self._cals.get_parameter_value(self._param_name[1], self.physical_qubits,
-                                                       self._sched_name[1])
-        # New angle parameter value to minimize the observed angle
-        # φ0 = physical axis angle when driven with angle=0
-        # φd = drive angle parameter value
-        # φ0 - φd = φobs  ->  φnewd = φd + φobs
-        cr_base_angle = current_angle + observed_axis_angle
-
-        # Approximate angular rate at which the Rabi phase difference accummulates between 0/2 and
-        # 1 blocks (assuming all blocks are ~pure X rotations after base angle adjustment)
-        omega_x = ((slope * np.sin(psi))[:, None]
-                    * np.stack([
-                        np.cos(phi - observed_axis_angle),
-                        np.sin(phi - observed_axis_angle)], axis=1))[:, 0]
+        
+        # Polar rotation rate
+        omega_t = slope * np.sin(psi)
         # Angle per CR width of block 0 of CRCR for two RCR types
-        crcr_omega_0 = 2. * np.array([omega_x[2], omega_x[0]])
-        # Angle per CR width of block 2 of CRCR for two RCR types
-        crcr_omega_1 = 2. * np.sum(omega_x[None, :] * np.array([[1., 1., -1.], [-1., 1., 1.]]),
+        crcr_omega_0 = 2. * omega_t[[2, 0]]
+        # Angle per CR width of block 1 of CRCR for two RCR types
+        crcr_omega_1 = 2. * np.sum(omega_t[None, :] * np.array([[1., 1., -1.], [-1., 1., 1.]]),
                                    axis=1)
         crcr_rel_freqs = crcr_omega_1 - crcr_omega_0
         # Whichever RCR type with larger angular rate will be used
@@ -440,8 +427,8 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
             samples=np.pi / np.abs(crcr_rel_freqs[rcr_type_index]) - flank
         )
 
-        for pname, sname, value in zip(self._param_name, self._sched_name,
-                                       [cr_width, cr_base_angle, int(rcr_type)]):
+        values = [cr_width, int(rcr_type)]
+        for pname, sname, value in zip(self._param_name, self._sched_name, values):
             BaseUpdater.add_parameter_value(
                 self._cals, experiment_data, value, pname, schedule=sname,
                 group=self.experiment_options.group
