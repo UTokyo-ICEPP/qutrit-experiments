@@ -124,10 +124,11 @@ def plot_unitary_fit(
     xvalues = np.arange(len(initial_states))
     ax.set_ylim(-1.05, 1.05)
     ax.set_ylabel('Pauli expectation')
+    ax.axhline(0., color='black', linestyle='--')
     ec = ax.errorbar(xvalues, unp.nominal_values(expvals), unp.std_devs(expvals), fmt='o',
                         label='observed')
     ax.bar(xvalues, np.zeros_like(xvalues), 1., bottom=expvals_pred, fill=False,
-            edgecolor=ec.lines[0].get_markerfacecolor(), label='fit result')
+           edgecolor=ec.lines[0].get_markerfacecolor(), label='fit result')
     xticks = [f'{axes[basis]}|{axes[init]}{"+" if sign > 0 else "-"}'
                 for init, sign, basis in zip(initial_states, signs, meas_bases)]
     ax.set_xticks(xvalues, labels=xticks)

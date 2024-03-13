@@ -198,6 +198,7 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
             ax.set_xticks(xvalues, labels=labels)
             ax.set_ylim(-1.05, 1.05)
             ax.set_ylabel('Pauli expectation')
+            ax.axhline(0., color='black', linestyle='--', linewidth=0.1)
             for key in sorted(observeds.keys()):
                 label = f'c={key[0]}'
                 if key[1]:
