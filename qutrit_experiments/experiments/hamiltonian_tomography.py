@@ -6,7 +6,7 @@ from typing import Any, Optional, Union
 from matplotlib.figure import Figure
 import lmfit
 import numpy as np
-import scipy.optimize as sciopt
+from scipy.optimize import curve_fit, least_squares
 from uncertainties import ufloat, correlated_values, unumpy as unp
 
 from qiskit import QuantumCircuit
@@ -402,16 +402,16 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
             def set_params(params):
                 return {'theta': params[0], 'chi': params[1], 'kappa': params[2]}
             p0 = (0.01, np.pi / 2., 0.)
-            bounds = [(-twopi, twopi), (0., np.pi), (-np.pi, np.pi)]
+            bounds = ([-twopi, 0., -np.pi], [twopi, np.pi, np.pi])
         else:
             raise NotImplementedError('non-zx')
 
-        def objective(params):
+        def residual(params):
             y_pred = np.array([model.eval(x=0., omega=0., psi=0., phi=0., **set_params(params))
                                for model in self._models])
-            return np.sum(np.square(y_0 - y_pred))
+            return y_pred - y_0
 
-        res = sciopt.minimize(objective, p0, bounds=bounds)
+        res = least_squares(residual, p0, bounds=bounds)
         user_opt.p0.update(set_params(res.x))
 
         # freq is common but reliable only when amp is sufficiently large
@@ -424,7 +424,7 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
         def estimate_amp(label):
             xdata = subdata[label].x
             ydata = subdata[label].y
-            popt, _ = sciopt.curve_fit(
+            popt, _ = curve_fit(
                 lambda x, amp, base: amp * np.cos(omega_p0 * x) + base,
                 xdata, ydata, (0., ydata[0])
             )
@@ -591,8 +591,8 @@ class HamiltonianTomographyScanAnalysis(CompoundAnalysis):
 
                 fitfunc = sparse_poly_fitfunc(powers)
 
-                popt, pcov = sciopt.curve_fit(fitfunc, xval, unp.nominal_values(components),
-                                              p0=np.zeros_like(powers))
+                popt, pcov = curve_fit(fitfunc, xval, unp.nominal_values(components),
+                                       p0=np.zeros_like(powers))
 
                 omega_coeffs = np.full(order.order + 1, ufloat(0., 0.))
                 try:

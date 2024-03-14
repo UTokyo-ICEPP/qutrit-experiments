@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from typing import Optional
 from matplotlib.figure import Figure
 import numpy as np
-import scipy.optimize as sciopt
+from scipy.optimize import least_squares
 from uncertainties import correlated_values, ufloat, unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.circuit import Gate, Parameter
@@ -88,37 +88,26 @@ class QutritCRTargetStarkAnalysis(QutritQubitTomographyScanAnalysis):
         amplitudes = experiment_data.metadata['scan_values'][0]
         unitaries = next(res.value for res in analysis_results if res.name == 'unitary_parameters')
         theta_iz = np.mean(unitaries[..., 2], axis=1)
-        theta_iz_n = unp.nominal_values(theta_iz)
-        theta_iz_e = unp.std_devs(theta_iz)
 
-        amp_sq = np.square(amplitudes)
-        sigma_sq = np.square(theta_iz_e)
+        def model(params, x2):
+            return params[0] * x2 + params[1]
 
-        def fun(params):
-            return np.sum(np.square(params[0] * amp_sq + params[1] - theta_iz_n) / sigma_sq)
-
-        jac_coeff = 2. * np.array([amp_sq, np.ones_like(amplitudes)])
-        def jac(params):
-            return np.sum(jac_coeff * (params[0] * amp_sq + params[1] - theta_iz_n)[None, :]
-                           / sigma_sq[None, :],
-                          axis=-1)
-
-        hess_coeff = 2. * np.array(
-            [[amp_sq ** 2, amp_sq],
-             [amp_sq, np.ones_like(amplitudes)]]
-        )
-        def hess(params):
-            return np.sum(hess_coeff * (params[0] * amp_sq + params[1] - theta_iz_n)[None, None, :]
-                           / sigma_sq[None, None, :],
-                          axis=-1)
-
-        a_p0 = theta_iz_n[-1] / amp_sq[-1]
-        result = sciopt.minimize(fun, (a_p0, 0.), jac=jac, hess=hess)
-
-        if result.x[0] * result.x[1] > 0.:
+        def residual(params, x2, y, yerr):
+            return (model(params, x2) - y) / yerr
+        
+        def jacobian(params, x2, y, yerr):
+            return np.stack([x2, np.ones_like(x2)], axis=1) / yerr
+        
+        p0 = (theta_iz[-1].n / amplitudes[-1] ** 2, 0.)
+        args = (np.square(amplitudes), unp.nominal_values(theta_iz), unp.std_devs(theta_iz))
+        result = least_squares(residual, p0, jac=jacobian, args=args)
+        popt = result.x
+        approx_pcov = np.linalg.inv(result.jac.T @ result.jac) * 2.
+        
+        if popt[0] * popt[1] > 0.:
             amp = ufloat(0., 0.)
         else:
-            popt_ufloats = correlated_values(result.x, result.hess_inv * 2.)
+            popt_ufloats = correlated_values(popt, approx_pcov)
             amp = unp.sqrt(-popt_ufloats[1] / popt_ufloats[0])[()]
 
         analysis_results.append(AnalysisResultData(name='counter_stark_amp', value=amp))
@@ -129,10 +118,10 @@ class QutritCRTargetStarkAnalysis(QutritQubitTomographyScanAnalysis):
             plotter.set_series_data(
                 'theta_iz',
                 x_formatted=amplitudes,
-                y_formatted=theta_iz_n,
+                y_formatted=unp.nominal_values(theta_iz),
                 y_formatted_err=unp.std_devs(theta_iz),
                 x_interp=x_interp,
-                y_interp=result.x[0] * np.square(x_interp) + result.x[1]
+                y_interp=model(popt, x_interp ** 2)
             )
             figures.append(plotter.figure())
 

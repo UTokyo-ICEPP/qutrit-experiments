@@ -9,8 +9,8 @@ from typing import Any, Optional, Union
 import lmfit
 from matplotlib.figure import Figure
 import numpy as np
-from scipy.optimize import minimize
-from uncertainties import correlated_values, unp
+from scipy.optimize import least_squares
+from uncertainties import correlated_values, unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.circuit import Gate
 from qiskit.providers import Backend
@@ -195,24 +195,22 @@ class CRAngleCounterScanAnalysis(CompoundAnalysis):
         yvals_n = unp.nominal_values(yvals)
         yvals_e = unp.std_devs(yvals)
 
-        def fun(params):
-            return np.sum(np.square((params[0] * xvals + params[1] - yvals_n) / yvals_e))
+        def model(params, x):
+            return params[0] * x + params[1]
+        
+        def residual(params, x, y, yerr):
+            return (model(params, x) - y) / yerr
+        
+        def jacobian(params, x, y, yerr):
+            return np.stack([x, np.ones_like(x)], axis=1) / yerr[:, None]
 
-        def jac(params):
-            return np.sum(2. * np.array([xvals, np.ones_like(xvals)])
-                          * (params[0] * xvals + params[1] - yvals_n)[None, :]
-                          / np.square(yvals_e)[None, :],
-                          axis=-1)
+        p0 = (1., np.mean(yvals_n - xvals))
+        result = least_squares(residual, p0, jac=jacobian, args=(xvals, yvals_n, yvals_e))
+        popt = result.x
+        approx_pcov = np.linalg.inv(result.jac.T @ result.jac) * 2.
+        popt_ufloats = correlated_values(popt, approx_pcov)
 
-        def hess(params):
-            return np.sum(2. * np.array([[xvals * xvals, xvals], [xvals, np.ones_like(xvals)]])
-                          / np.square(yvals_e)[None, None, :],
-                          axis=-1)
-
-        result = minimize(fun, (1., np.mean(yvals_n - xvals)), jac=jac, hess=hess)
-        popt_ufloats = correlated_values(result.x, result.hess_inv * 2.)
-
-        analysis_results.append(AnalysisResultData(name='angle', value=popt_ufloats['b']))
+        analysis_results.append(AnalysisResultData(name='angle', value=popt_ufloats[1]))
 
         if self.options.plot:
             x_interp = np.linspace(xvals[0], xvals[-1], 100)
@@ -227,7 +225,7 @@ class CRAngleCounterScanAnalysis(CompoundAnalysis):
                 y_formatted=yvals_n,
                 y_formatted_err=yvals_e,
                 x_interp=x_interp,
-                y_interp=popt_ufloats[0].n * x_interp + popt_ufloats[1].n
+                y_interp=model(popt, x_interp)
             )
             figures.append(plotter.figure())
 

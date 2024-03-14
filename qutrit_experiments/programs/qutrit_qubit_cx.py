@@ -1,6 +1,6 @@
 import logging
 import numpy as np
-import scipy.optimize as sciopt
+from scipy.optimize import least_squares
 from uncertainties import unumpy as unp
 from qiskit_experiments.framework import ExperimentData
 
@@ -131,15 +131,16 @@ def get_sizzle_params(z_comps, runner):
         all_shifts.shape[:-2]
     )
     # Minimization
-    def objective(params):
+    def residual(params):
         freq, camp, tamp = np.asarray(params) * np.array([1.e+9, 1., 1.])
         z_shifts = get_shifts((camp, tamp), freq)[..., 1]
-        return np.sum(np.square(z_shifts + z_comps), axis=-1)
+        return z_shifts + z_comps
 
     freq_interval = next(tuple(np.array(v) * 1.e-9) for v in intervals
                          if v[0] <= frequencies[ifreq] <= v[1])
-    res = sciopt.minimize(objective, (frequencies[ifreq] * 1.e-9, amplitudes[ic], amplitudes[it]),
-                          bounds=[freq_interval, (-1., 1.), (-1., 1.)])
+    p0 = (frequencies[ifreq] * 1.e-9, amplitudes[ic], amplitudes[it])
+    bounds = ([freq_interval[0], -1., -1.], [freq_interval[1], 1., 1.])
+    res = least_squares(residual, p0, bounds=bounds)
 
     return {
         'frequency': res.x[0] * 1.e+9,
