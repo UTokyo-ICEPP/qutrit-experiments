@@ -290,6 +290,7 @@ class QutritQubitTomographyScan(BatchExperiment):
 
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
+        metadata['control_states'] = list(self.control_states)
         metadata['scan_parameters'] = [p.name for p in self.experiment_options.parameters]
         metadata['scan_values'] = [list(v) for v in self.experiment_options.parameter_values]
         return metadata
