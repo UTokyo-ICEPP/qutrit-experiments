@@ -96,7 +96,7 @@ class QutritCRTargetStarkAnalysis(QutritQubitTomographyScanAnalysis):
             return (model(params, x2) - y) / yerr
         
         def jacobian(params, x2, y, yerr):
-            return np.stack([x2, np.ones_like(x2)], axis=1) / yerr
+            return np.stack([x2, np.ones_like(x2)], axis=1) / yerr[:, None]
         
         p0 = (theta_iz[-1].n / amplitudes[-1] ** 2, 0.)
         args = (np.square(amplitudes), unp.nominal_values(theta_iz), unp.std_devs(theta_iz))
