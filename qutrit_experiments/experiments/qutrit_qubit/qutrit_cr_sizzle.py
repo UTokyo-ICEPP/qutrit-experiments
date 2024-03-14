@@ -17,11 +17,137 @@ from .qutrit_qubit_tomography import QutritQubitTomographyScan, QutritQubitTomog
 
 
 class QutritCRTargetStarkCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
-    """UT scan over target Stark amplitudes to minimize the Iz component of the unitary."""
+    """UT scan over target Stark amplitudes to minimize the Iz component for the given set of
+    control blocks."""
     def __init__(
         self,
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
+        backend: Optional[Backend] = None,
+        cal_parameter_name: str = 'counter_stark_amp',
+        schedule_name: str = 'cr',
+        amplitudes: Optional[Sequence[float]] = None,
+        measure_preparations: bool = True,
+        control_states: tuple[int, ...] = (0, 1, 2),
+        auto_update: bool = True
+    ):
+        counter_stark_amp = Parameter(cal_parameter_name)
+        assign_params = {cal_parameter_name: counter_stark_amp}
+        schedule = calibrations.get_schedule(schedule_name, physical_qubits,
+                                             assign_params=assign_params)
+
+        circuit = QuantumCircuit(2)
+        circuit.append(Gate('cr', 2, [counter_stark_amp]), [0, 1])
+        circuit.add_calibration('cr', physical_qubits, schedule, [counter_stark_amp])
+
+        if amplitudes is None:
+            amplitudes = np.linspace(0.005, 0.16, 6)
+
+        super().__init__(
+            calibrations,
+            physical_qubits,
+            circuit,
+            param_name=cal_parameter_name,
+            values=amplitudes,
+            measure_preparations=measure_preparations,
+            control_states=control_states,
+            analysis_cls=QutritCRTargetStarkAnalysis,
+            backend=backend,
+            schedule_name=schedule_name,
+            cal_parameter_name=cal_parameter_name,
+            auto_update=auto_update
+        )
+
+    def _attach_calibrations(self, circuit: QuantumCircuit):
+        pass
+
+    def update_calibrations(self, experiment_data: ExperimentData):
+        BaseUpdater.update(
+            self._cals, experiment_data, self._param_name, schedule=self._sched_name,
+            group=self.experiment_options.group, fit_parameter='counter_stark_amp'
+        )
+
+
+class QutritCRTargetStarkAnalysis(QutritQubitTomographyScanAnalysis):
+    """Apply a quadratic fit to the observed theta_zs."""
+    @classmethod
+    def _default_options(cls) -> Options:
+        options = super()._default_options()
+        options.figure_names.append('theta_iz')
+        return options
+
+    def _run_additional_analysis(
+        self,
+        experiment_data: ExperimentData,
+        analysis_results: list[AnalysisResultData],
+        figures: list[Figure]
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
+        analysis_results, figures = super()._run_additional_analysis(experiment_data,
+                                                                     analysis_results, figures)
+
+        amplitudes = experiment_data.metadata['scan_values'][0]
+        unitaries = next(res.value for res in analysis_results if res.name == 'unitary_parameters')
+        theta_iz = np.mean(unitaries[..., 2], axis=1)
+        theta_iz_n = unp.nominal_values(theta_iz)
+        theta_iz_e = unp.std_devs(theta_iz)
+
+        amp_sq = np.square(amplitudes)
+        sigma_sq = np.square(theta_iz_e)
+
+        def fun(params):
+            return np.sum(np.square(params[0] * amp_sq + params[1] - theta_iz_n) / sigma_sq)
+
+        jac_coeff = 2. * np.array([amp_sq, np.ones_like(amplitudes)])
+        def jac(params):
+            return np.sum(jac_coeff * (params[0] * amp_sq + params[1] - theta_iz_n)[None, :]
+                           / sigma_sq[None, :],
+                          axis=-1)
+
+        hess_coeff = 2. * np.array(
+            [[amp_sq ** 2, amp_sq],
+             [amp_sq, np.ones_like(amplitudes)]]
+        )
+        def hess(params):
+            return np.sum(hess_coeff * (params[0] * amp_sq + params[1] - theta_iz_n)[None, None, :]
+                           / sigma_sq[None, None, :],
+                          axis=-1)
+
+        a_p0 = theta_iz_n[-1] / amp_sq[-1]
+        result = sciopt.minimize(fun, (a_p0, 0.), jac=jac, hess=hess)
+
+        if result.x[0] * result.x[1] > 0.:
+            amp = ufloat(0., 0.)
+        else:
+            popt_ufloats = correlated_values(result.x, result.hess_inv * 2.)
+            amp = unp.sqrt(-popt_ufloats[1] / popt_ufloats[0])[()]
+
+        analysis_results.append(AnalysisResultData(name='counter_stark_amp', value=amp))
+
+        if self.options.plot:
+            x_interp = np.linspace(amplitudes[0], amplitudes[-1], 100)
+            plotter = CurvePlotter(MplDrawer())
+            plotter.set_series_data(
+                'theta_iz',
+                x_formatted=amplitudes,
+                y_formatted=theta_iz_n,
+                y_formatted_err=unp.std_devs(theta_iz),
+                x_interp=x_interp,
+                y_interp=result.x[0] * np.square(x_interp) + result.x[1]
+            )
+            figures.append(plotter.figure())
+
+        return analysis_results, figures
+
+
+
+class QutritCRTargetStarkSingleControlCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
+    """UT scan over target Stark amplitudes to minimize the z component of the unitary of a single
+    control state block."""
+    def __init__(
+        self,
+        physical_qubits: Sequence[int],
+        calibrations: Calibrations,
+        control_state: int,
         backend: Optional[Backend] = None,
         cal_parameter_name: str = 'counter_stark_amp',
         schedule_name: str = 'cr',
@@ -48,6 +174,7 @@ class QutritCRTargetStarkCal(BaseCalibrationExperiment, QutritQubitTomographySca
             param_name=cal_parameter_name,
             values=amplitudes,
             measure_preparations=measure_preparations,
+            control_states=(control_state,),
             analysis_cls=QutritCRTargetStarkAnalysis,
             backend=backend,
             schedule_name=schedule_name,
@@ -63,58 +190,6 @@ class QutritCRTargetStarkCal(BaseCalibrationExperiment, QutritQubitTomographySca
             self._cals, experiment_data, self._param_name, schedule=self._sched_name,
             group=self.experiment_options.group, fit_parameter='counter_stark_amp'
         )
-
-
-class QutritCRTargetStarkAnalysis(QutritQubitTomographyScanAnalysis):
-    """Apply a quadratic fit to the observed theta_izs."""
-    @classmethod
-    def _default_options(cls) -> Options:
-        options = super()._default_options()
-        options.figure_names.append('theta_iz')
-        return options
-
-    def _run_additional_analysis(
-        self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
-    ) -> tuple[list[AnalysisResultData], list[Figure]]:
-        analysis_results, figures = super()._run_additional_analysis(experiment_data,
-                                                                     analysis_results, figures)
-
-        amplitudes = experiment_data.metadata['scan_values'][0]
-        unitaries = next(res.value for res in analysis_results if res.name == 'unitary_parameters')
-        theta_iz = np.tensordot(np.linalg.inv([[1, 1, 0], [1, -1, 1], [1, 0, -1]]), unitaries,
-                                (1, 1))[0, :, 2]
-        theta_iz_n = unp.nominal_values(theta_iz)
-
-        def curve(x, a, b):
-            return a * (x ** 2) + b
-
-        a_p0 = theta_iz_n[-1] / (amplitudes[-1] ** 2)
-        popt, pcov = sciopt.curve_fit(curve, amplitudes, theta_iz_n, (a_p0, 0.))
-        if popt[0] * popt[1] > 0.:
-            amp = ufloat(0., 0.)
-        else:
-            popt_ufloats = correlated_values(popt, pcov)
-            amp = unp.sqrt(-popt_ufloats[1] / popt_ufloats[0])[()]
-
-        analysis_results.append(AnalysisResultData(name='counter_stark_amp', value=amp))
-
-        if self.options.plot:
-            x_interp = np.linspace(amplitudes[0], amplitudes[-1], 100)
-            plotter = CurvePlotter(MplDrawer())
-            plotter.set_series_data(
-                'theta_iz',
-                x_formatted=amplitudes,
-                y_formatted=theta_iz_n,
-                y_formatted_err=unp.std_devs(theta_iz),
-                x_interp=x_interp,
-                y_interp=curve(x_interp, *popt)
-            )
-            figures.append(plotter.figure())
-
-        return analysis_results, figures
 
 
 class QutritCRControlStarkCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
