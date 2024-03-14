@@ -101,14 +101,19 @@ class UnitaryTomographyAnalysis(ThreadedAnalysis):
         options = super()._default_options()
         options.data_processor = None
         options.plot = True
-        options.maxiter = 10000
-        options.tol = 1.e-4
+        options.maxiter = None
+        options.tol = None
 
         return options
 
     def _run_analysis_threaded(self, experiment_data: ExperimentData) -> Any:
+        options = {}
+        if self.options.maxiter:
+            options['maxiter'] = self.options.maxiter
+        if self.options.tol:
+            options['tol'] = self.options.tol
         return fit_unitary(experiment_data.data(), data_processor=self.options.data_processor,
-                           maxiter=self.options.maxiter, tol=self.options.tol)
+                           **options)
 
     def _run_analysis_unthreaded(
         self,

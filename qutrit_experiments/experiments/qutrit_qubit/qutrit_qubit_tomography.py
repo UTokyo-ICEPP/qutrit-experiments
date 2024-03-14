@@ -362,6 +362,7 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         options.return_expvals = False
         options.maxiter = None
         options.tol = None
+        options.unitary_parameter_ylims = {}
         return options
 
     def _set_subanalysis_options(self, experiment_data: ExperimentData):
@@ -431,9 +432,12 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
                 plotter = CurvePlotter(MplDrawer())
                 plotter.set_figure_options(
                     xlabel=parameters[0],
-                    ylabel=f'Unitary {op} parameter',
-                    ylim=(-np.pi - 0.1, np.pi + 0.1)
+                    ylabel=f'Unitary {op} parameter'
                 )
+                if (ylim := self.options.unitary_parameter_ylims.get(op)):
+                    plotter.set_figure_options(ylim=ylim)
+                else:
+                    plotter.set_figure_options(ylim=(-np.pi - 0.1, np.pi + 0.1))
                 for ic, control_state in enumerate(control_states):
                     plotter.set_series_data(
                         f'c{control_state}',
