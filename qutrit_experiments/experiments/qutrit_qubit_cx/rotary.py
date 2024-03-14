@@ -62,7 +62,7 @@ class RepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
         super().__init__(physical_qubits, make_rcr_circuit(physical_qubits, cr_schedule, rcr_type),
                          amp_param_name, amplitudes, angle_param_name=angle_param_name,
                          measure_preparations=measure_preparations, control_states=(1,),
-                         backend=backend, analysis_cls=RepeatedCRRotaryAmplitudeAnalysis)
+                         backend=backend, analysis_cls=MinimumYZRotaryAmplitudeAnalysis)
 
 
 class RepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
@@ -156,14 +156,15 @@ class CycledRepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
                          make_crcr_circuit(physical_qubits, cr_schedules, None, rcr_type),
                          amp_param_name, amplitudes, angle_param_name=angle_param_name,
                          measure_preparations=measure_preparations, backend=backend,
-                         analysis_cls=CycledRepeatedCRRotaryAmplitudeAnalysis)
+                         analysis_cls=MinimumYZRotaryAmplitudeAnalysis)
 
 
-class CycledRepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
+class MinimumYZRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
-        options.chi2_cutoff = 24.
+        options.chi2_per_block_cutoff = 24.
+        options.unitary_parameter_ylims = {'Y': (-0.2, 0.2), 'Z': (-0.2, 0.2)}
         return options
 
     def _run_additional_analysis(
@@ -174,22 +175,36 @@ class CycledRepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis)
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         analysis_results, figures = super()._run_additional_analysis(experiment_data,
                                                                      analysis_results, figures)
+        
+        amplitudes = np.array(experiment_data.metadata['scan_values'][0])
+        unitary_params = next(res for res in analysis_results
+                              if res.name == 'unitary_parameters').value
+        unitary_params_n = unp.nominal_values(unitary_params[:, :, [1, 2]])
+        unitary_params_e = unp.std_devs(unitary_params[:, :, [1, 2]])
 
-        # Pick the rotary value with the smallest y^2 + z^2
+        # Cut on chi2
         chisq = next(res for res in analysis_results if res.name == 'chisq').value
-        accepted_indices = np.nonzero(np.sum(chisq, axis=1) < self.options.chi2_cutoff)[0]
-        if len(accepted_indices) == 0:
-            logger.warning('No rotary value had sum of chi2 less than %f', self.options.chi2_cutoff)
-            accepted_indices = np.arange(chisq.shape[0])
+        good_fit = np.mean(chisq, axis=1) < self.options.chi2_per_block_cutoff
+        if np.any(good_fit):
+            logger.warning('No rotary value had sum of chi2 per block less than %f',
+                           self.options.chi2_per_block_cutoff)
+            good_fit = np.ones_like(amplitudes, dtype=bool)
 
-        unitary_params = unp.nominal_values(
-            next(res for res in analysis_results if res.name == 'unitary_parameters').value
-        )[accepted_indices]
-        best_accepted_idx = np.argmin(np.sum(np.square(unitary_params[:, :, [1, 2]]), axis=(1, 2)))
-        best_idx = accepted_indices[best_accepted_idx]
-        amplitude = np.array(experiment_data.metadata['scan_values'][0])[best_idx]
+        zero_consistent = np.all((unitary_params_n > -unitary_params_e)
+                                 & (unitary_params_n < unitary_params_e),
+                                 axis=(1, 2))
+        filter = good_fit & zero_consistent
+        if np.any(filter):
+            # If there are points where y and z are consistent with zero, choose one with the lowest
+            # amp
+            iamp = np.argmin(np.abs(amplitudes[filter]))
+        else:
+            # Pick the rotary value with the smallest y^2 + z^2
+            filter = good_fit
+            iamp = np.argmin(np.sum(np.square(unitary_params_n[filter]), axis=(1, 2)))
+        
         analysis_results.append(
-            AnalysisResultData(name='rotary_amp', value=amplitude)
+            AnalysisResultData(name='rotary_amp', value=amplitudes[filter][iamp])
         )
         return analysis_results, figures
 
