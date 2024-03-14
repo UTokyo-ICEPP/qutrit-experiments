@@ -1,6 +1,7 @@
 """Functions for fitting a unitary to observation."""
 import logging
-from typing import Any, NamedTuple, Optional, Union
+from threading import Lock
+from typing import Any, NamedTuple, Optional
 from matplotlib.figure import Figure
 import jax
 import jax.numpy as jnp
@@ -16,13 +17,15 @@ from .bloch import rescale_axis, so3_cartesian
 logger = logging.getLogger(__name__)
 axes = ['x', 'y', 'z']
 twopi = 2. * np.pi
+default_maxiter = 10000
+default_tol = 1.e-4
 
 
 def fit_unitary(
     data: list[dict[str, Any]],
     data_processor: Optional[DataProcessor] = None,
-    maxiter: Optional[int] = None,
-    tol: Optional[float] = None
+    maxiter: int = default_maxiter,
+    tol: float = default_tol
 ) -> tuple[np.ndarray, NamedTuple, np.ndarray, np.ndarray, tuple]:
     expvals, initial_states, meas_bases, signs = extract_input_values(data, data_processor)
     popt_ufloats, state = fit_unitary_to_expval(expvals, initial_states, meas_bases, signs=signs,
@@ -60,20 +63,13 @@ def fit_unitary_to_expval(
     initial_states: np.ndarray,
     meas_bases: np.ndarray,
     signs: Optional[np.ndarray] = None,
-    maxiter: Optional[int] = None,
-    tol: Optional[float] = None
+    maxiter: int = default_maxiter,
+    tol: float = default_tol
 ) -> tuple[np.ndarray, NamedTuple]:
     logger.debug('Fit unitary to expval %d datapoints maxiter %s tol %s', len(expvals), maxiter,
                  tol)
     if signs is None:
         signs = np.ones_like(initial_states)
-
-    # options = {}
-    # if maxiter:
-    #     options['maxiter'] = maxiter
-    # if tol:
-    #     options['tol'] = tol
-    # solver = jaxopt.GradientDescent(fun=_objective, **options)
 
     p0s = []
     for iax in range(3):
@@ -82,16 +78,17 @@ def fit_unitary_to_expval(
             p0[iax] = np.pi * sign / 2.
             p0s.append(p0)
 
+    fitter = UnitaryFitObjective(expvals.shape[0], maxiter, tol)
     objective_args = (meas_bases, initial_states, signs, unp.nominal_values(expvals),
                       unp.std_devs(expvals))
-    fit_result = _vsolve(jnp.array(p0s), *objective_args)
-    fvals = _vobj(fit_result.params, *objective_args)
+    fit_result = fitter.vsolve(jnp.array(p0s), *objective_args)
+    fvals = fitter.vobj(fit_result.params, *objective_args)
     iopt = np.argmin(fvals)
     # Renormalize the rotation parameters so that the norm fits within [0, pi].
     popt = rescale_axis(fit_result.params[iopt])
 
     try:
-        pcov = np.linalg.inv(_hess(popt, *objective_args) * 0.5)
+        pcov = np.linalg.inv(fitter.hess(popt, *objective_args) * 0.5)
         popt_ufloats = correlated_values(nom_values=popt, covariance_mat=pcov, tags=['x', 'y', 'z'])
     except LinAlgError:
         logger.warning('Invalid covariance encountered. Setting paramater uncertainties to inf')
@@ -136,18 +133,44 @@ def plot_unitary_fit(
     return ax.get_figure()
 
 
-def _objective(params, meas_bases, initial_states, signs, expvals, expvals_err):
-    r_elements = so3_cartesian(params, npmod=jnp)[..., meas_bases, initial_states] * signs
-    return jnp.sum(
-        jnp.square((r_elements - expvals) / expvals_err),
-        axis=-1
-    )
+class UnitaryFitObjective:
+    """Objective function and derivatives for unitary fit."""
+    _lock = Lock()
+    _instances = {}
+    
+    @staticmethod
+    def fun(params, meas_bases, initial_states, signs, expvals, expvals_err):
+        r_elements = so3_cartesian(params, npmod=jnp)[..., meas_bases, initial_states] * signs
+        return jnp.sum(
+            jnp.square((r_elements - expvals) / expvals_err),
+            axis=-1
+        )
 
-_vparams = jnp.zeros((6, 3))
-_args = (jnp.repeat(np.array([0, 1, 2]), 3), jnp.tile(np.array([0, 1, 2]), 3),
-        jnp.ones(9, dtype=int), jnp.zeros(9), jnp.ones(9))
-_in_axes = [0] + ([None] * len(_args))
-_vobj = jax.jit(jax.vmap(_objective, in_axes=_in_axes)).lower(_vparams, *_args).compile()
-_vsolve = jax.jit(jax.vmap(jaxopt.GradientDescent(fun=_objective, maxiter=10000, tol=1.e-4).run,
-                           in_axes=_in_axes)).lower(_vparams, *_args).compile()
-_hess = jax.jit(jax.hessian(_objective)).lower(jnp.zeros(3), *_args).compile()
+    def __new__(cls, num_args: int = 9, maxiter: int = default_maxiter, tol: float = default_tol):
+        key = (num_args, maxiter, tol)
+        with cls._lock:
+            if (instance := cls._instances.get(key)) is None:
+                instance = super().__new__(cls)
+                instance._initialize(num_args, maxiter, tol)
+                cls._instances[key] = instance
+
+        return instance
+    
+    def __init__(self, num_args: int = 9, maxiter: int = default_maxiter, tol: float = default_tol):
+        pass
+
+    def _initialize(self, num_args: int, maxiter: int, tol: float):
+        ints = np.zeros(num_args, dtype=np.int64)
+        floats = np.zeros(num_args, dtype=np.float64)
+        args = (ints, ints, ints, floats, floats)
+        in_axes = [0] + ([None] * len(args))
+        self.vobj = jax.jit(
+            jax.vmap(self.fun, in_axes=in_axes)
+        ).lower(np.zeros((6, 3)), *args).compile()
+        self.vsolve = jax.jit(
+            jax.vmap(jaxopt.GradientDescent(fun=self.fun, maxiter=maxiter, tol=tol).run,
+                     in_axes=in_axes)
+        ).lower(np.zeros((6, 3)), *args).compile()
+        self.hess = jax.jit(
+            jax.hessian(self.fun)
+        ).lower(jnp.zeros(3), *args).compile()

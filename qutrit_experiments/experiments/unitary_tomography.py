@@ -102,7 +102,7 @@ class UnitaryTomographyAnalysis(ThreadedAnalysis):
         options.data_processor = None
         options.plot = True
         options.maxiter = 10000
-        options.tol = None
+        options.tol = 1.e-4
 
         return options
 
