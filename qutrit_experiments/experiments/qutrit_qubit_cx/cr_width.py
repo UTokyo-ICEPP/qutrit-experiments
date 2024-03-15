@@ -377,8 +377,8 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['width', 'rcr_type'],
-        schedule_name: str = ['cr', None],
+        cal_parameter_name: list[str] = ['width', 'rcr_type', 'qutrit_qubit_cx_offsetrx'],
+        schedule_name: str = ['cr', None, None],
         auto_update: bool = True,
         widths: Optional[Sequence[float]] = None
     ):
@@ -407,27 +407,20 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         slope, intercept, psi, phi = np.stack([unp.nominal_values(fit_params[ic]) for ic in range(3)],
                                               axis=1)
 
-        # Approximate transverse Hamiltonian and offset
-        # Shape [control, xy]
-        h_t = (slope * np.sin(psi))[:, None] * np.stack([np.cos(phi), np.sin(phi)], axis=1)
-        offset_t = (intercept * np.sin(psi))[:, None] * np.stack([np.cos(phi), np.sin(phi)], axis=1)
-        # Rotate to align RCR non-participating state to +X
-        phis = phi[[2, 0]] # RCRType [X, X12]
-        rotation = np.array([[np.cos(phis), np.sin(phis)],
-                             [-np.sin(phis), np.cos(phis)]]).transpose((2, 0, 1))
-        # Rotated X Hamiltonian
-        # Shape [rcr_type, control]
-        h_x = np.einsum('rij,cj->rci', rotation, h_t)[..., 0]
-        offset_x = np.einsum('rij,cj->rci', rotation, offset_t)[..., 0]
-        # Angle per CR width of block 0 of CRCR for two RCR types
-        crcr_omega_0 = 2. * h_x[[0, 1], [2, 0]]
-        # Angle per CR width of block 1 of CRCR for two RCR types
-        crcr_omega_1 = 2. * np.sum(h_x * np.array([[1., 1., -1.], [-1., 1., 1.]]),
+        def crcr_x_components(rval):
+            phi_offset = phi[[2, 0]] # RCRType [X, X12]
+            # Shape [rcr_type, control]
+            v_x = (rval * np.sin(psi))[None, :] * np.cos(phi[None, :] - phi_offset[:, None])
+            # X component in block 0 of CRCR for two RCR types
+            crcr_v_0x = 2. * v_x[[0, 1], [2, 0]]
+            # X component in block 1 of CRCR for two RCR types
+            crcr_v_1x = 2. * np.sum(v_x * np.array([[1., 1., -1.], [-1., 1., 1.]]),
                                     axis=1)
+            return crcr_v_0x, crcr_v_1x
+
+        crcr_omega_0, crcr_omega_1 = crcr_x_components(slope)
+        crcr_offset_0, crcr_offset_1 = crcr_x_components(intercept)
         crcr_rel_freqs = crcr_omega_1 - crcr_omega_0
-        crcr_offset_0 = 2. * offset_x[[0, 1], [2, 0]]
-        crcr_offset_1 = 2. * np.sum(offset_x * np.array([[1., 1., -1.], [-1., 1., 1.]]),
-                                    axis=1)
         crcr_rel_offsets = crcr_offset_1 - crcr_offset_0
         # Whichever RCR type with larger angular rate will be used
         rcr_type_index = np.argmax(np.abs(crcr_rel_freqs))
@@ -442,7 +435,9 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         # downward adjustment of amp
         cr_width += self._backend_data.granularity
 
-        values = [cr_width, int(rcr_type)]
+        offset_rx_angle = -(crcr_omega_0[rcr_type_index] * cr_width + crcr_offset_0[rcr_type_index])
+
+        values = [cr_width, int(rcr_type), offset_rx_angle]
         for pname, sname, value in zip(self._param_name, self._sched_name, values):
             BaseUpdater.add_parameter_value(
                 self._cals, experiment_data, value, pname, schedule=sname,
