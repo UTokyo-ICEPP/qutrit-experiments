@@ -85,7 +85,8 @@ def c2t_cr_unitaries(runner):
     return ExperimentConfig(
         QutritQubitTomography,
         qubits,
-        args={'circuit': cr_circuit}
+        args={'circuit': cr_circuit},
+        run_options={'shots': 8000}
     )
 
 @register_exp
@@ -99,7 +100,8 @@ def c2t_crcr_unitaries(runner):
     return ExperimentConfig(
         QutritQubitTomography,
         qubits,
-        args={'circuit': crcr_circuit}
+        args={'circuit': crcr_circuit},
+        run_options={'shots': 8000}
     )
 
 @register_exp
@@ -217,7 +219,8 @@ def c2t_crcr_fine_iter1(runner):
         args={
             'width_rate': runner.program_data['crcr_angle_per_width'],
             'current_cal_groups': ('c2t_crcr_cr_width', 'c2t_crcr_rotary')
-        }
+        },
+        run_options={'shots': 8000}
     )
 
 @register_exp
@@ -230,7 +233,8 @@ def c2t_crcr_fine_iter2(runner):
         args={
             'width_rate': runner.program_data['crcr_angle_per_width'],
             'current_cal_groups': ('c2t_crcr_fine_iter1', 'c2t_crcr_fine_iter1')
-        }
+        },
+        run_options={'shots': 8000}
     )
 
 @register_exp
