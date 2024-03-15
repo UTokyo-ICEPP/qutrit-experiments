@@ -256,7 +256,8 @@ class FineCRAngleCal(BaseCalibrationExperiment, CRAngleCounterScan):
         angles: Optional[Sequence[float]] = None,
         counter_angles: Optional[Sequence[float]] = None
     ):
-        duration = gs_effective_duration(calibrations, physical_qubits, 'cr', width=256)
+        width = 256
+        duration = gs_effective_duration(calibrations, physical_qubits, 'cr', width=width)
         # CR at the current width is expected to generate at most pi/2 - let counter give 2pi/5
         counter_amp = 0.2 / (rabi_cycles_per_area(backend, physical_qubits[1]) * duration)
 
