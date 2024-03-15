@@ -27,7 +27,7 @@ from ...experiment_mixins import MapToPhysicalQubits
 from ...framework.compound_analysis import CompoundAnalysis
 from ...framework_overrides.batch_experiment import BatchExperiment
 from ...gates import X12Gate
-from ...util.pulse_area import grounded_gauss_area, rabi_cycles_per_area
+from ...util.pulse_area import gs_effective_duration, rabi_cycles_per_area
 
 
 class CRAngle(MapToPhysicalQubits, BaseExperiment):
@@ -256,12 +256,9 @@ class FineCRAngleCal(BaseCalibrationExperiment, CRAngleCounterScan):
         angles: Optional[Sequence[float]] = None,
         counter_angles: Optional[Sequence[float]] = None
     ):
-        sigma = calibrations.get_parameter_value('sigma', physical_qubits, schedule_name)
-        rsr = calibrations.get_parameter_value('rsr', physical_qubits, schedule_name)
-        width = 256
-        effective_duration = grounded_gauss_area(sigma, rsr) + width
+        duration = gs_effective_duration(calibrations, physical_qubits, 'cr', width=256)
         # CR at the current width is expected to generate at most pi/2 - let counter give 2pi/5
-        counter_amp = 0.2 / (rabi_cycles_per_area(backend, physical_qubits[1]) * effective_duration)
+        counter_amp = 0.2 / (rabi_cycles_per_area(backend, physical_qubits[1]) * duration)
 
         assign_params = {
             cal_parameter_name: Parameter('angle'),

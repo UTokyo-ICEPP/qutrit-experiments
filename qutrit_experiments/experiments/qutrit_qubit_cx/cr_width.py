@@ -20,7 +20,6 @@ from qiskit_experiments.framework import AnalysisResultData, BackendTiming, Expe
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ...util.bloch import so3_cartesian, so3_cartesian_axnorm, so3_cartesian_params
-from ...util.pulse_area import grounded_gauss_area
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
 from .util import RCRType, get_cr_schedules, get_margin, make_cr_circuit, make_crcr_circuit

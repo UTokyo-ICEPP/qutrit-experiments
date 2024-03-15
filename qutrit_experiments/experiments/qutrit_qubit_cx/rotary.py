@@ -14,7 +14,7 @@ from qiskit_experiments.calibration_management import (BaseCalibrationExperiment
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 
-from ...util.pulse_area import grounded_gauss_area, rabi_cycles_per_area
+from ...util.pulse_area import gs_effective_duration, rabi_cycles_per_area
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
 from .util import RCRType, get_cr_schedules, make_crcr_circuit, make_rcr_circuit
@@ -28,11 +28,8 @@ def rotary_angle_per_amp(
     calibrations: Calibrations,
     qubits: tuple[int, int]
 ) -> float:
-    sigma = calibrations.get_parameter_value('sigma', qubits, 'cr')
-    rsr = calibrations.get_parameter_value('rsr', qubits, 'cr')
-    width = calibrations.get_parameter_value('width', qubits, 'cr')
-    gs_area = grounded_gauss_area(sigma, rsr, gs_factor=True) + width
-    angle_per_amp = rabi_cycles_per_area(backend, qubits[1]) * twopi * gs_area
+    duration = gs_effective_duration(calibrations, qubits, 'cr')
+    angle_per_amp = rabi_cycles_per_area(backend, qubits[1]) * twopi * duration
     angle_per_amp *= 2. # Un-understood empirical factor 2
     return angle_per_amp
 
