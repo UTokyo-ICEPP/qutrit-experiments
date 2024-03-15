@@ -117,7 +117,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         options.intercept_min = -np.pi / 2.
         options.intercept_max_wind = 0
         return options
-    
+
     def _get_p0s(self, unitary_params, control_state):
         unitary_params_n = unp.nominal_values(unitary_params)
         axes = unitary_params_n[:, control_state].copy()
@@ -139,7 +139,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         p0s[0, ..., 2:] = [psi, phi]
         p0s[1, ..., 2:] = [np.pi - psi, np.pi + phi]
         return p0s.reshape(-1, 4)
-    
+
     def _postprocess_params(self, upopt: np.ndarray, norm: float):
         if upopt[0].n < 0.:
             # Slope must be positive - invert the sign and the axis orientation
@@ -237,7 +237,7 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['width', 'rcr_type', 'qutrit_qubit_cx_offsetrx'],
+        cal_parameter_name: list[str] = ['width', 'rcr_type', 'qutrit_qubit_cx_sign'],
         schedule_name: str = ['cr', None, None],
         auto_update: bool = True,
         widths: Optional[Sequence[float]] = None
@@ -266,10 +266,12 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         slope, intercept, psi, phi = np.stack([unp.nominal_values(fit_params[ic]) for ic in range(3)],
                                               axis=1)
 
+        phi_offset = phi[[2, 0]] # RCRType [X, X12]
+        n_x = np.cos(phi[None, :] - phi_offset[:, None])
+
         def crcr_x_components(rval):
-            phi_offset = phi[[2, 0]] # RCRType [X, X12]
             # Shape [rcr_type, control]
-            v_x = (rval * np.sin(psi))[None, :] * np.cos(phi[None, :] - phi_offset[:, None])
+            v_x = (rval * np.sin(psi))[None, :] * n_x
             # X component in block 0 of CRCR for two RCR types
             crcr_v_0x = 2. * v_x[[0, 1], [2, 0]]
             # X component in block 1 of CRCR for two RCR types
@@ -281,22 +283,21 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         crcr_offset_0, crcr_offset_1 = crcr_x_components(intercept)
         crcr_rel_freqs = crcr_omega_1 - crcr_omega_0
         crcr_rel_offsets = crcr_offset_1 - crcr_offset_0
-        # Whichever RCR type with larger angular rate will be used
-        rcr_type_index = np.argmax(np.abs(crcr_rel_freqs))
+        # rel_freq * width + rel_offset = π + 2nπ
+        # -> width = [(π - rel_offset) / rel_freq] % (2π / |rel_freq|)
+        widths = ((np.pi - crcr_rel_offsets) / crcr_rel_freqs) % (twopi / np.abs(crcr_rel_freqs))
+        # RCR type with shorter width will be used
+        rcr_type_index = np.argmin(widths)
         rcr_type = [RCRType.X, RCRType.X12][rcr_type_index]
-        # Compute the width accounting for the gaussiansquare flanks
-        rel_offset = crcr_rel_offsets[rcr_type_index]
-        rel_freq = crcr_rel_freqs[rcr_type_index]
-        samples = ((np.pi - rel_offset) / rel_freq) % (twopi / np.abs(rel_freq))
 
-        cr_width = BackendTiming(self.backend).round_pulse(samples=samples)
+        cr_width = BackendTiming(self.backend).round_pulse(samples=widths[rcr_type_index])
         # We start with a high CR amp -> width estimate should be on the longer side to allow
         # downward adjustment of amp
         cr_width += self._backend_data.granularity
 
-        offset_rx_angle = -(crcr_omega_0[rcr_type_index] * cr_width + crcr_offset_0[rcr_type_index])
+        cx_sign = np.sign((crcr_rel_freqs * widths + crcr_rel_offsets)[rcr_type_index])
 
-        values = [cr_width, int(rcr_type), offset_rx_angle]
+        values = [cr_width, int(rcr_type), cx_sign]
         for pname, sname, value in zip(self._param_name, self._sched_name, values):
             BaseUpdater.add_parameter_value(
                 self._cals, experiment_data, value, pname, schedule=sname,
