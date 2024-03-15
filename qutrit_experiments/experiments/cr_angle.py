@@ -12,10 +12,12 @@ import numpy as np
 from scipy.optimize import least_squares
 from uncertainties import correlated_values, unumpy as unp
 from qiskit import QuantumCircuit
-from qiskit.circuit import Gate
+from qiskit.circuit import Gate, Parameter
 from qiskit.providers import Backend
 from qiskit.providers.options import Options
 from qiskit.pulse import ScheduleBlock
+from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
+from qiskit_experiments.calibration_management.update_library import BaseUpdater
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.curve_analysis.curve_data import ParameterRepr
 from qiskit_experiments.framework import AnalysisResultData, BaseExperiment, ExperimentData
@@ -24,6 +26,8 @@ from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 from ..experiment_mixins import MapToPhysicalQubits
 from ..framework.compound_analysis import CompoundAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
+from ..gates import X12Gate
+from ..util.pulse_area import grounded_gauss_area, rabi_cycles_per_area
 
 
 class CRAngle(MapToPhysicalQubits, BaseExperiment):
@@ -38,7 +42,7 @@ class CRAngle(MapToPhysicalQubits, BaseExperiment):
         options.schedule = None
         options.control_state = None
         options.angle_param_name = 'angle'
-        options.angles = np.linspace(-np.pi, np.pi, 32, endpoint=False)
+        options.angles = np.linspace(-np.pi, np.pi, 16, endpoint=False)
         return options
 
     def __init__(
@@ -70,9 +74,13 @@ class CRAngle(MapToPhysicalQubits, BaseExperiment):
         angle = sched.get_parameters(self.experiment_options.angle_param_name)[0]
 
         template = QuantumCircuit(2, 1)
-        if self.experiment_options.control_state == 1:
+        if self.experiment_options.control_state != 0:
             template.x(0)
+        if self.experiment_options.control_state == 2:
+            template.append(X12Gate(), [0])
         template.append(Gate('cr', 2, [angle]), [0, 1])
+        if self.experiment_options.control_state == 2:
+            template.append(X12Gate(), [0])        
         template.measure(1, 0)
         template.add_calibration('cr', self.physical_qubits, sched, [angle])
 
@@ -86,6 +94,7 @@ class CRAngle(MapToPhysicalQubits, BaseExperiment):
 
 
 class CRAngleAnalysis(curve.CurveAnalysis):
+    """Analysis for CRAngle."""
     def __init__(self, name: Optional[str] = None):
         super().__init__(
             models=[
@@ -167,6 +176,7 @@ class CRAngleCounterScan(BatchExperiment):
 
 
 class CRAngleCounterScanAnalysis(CompoundAnalysis):
+    """Analysis for CRAngleCounterScan."""
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
@@ -230,3 +240,60 @@ class CRAngleCounterScanAnalysis(CompoundAnalysis):
             figures.append(plotter.figure())
 
         return analysis_results, figures
+
+
+class FineCRAngleCal(BaseCalibrationExperiment, CRAngleCounterScan):
+    """Calibration of CR angle using CRAngleCounterScan."""
+    def __init__(
+        self,
+        physical_qubits: Sequence[int],
+        calibrations: Calibrations,
+        control_state: int,
+        backend: Optional[Backend] = None,
+        cal_parameter_name: str = 'cr_base_angle',
+        schedule_name: str = 'cr',
+        auto_update: bool = True,
+        angles: Optional[Sequence[float]] = None,
+        counter_angles: Optional[Sequence[float]] = None
+    ):
+        sigma = calibrations.get_parameter_value('sigma', physical_qubits, schedule_name)
+        rsr = calibrations.get_parameter_value('rsr', physical_qubits, schedule_name)
+        width = 256
+        effective_duration = grounded_gauss_area(sigma, rsr) + width
+        # CR at the current width is expected to generate at most pi/2 - let counter give 2pi/5
+        counter_amp = 0.2 / (rabi_cycles_per_area(backend, physical_qubits[1]) * effective_duration)
+
+        assign_params = {
+            cal_parameter_name: Parameter('angle'),
+            'cr_stark_amp': 0.,
+            'counter_amp': counter_amp,
+            'counter_base_angle': Parameter('counter_angle'),
+            'counter_stark_amp': 0.,
+            'width': width
+        }
+        schedule = calibrations.get_schedule(schedule_name, physical_qubits,
+                                             assign_params=assign_params)
+        
+        super().__init__(
+            calibrations,
+            physical_qubits,
+            schedule,
+            control_state,
+            backend=backend,
+            schedule_name=schedule_name,
+            cal_parameter_name=cal_parameter_name,
+            auto_update=auto_update,
+            angle_param_name='angle',
+            counter_angle_param_name='counter_angle',
+            angles=angles,
+            counter_angles=counter_angles
+        )
+
+    def _attach_calibrations(self, circuit: QuantumCircuit):
+        pass
+
+    def update_calibrations(self, experiment_data: ExperimentData):
+        BaseUpdater.update(
+            self._cals, experiment_data, self._param_name, schedule=self._sched_name,
+            group=self.experiment_options.group, fit_parameter='angle'
+        )
