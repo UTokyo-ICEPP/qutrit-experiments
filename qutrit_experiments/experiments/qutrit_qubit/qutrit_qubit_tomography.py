@@ -477,6 +477,7 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
                     )
                     if self.options.simul_fit:
                         plotter.set_series_data(
+                            f'c{control_state}',
                             x_interp=x_interp,
                             y_interp=xyz_preds[ic][:, iop]
                         )
@@ -557,6 +558,7 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
                         prep_unitaries.get(control_state, np.eye(3)))
 
             p0s = self._get_p0s(unitary_params, control_state)
+            logger.debug('Control state %d initial parameters %s', control_state, p0s)
             vobj, vsolve, hess = self.fit_functions(p0s, *fit_args)
 
             fit_result = vsolve(p0s, *fit_args)
@@ -596,8 +598,8 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
     @classmethod
     def setup_fitter(cls, params, xvals, indices, expvals, expvals_err, prep_unitary):
         def objective(params, xvals, indices, expvals, expvals_err, prep_unitary):
-            xyz = cls.unitary_params(params, xvals, npmod=jnp)
-            unitaries = prep_unitary @ so3_cartesian(xyz, npmod=jnp)
+            xyzs = cls.unitary_params(params, xvals, npmod=jnp)
+            unitaries = prep_unitary @ so3_cartesian(xyzs, npmod=jnp)
             r_elements = unitaries[indices]
             return jnp.sum(jnp.square((r_elements - expvals) / expvals_err))
 

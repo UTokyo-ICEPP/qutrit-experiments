@@ -129,7 +129,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         phi = np.arctan2(mean_ax[1], mean_ax[0])
 
         # Make a mesh of slope and intercept values as initial value candidates
-        slopes = np.linspace(0., np.pi, 4)
+        slopes = np.linspace(0.01, np.pi, 4)
         intercepts = np.linspace(0., twopi, 4, endpoint=False)
         islope, iint = np.ogrid[:len(slopes), :len(intercepts)]
         p0s = np.empty((2, len(slopes), len(intercepts), 4))
@@ -166,8 +166,8 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
             npmod.cos(psi)
         ])
         wval_dims = tuple(range(len(wval.shape)))
-        return np.expand_dims(angle, axis=-1) * np.expand_dims(axis, axis=wval_dims)
-    
+        return npmod.expand_dims(angle, axis=-1) * npmod.expand_dims(axis, axis=wval_dims)
+
 
 class CycledRepeatedCRWidthAnalysis(CRWidthAnalysis):
     """Analysis for CycledRepeatedCRWidth."""
