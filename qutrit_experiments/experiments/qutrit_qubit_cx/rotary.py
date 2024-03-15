@@ -175,7 +175,7 @@ class MinimumYZRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         analysis_results, figures = super()._run_additional_analysis(experiment_data,
                                                                      analysis_results, figures)
-        
+
         amplitudes = np.array(experiment_data.metadata['scan_values'][0])
         unitary_params = next(res for res in analysis_results
                               if res.name == 'unitary_parameters').value
@@ -202,7 +202,7 @@ class MinimumYZRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
             # Pick the rotary value with the smallest y^2 + z^2
             filter = good_fit
             iamp = np.argmin(np.sum(np.square(unitary_params_n[filter]), axis=(1, 2)))
-        
+
         analysis_results.append(
             AnalysisResultData(name='rotary_amp', value=amplitudes[filter][iamp])
         )
@@ -246,8 +246,7 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, RepeatedCRRotaryAm
         pass
 
     def update_calibrations(self, experiment_data: ExperimentData):
-        result_index = self.experiment_options.result_index
-        amplitude = BaseUpdater.get_value(experiment_data, 'rotary_amp', result_index)
+        amplitude = experiment_data.analysis_results('rotary_amp', block=False).value
         angle = 0.
         if amplitude < 0.:
             amplitude *= -1.
