@@ -128,59 +128,6 @@ class QutritCRTargetStarkAnalysis(QutritQubitTomographyScanAnalysis):
         return analysis_results, figures
 
 
-
-class QutritCRTargetStarkSingleControlCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
-    """UT scan over target Stark amplitudes to minimize the z component of the unitary of a single
-    control state block."""
-    def __init__(
-        self,
-        physical_qubits: Sequence[int],
-        calibrations: Calibrations,
-        control_state: int,
-        backend: Optional[Backend] = None,
-        cal_parameter_name: str = 'counter_stark_amp',
-        schedule_name: str = 'cr',
-        amplitudes: Optional[Sequence[float]] = None,
-        measure_preparations: bool = True,
-        auto_update: bool = True
-    ):
-        counter_stark_amp = Parameter(cal_parameter_name)
-        assign_params = {cal_parameter_name: counter_stark_amp}
-        schedule = calibrations.get_schedule(schedule_name, physical_qubits,
-                                             assign_params=assign_params)
-
-        circuit = QuantumCircuit(2)
-        circuit.append(Gate('cr', 2, [counter_stark_amp]), [0, 1])
-        circuit.add_calibration('cr', physical_qubits, schedule, [counter_stark_amp])
-
-        if amplitudes is None:
-            amplitudes = np.linspace(0.005, 0.16, 6)
-
-        super().__init__(
-            calibrations,
-            physical_qubits,
-            circuit,
-            param_name=cal_parameter_name,
-            values=amplitudes,
-            measure_preparations=measure_preparations,
-            control_states=(control_state,),
-            analysis_cls=QutritCRTargetStarkAnalysis,
-            backend=backend,
-            schedule_name=schedule_name,
-            cal_parameter_name=cal_parameter_name,
-            auto_update=auto_update
-        )
-
-    def _attach_calibrations(self, circuit: QuantumCircuit):
-        pass
-
-    def update_calibrations(self, experiment_data: ExperimentData):
-        BaseUpdater.update(
-            self._cals, experiment_data, self._param_name, schedule=self._sched_name,
-            group=self.experiment_options.group, fit_parameter='counter_stark_amp'
-        )
-
-
 class QutritCRControlStarkCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
     """UT scan over control Stark amplitudes to minimize the zz & ζz components of the unitary."""
     def __init__(
