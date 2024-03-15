@@ -124,7 +124,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         options.intercept_min = -np.pi / 2.
         options.intercept_max_wind = 0
         return options
-    
+
     @staticmethod
     def axis_from_params(params, npmod=np):
         psi, phi = params[2:]
@@ -133,7 +133,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
             npmod.sin(psi) * npmod.sin(phi),
             npmod.cos(psi)
         ])
-    
+
     @staticmethod
     def angle_from_params(params, wval):
         slope, intercept = params[:2]
@@ -147,7 +147,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
             unitaries = prep_unitary @ so3_cartesian_axnorm(axis, angles, npmod=jnp)
             r_elements = unitaries[indices]
             return jnp.sum(jnp.square((r_elements - expvals) / expvals_err))
-        
+
         key = (widths.shape[0], expvals.shape[0])
         args = (widths, indices, expvals, expvals_err, prep_unitary)
         in_axes = [0] + [None] * len(args)
@@ -156,7 +156,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         vsolve = jax.jit(jax.vmap(solver.run, in_axes=in_axes)).lower(params, *args).compile()
         hess = jax.jit(jax.hessian(objective)).lower(params[0], *args).compile()
         cls._fit_functions[key] = (vobj, vsolve, hess)
-                                   
+
     @classmethod
     def fit_functions(cls, params, widths, indices, expvals, expvals_err, prep_unitary):
         key = (widths.shape[0], expvals.shape[0])
@@ -165,7 +165,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
                 cls.setup_fitter(params, widths, indices, expvals, expvals_err, prep_unitary)
                 fns = cls._fit_functions[key]
         return fns
-    
+
     _lock = Lock()
     _fit_functions = {}
 
@@ -263,7 +263,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
             iopt = np.argmin(fvals)
             popt = np.array(fit_result.params[iopt])
             logger.debug('Control state %d optimal parameters %s', control_state, popt)
-            
+
             if popt[0] < 0.:
                 # Slope must be positive - invert the sign and the axis orientation
                 popt[0:2] *= -1.
@@ -276,7 +276,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
             # Keep phi in [-pi, pi]
             popt[3] = (popt[3] + np.pi) % twopi - np.pi
             popts[control_state] = popt
-            
+
             logger.debug('Control state %d adjusted parameters %s', control_state, popt)
 
             hess_args = (norm_widths, indices, expvals_n, expvals_e,
@@ -367,7 +367,7 @@ class CycledRepeatedCRWidthAnalysis(CRWidthAnalysis):
 
 class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
     """Rough CR width calibration based on pure-X approximationof the CR unitaries.
-    
+
     Type X (2):    RCR angles = [θ1+θ0, θ0+θ1, 2θ2]
                   CRCR angles = [2θ2, 2θ0+2θ1-2θ2, 2θ2]
     Type X12 (0):  RCR angles = [2θ0, θ2+θ1, θ1+θ2]
@@ -405,27 +405,43 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
     def update_calibrations(self, experiment_data: ExperimentData):
         fit_params = experiment_data.analysis_results('unitary_linear_fit_params',
                                                       block=False).value
-        slope, _, psi, _ = np.stack([unp.nominal_values(fit_params[ic]) for ic in range(3)],
-                                      axis=1)
-        
-        # Polar rotation rate
-        omega_t = slope * np.sin(psi)
+        slope, intercept, psi, phi = np.stack([unp.nominal_values(fit_params[ic]) for ic in range(3)],
+                                              axis=1)
+
+        # Approximate transverse Hamiltonian and offset
+        # Shape [control, xy]
+        h_t = (slope * np.sin(psi))[:, None] * np.stack([np.cos(phi), np.sin(phi)], axis=1)
+        offset_t = (intercept * np.sin(psi))[:, None] * np.stack([np.cos(phi), np.sin(phi)], axis=1)
+        # Rotate to align RCR non-participating state to +X
+        phis = phi[[2, 0]] # RCRType [X, X12]
+        rotation = np.array([[np.cos(phis), np.sin(phis)],
+                             [-np.sin(phis), np.cos(phis)]]).transpose((2, 0, 1))
+        # Rotated X Hamiltonian
+        # Shape [rcr_type, control]
+        h_x = np.einsum('rij,cj->rci', rotation, h_t)[..., 0]
+        offset_x = np.einsum('rij,cj->rci', rotation, offset_t)[..., 0]
         # Angle per CR width of block 0 of CRCR for two RCR types
-        crcr_omega_0 = 2. * omega_t[[2, 0]]
+        crcr_omega_0 = 2. * h_x[[0, 1], [2, 0]]
         # Angle per CR width of block 1 of CRCR for two RCR types
-        crcr_omega_1 = 2. * np.sum(omega_t[None, :] * np.array([[1., 1., -1.], [-1., 1., 1.]]),
-                                   axis=1)
+        crcr_omega_1 = 2. * np.sum(h_x * np.array([[1., 1., -1.], [-1., 1., 1.]]),
+                                    axis=1)
         crcr_rel_freqs = crcr_omega_1 - crcr_omega_0
+        crcr_offset_0 = 2. * offset_x[[0, 1], [2, 0]]
+        crcr_offset_1 = 2. * np.sum(offset_x * np.array([[1., 1., -1.], [-1., 1., 1.]]),
+                                    axis=1)
+        crcr_rel_offsets = crcr_offset_1 - crcr_offset_0
         # Whichever RCR type with larger angular rate will be used
         rcr_type_index = np.argmax(np.abs(crcr_rel_freqs))
         rcr_type = [RCRType.X, RCRType.X12][rcr_type_index]
         # Compute the width accounting for the gaussiansquare flanks
-        sigma = self._cals.get_parameter_value('sigma', self.physical_qubits, self._sched_name[0])
-        rsr = self._cals.get_parameter_value('rsr', self.physical_qubits, self._sched_name[0])
-        flank = grounded_gauss_area(sigma, rsr, True)
-        cr_width = BackendTiming(self._backend).round_pulse(
-            samples=np.pi / np.abs(crcr_rel_freqs[rcr_type_index]) - flank
-        )
+        rel_offset = crcr_rel_offsets[rcr_type_index]
+        rel_freq = crcr_rel_freqs[rcr_type_index]
+        samples = ((np.pi - rel_offset) / rel_freq) % (twopi / np.abs(rel_freq))
+
+        cr_width = BackendTiming(self.backend).round_pulse(samples=samples)
+        # We start with a high CR amp -> width estimate should be on the longer side to allow
+        # downward adjustment of amp
+        cr_width += self._backend_data.granularity
 
         values = [cr_width, int(rcr_type)]
         for pname, sname, value in zip(self._param_name, self._sched_name, values):
