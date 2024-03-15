@@ -1,25 +1,18 @@
 from collections.abc import Sequence
 import logging
-from threading import Lock
 from typing import Any, Optional, Union
 from matplotlib.figure import Figure
-import jax
-import jax.numpy as jnp
-import jaxopt
 import numpy as np
-from uncertainties import correlated_values, unumpy as unp
+from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
 from qiskit.pulse import ScheduleBlock
 from qiskit.providers import Backend, Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
-from qiskit_experiments.database_service.exceptions import ExperimentEntryNotFound
-from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 from qiskit_experiments.framework import AnalysisResultData, BackendTiming, ExperimentData, Options
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ...util.bloch import so3_cartesian, so3_cartesian_axnorm, so3_cartesian_params
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
 from .util import RCRType, get_cr_schedules, get_margin, make_cr_circuit, make_crcr_circuit
@@ -92,6 +85,8 @@ class CycledRepeatedCRWidth(QutritQubitTomographyScan):
         margins = get_margin(risefall_duration, widths, backend)
 
         # Rename the CR parameters to distinguish crp and crm
+        # (The two schedules are separately added to the circuit and I'm not 100% sure if sharing
+        # the parameters would be safe)
         reparametrized = []
         for prefix, sched in zip(['crp', 'crm'], cr_schedules):
             assign_params = {sched.get_parameters(pname)[0]: Parameter(f'{prefix}_{pname}')
@@ -117,196 +112,62 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
-        options.parallelize_on_thread = True
-        options.width_name = 'width'
+        options.simul_fit = True
         options.tol = 1.e-4
         options.intercept_min = -np.pi / 2.
         options.intercept_max_wind = 0
         return options
+    
+    def _get_p0s(self, unitary_params, control_state):
+        unitary_params_n = unp.nominal_values(unitary_params)
+        axes = unitary_params_n[:, control_state].copy()
+        axes /= np.sqrt(np.sum(np.square(axes), axis=-1))[:, None]
+        # Align along a single orientation and take the mean
+        mean_ax = np.mean(axes * np.where(axes @ axes[0] < 0., -1., 1.)[:, None], axis=0)
+        mean_ax /= np.sqrt(np.sum(np.square(mean_ax)))
+        psi = np.arccos(min(max(mean_ax[2], -1.), 1.))
+        phi = np.arctan2(mean_ax[1], mean_ax[0])
 
-    @staticmethod
-    def axis_from_params(params, npmod=np):
-        psi, phi = params[2:]
-        return npmod.array([
+        # Make a mesh of slope and intercept values as initial value candidates
+        slopes = np.linspace(0., np.pi, 4)
+        intercepts = np.linspace(0., twopi, 4, endpoint=False)
+        islope, iint = np.ogrid[:len(slopes), :len(intercepts)]
+        p0s = np.empty((2, len(slopes), len(intercepts), 4))
+        p0s[..., 0] = slopes[islope]
+        p0s[..., 1] = intercepts[iint]
+        # Use both orientations
+        p0s[0, ..., 2:] = [psi, phi]
+        p0s[1, ..., 2:] = [np.pi - psi, np.pi + phi]
+        return p0s.reshape(-1, 4)
+    
+    def _postprocess_params(self, upopt: np.ndarray, norm: float):
+        if upopt[0].n < 0.:
+            # Slope must be positive - invert the sign and the axis orientation
+            upopt[0:2] *= -1.
+            upopt[2] = np.pi - upopt[2]
+            upopt[3] += np.pi
+        # Keep the intercept within the maximum winding number
+        # Intercept must be positive in principle but we allow some slack
+        if upopt[1].n < self.options.intercept_min or upopt[1].n > 0.:
+            upopt[1] %= twopi * (self.options.intercept_max_wind + 1)
+        # Keep phi in [-pi, pi]
+        upopt[3] = (upopt[3] + np.pi) % twopi - np.pi
+        upopt[0] /= norm
+
+    @classmethod
+    def unitary_params(cls, fit_params, wval, npmod=np):
+        if npmod is np:
+            wval = np.asarray(wval)
+        slope, intercept, psi, phi = fit_params
+        angle = wval * slope + intercept
+        axis = npmod.array([
             npmod.sin(psi) * npmod.cos(phi),
             npmod.sin(psi) * npmod.sin(phi),
             npmod.cos(psi)
         ])
-
-    @staticmethod
-    def angle_from_params(params, wval):
-        slope, intercept = params[:2]
-        return wval * slope + intercept
-
-    @classmethod
-    def setup_fitter(cls, params, widths, indices, expvals, expvals_err, prep_unitary):
-        def objective(params, widths, indices, expvals, expvals_err, prep_unitary):
-            axis = cls.axis_from_params(params, npmod=jnp)
-            angles = cls.angle_from_params(params, widths)
-            unitaries = prep_unitary @ so3_cartesian_axnorm(axis, angles, npmod=jnp)
-            r_elements = unitaries[indices]
-            return jnp.sum(jnp.square((r_elements - expvals) / expvals_err))
-
-        key = (widths.shape[0], expvals.shape[0])
-        args = (widths, indices, expvals, expvals_err, prep_unitary)
-        in_axes = [0] + [None] * len(args)
-        vobj = jax.jit(jax.vmap(objective, in_axes=in_axes)).lower(params, *args).compile()
-        solver = jaxopt.GradientDescent(objective, maxiter=10000, tol=1.e-4)
-        vsolve = jax.jit(jax.vmap(solver.run, in_axes=in_axes)).lower(params, *args).compile()
-        hess = jax.jit(jax.hessian(objective)).lower(params[0], *args).compile()
-        cls._fit_functions[key] = (vobj, vsolve, hess)
-
-    @classmethod
-    def fit_functions(cls, params, widths, indices, expvals, expvals_err, prep_unitary):
-        key = (widths.shape[0], expvals.shape[0])
-        with cls._lock:
-            if (fns := cls._fit_functions.get(key)) is None:
-                cls.setup_fitter(params, widths, indices, expvals, expvals_err, prep_unitary)
-                fns = cls._fit_functions[key]
-        return fns
-
-    _lock = Lock()
-    _fit_functions = {}
-
-    def _run_additional_analysis(
-        self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
-    ) -> tuple[list[AnalysisResultData], list[Figure]]:
-        """Fit exp[-i/2 * (slope * width + intercept) * axis.pauli] to the expectation values."""
-        analysis_results, figures = super()._run_additional_analysis(experiment_data,
-                                                                     analysis_results, figures)
-
-        # Shape [num_widths, num_control_states, 3]
-        unitary_params = next(res.value for res in analysis_results
-                              if res.name == 'unitary_parameters')
-        unitary_params_n = unp.nominal_values(unitary_params)
-        scan_idx = experiment_data.metadata['scan_parameters'].index(self.options.width_name)
-        widths = np.array(experiment_data.metadata['scan_values'][scan_idx])
-        # Use normalized widths throughout
-        widths_norm = widths[-1] - widths[0]
-        norm_widths = widths / widths_norm
-
-        # Use the first child data for control state information
-        first = experiment_data.child_data(0)
-        control_states = first.metadata['control_states']
-        index_state_map = {idx: first.child_data(idx).metadata['control_state']
-                           for idx in first.metadata['component_child_index']
-                           if not first.child_data(idx).metadata.get('state_preparation', False)}
-        try:
-            prep_params = first.analysis_results('prep_parameters').value
-        except ExperimentEntryNotFound:
-            prep_unitaries = {}
-        else:
-            prep_unitaries = {state: so3_cartesian(unp.nominal_values(params))
-                              for state, params in prep_params.items()}
-
-        if (data_processor := self.options.data_processor) is None:
-            data_processor = DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
-
-        axes = ['x', 'y', 'z']
-
-        expvals = {state: [] for state in control_states}
-        iwidths = {state: [] for state in control_states}
-        initial_states = {state: [] for state in control_states}
-        meas_bases = {state: [] for state in control_states}
-        for datum, expval in zip(experiment_data.data(), data_processor(experiment_data.data())):
-            scan_metadata = datum['metadata']
-            qqt_metadata = scan_metadata['composite_metadata'][0]
-            ut_metadata = qqt_metadata['composite_metadata'][0]
-            if (control_state := index_state_map.get(qqt_metadata['composite_index'][0])) is None:
-                continue
-
-            iwidth = scan_metadata['composite_index'][0]
-            expvals[control_state].append(expval)
-            iwidths[control_state].append(iwidth)
-            initial_states[control_state].append(axes.index(ut_metadata['initial_state']))
-            meas_bases[control_state].append(axes.index(ut_metadata['meas_basis']))
-
-        # Fit in the unitary space
-        popts = {}
-        popt_ufloats = {}
-        for control_state in control_states:
-            axes = unitary_params_n[:, control_state].copy()
-            axes /= np.sqrt(np.sum(np.square(axes), axis=-1))[:, None]
-            # Align along a single orientation and take the mean
-            mean_ax = np.mean(axes * np.where(axes @ axes[0] < 0., -1., 1.)[:, None], axis=0)
-            mean_ax /= np.sqrt(np.sum(np.square(mean_ax)))
-            psi = np.arccos(min(max(mean_ax[2], -1.), 1.))
-            phi = np.arctan2(mean_ax[1], mean_ax[0])
-
-            # Make a mesh of slope and intercept values as initial value candidates
-            slopes = np.linspace(0., np.pi, 4)
-            intercepts = np.linspace(0., twopi, 4, endpoint=False)
-            islope, iint = np.ogrid[:len(slopes), :len(intercepts)]
-            p0s = np.empty((2, len(slopes), len(intercepts), 4))
-            p0s[..., 0] = slopes[islope]
-            p0s[..., 1] = intercepts[iint]
-            # Use both orientations
-            p0s[0, ..., 2:] = [psi, phi]
-            p0s[1, ..., 2:] = [np.pi - psi, np.pi + phi]
-            p0s = p0s.reshape(-1, 4)
-
-            indices = (iwidths[control_state], meas_bases[control_state],
-                       initial_states[control_state])
-            expvals_n = unp.nominal_values(expvals[control_state])
-            expvals_e = unp.std_devs(expvals[control_state])
-            fit_args = (norm_widths, indices, expvals_n, expvals_e / np.mean(expvals_e),
-                        prep_unitaries.get(control_state, np.eye(3)))
-
-            vobj, vsolve, hess = self.fit_functions(p0s, *fit_args)
-
-            fit_result = vsolve(p0s, *fit_args)
-            fvals = vobj(fit_result.params, *fit_args)
-            iopt = np.argmin(fvals)
-            popt = np.array(fit_result.params[iopt])
-            logger.debug('Control state %d optimal parameters %s', control_state, popt)
-
-            if popt[0] < 0.:
-                # Slope must be positive - invert the sign and the axis orientation
-                popt[0:2] *= -1.
-                popt[2] = np.pi - popt[2]
-                popt[3] += np.pi
-            # Keep the intercept within the maximum winding number
-            # Intercept must be positive in principle but we allow some slack
-            if popt[1] < self.options.intercept_min or popt[1] > 0.:
-                popt[1] %= twopi * (self.options.intercept_max_wind + 1)
-            # Keep phi in [-pi, pi]
-            popt[3] = (popt[3] + np.pi) % twopi - np.pi
-            popts[control_state] = popt
-
-            logger.debug('Control state %d adjusted parameters %s', control_state, popt)
-
-            hess_args = (norm_widths, indices, expvals_n, expvals_e,
-                         prep_unitaries.get(control_state, np.eye(3)))
-            pcov = np.linalg.inv(hess(popt, *hess_args))
-            popt_ufloats[control_state] = np.array(correlated_values(popt, pcov))
-            popt_ufloats[control_state][0] /= widths_norm
-            popt[0] /= widths_norm
-
-        analysis_results.append(
-            AnalysisResultData('unitary_linear_fit_params', value=popt_ufloats)
-        )
-
-        if self.options.plot:
-            x_interp = np.linspace(widths[0], widths[-1], 100)
-            xyz_preds = {
-                ic: so3_cartesian_params(
-                    so3_cartesian_axnorm(
-                        self.axis_from_params(popts[ic]),
-                        self.angle_from_params(popts[ic], x_interp)
-                    )
-                )
-                for ic in control_states
-            }
-            for iax, figure in enumerate(figures[:3]):
-                ax = figure.axes[0]
-                for ic in control_states:
-                    ax.plot(x_interp, xyz_preds[ic][:, iax])
-
-        return analysis_results, figures
-
+        wval_dims = tuple(range(len(wval.shape)))
+        return np.expand_dims(angle, axis=-1) * np.expand_dims(axis, axis=wval_dims)
+    
 
 class CycledRepeatedCRWidthAnalysis(CRWidthAnalysis):
     """Analysis for CycledRepeatedCRWidth."""
@@ -328,8 +189,7 @@ class CycledRepeatedCRWidthAnalysis(CRWidthAnalysis):
         scan_idx = experiment_data.metadata['scan_parameters'].index(self.options.width_name)
         widths = np.array(experiment_data.metadata['scan_values'][scan_idx])
         x_interp = np.linspace(widths[0], widths[-1], 100)
-        fit_params = next(res.value for res in analysis_results
-                          if res.name == 'unitary_linear_fit_params')
+        fit_params = next(res.value for res in analysis_results if res.name == 'simul_fit_params')
         # Slope and intercept (with uncertainties) of x[1] - x[0]
         slope, intercept, psi, phi = [
             np.array([fit_params[0][ip], fit_params[1][ip]]) for ip in range(4)
@@ -402,8 +262,7 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         pass
 
     def update_calibrations(self, experiment_data: ExperimentData):
-        fit_params = experiment_data.analysis_results('unitary_linear_fit_params',
-                                                      block=False).value
+        fit_params = experiment_data.analysis_results('simul_fit_params', block=False).value
         slope, intercept, psi, phi = np.stack([unp.nominal_values(fit_params[ic]) for ic in range(3)],
                                               axis=1)
 

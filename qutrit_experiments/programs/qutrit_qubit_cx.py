@@ -35,7 +35,7 @@ def calibrate_qutrit_qubit_cx(
 
     # Set the target Stark frequency from observed sign of Z
     rcr_type = runner.calibrations.get_parameter_value('rcr_type', qubits)
-    fit_params = rough_width_data.analysis_results('unitary_linear_fit_params').value[rcr_type]
+    fit_params = rough_width_data.analysis_results('simul_fit_params').value[rcr_type]
     omega_z = fit_params[0] * unp.cos(fit_params[2]) / runner.backend.dt
     if abs(omega_z.n) > omega_z.std_dev:
         frequency, amp = get_stark_params(runner.backend, qubits[1], rcr_type, omega_z.n)

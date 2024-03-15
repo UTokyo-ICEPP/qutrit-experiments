@@ -246,7 +246,7 @@ def c2t_crcr_angle_width_rate(runner):
 @register_post
 def c2t_crcr_angle_width_rate(runner, experiment_data):
     # d|θ_1x - θ_0x|/dt
-    fit_params = experiment_data.analysis_results('unitary_linear_fit_params', block=False).value
+    fit_params = experiment_data.analysis_results('simul_fit_params', block=False).value
     slope, _, psi, phi = np.stack([unp.nominal_values(fit_params[ic]) for ic in range(2)], axis=1)
     runner.program_data['crcr_angle_per_width'] = slope * np.sin(psi) * np.cos(phi)
 
