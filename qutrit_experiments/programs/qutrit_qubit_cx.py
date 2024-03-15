@@ -72,11 +72,11 @@ def get_stark_params(
     targ = abs(omega_z)
     if np.amax(shifts) < targ:
         # All shifts are smaller than omega_z - increase the amplitude
-        return frequencies[np.argmax(shifts)], amp * np.sqrt(omega_z / np.amax(shifts))
+        return frequencies[np.argmax(shifts)], amp * np.sqrt(targ / np.amax(shifts))
     if not np.any(np.isclose(shifts, targ, atol=5.e+4)):
         # Shifts are either too large or too small - use the minimum above omega_z
         shifts = np.where(shifts > targ, shifts, np.inf)
-        return frequencies[np.argmin(shifts)], amp * np.sqrt(omega_z / np.amin(shifts))
+        return frequencies[np.argmin(shifts)], amp * np.sqrt(targ / np.amin(shifts))
     # Else, return the frequency & amp closest to omega_z
     idx = np.argmin(np.abs(shifts - targ))
     return frequencies[idx], amp
