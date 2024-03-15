@@ -7,7 +7,6 @@ from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit, transpile
 from qiskit.circuit import Parameter
 
-
 from ..experiment_config import ExperimentConfig, register_exp, register_post
 from ..experiments.qutrit_qubit_cx.util import (RCRType, get_cr_schedules, make_cr_circuit,
                                                 make_crcr_circuit)
@@ -15,7 +14,7 @@ from ..gates import QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES, RZ12Gate, X12Gate
 from ..transpilation.layout_and_translation import generate_translation_passmanager
 from ..transpilation.qutrit_transpiler import make_instruction_durations
 from ..transpilation.rz import ConsolidateRZAngle
-from ..util.pulse_area import rabi_cycles_per_area
+from ..util.pulse_area import gs_effective_duration, rabi_cycles_per_area
 from .common import add_readout_mitigation, qubits_assignment_error, qubits_assignment_error_post
 from .qutrit import (
     qutrit_rough_frequency,
@@ -118,6 +117,33 @@ def c2t_cr_rough_width(runner):
     )
 
 @register_exp
+@add_readout_mitigation(logical_qubits=[1])
+def c2t_cr_cr_angle(runner):
+    """CR angle calibration to eliminate the y component of RCR non-participating state."""
+    from ..experiments.qutrit_qubit.cr_angle import FineCRAngleCal
+    qubits = tuple(runner.program_data['qubits'][1:])
+    control_state = runner.calibrations.get_parameter_value('rcr_type', qubits)
+    return ExperimentConfig(
+        FineCRAngleCal,
+        qubits,
+        args={'control_state': control_state}
+    )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1])
+def c2t_cr_counter_stark_amp(runner):
+    """CR counter Stark tone amplitude calibration to eliminate the z component of RCR
+    non-participating state."""
+    from ..experiments.qutrit_qubit.qutrit_cr_sizzle import QutritCRTargetStarkCal
+    qubits = tuple(runner.program_data['qubits'][1:])
+    control_state = runner.calibrations.get_parameter_value('rcr_type', qubits)
+    return ExperimentConfig(
+        QutritCRTargetStarkCal,
+        qubits,
+        args={'control_states': (control_state,)}
+    )
+
+@register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_sizzle_t_amp_scan(runner):
     from ..experiments.qutrit_qubit.qutrit_cr_sizzle import QutritCRTargetStarkCal
@@ -133,6 +159,21 @@ def c2t_sizzle_c2_amp_scan(runner):
     return ExperimentConfig(
         QutritCRControlStarkCal,
         runner.program_data['qubits'][1:]
+    )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1])
+def c2t_rcr_rotary_amp(runner):
+    """Rotary tone amplitude calibration to minimize the y and z components of RCR."""
+    from ..experiments.qutrit_qubit_cx.rotary import RepeatedCRRotaryAmplitudeCal
+    qubits = tuple(runner.program_data['qubits'][1:])
+    duration = gs_effective_duration(runner.calibrations, qubits, 'cr')
+    cycles_per_amp = rabi_cycles_per_area(runner.backend, qubits[1]) * duration
+    amplitudes = np.linspace(2.5, 3.5, 20) / cycles_per_amp
+    return ExperimentConfig(
+        RepeatedCRRotaryAmplitudeCal,
+        qubits,
+        args={'amplitudes': amplitudes}
     )
 
 @register_exp
