@@ -5,6 +5,7 @@ Sweep the CR angle with a small X tone.
 U = exp(-i[(omega_CRx + omega_x) x + omega_CRy y] t)
 """
 from collections.abc import Sequence
+import logging
 from typing import Any, Optional, Union
 import lmfit
 from matplotlib.figure import Figure
@@ -29,12 +30,15 @@ from ...framework_overrides.batch_experiment import BatchExperiment
 from ...gates import X12Gate
 from ...util.pulse_area import gs_effective_duration, rabi_cycles_per_area
 
+logger = logging.getLogger(__name__)
+
 
 class CRAngle(MapToPhysicalQubits, BaseExperiment):
     """CR angle calibration.
 
     |<1| exp(-i/2 [(ωCRx + ωx) X + ωCRy Y] t) |0>|^2 = [sin(1/2 √[(ωCRx + ωx)^2 + ωCRy^2] t)]^2
-    = 1/2 [1 - cos(√[ωCR^2 + ωx^2 + 2 ωCR cos(phi) ωx] t))]
+    = 1/2 [1 - cos(√[ωCR^2 + ωx^2 + 2 ωCR cos(φ) ωx] t))]
+    = 1/2 [1 - cos(√[1 + sin(2θ)cos(φ)] Ωt))]  (ωx = Ω cos(θ), ωCR = Ω sin(θ))
     """
     @classmethod
     def _default_experiment_options(cls) -> Options:
@@ -70,6 +74,16 @@ class CRAngle(MapToPhysicalQubits, BaseExperiment):
         return metadata
 
     def circuits(self) -> list[QuantumCircuit]:
+        angles = self.experiment_options.angles
+        # Circuits for normalization
+        c0 = QuantumCircuit(2)
+        c0.metadata = {'series': 'spam-cal', 'xval': 0.}
+        c1 = QuantumCircuit(2)
+        c1.x(1)
+        c1.metadata = {'series': 'spam-cal', 'xval': 1.}
+
+        circuits = [c0, c1]
+
         sched = self.experiment_options.schedule
         angle = sched.get_parameters(self.experiment_options.angle_param_name)[0]
 
@@ -80,14 +94,13 @@ class CRAngle(MapToPhysicalQubits, BaseExperiment):
             template.append(X12Gate(), [0])
         template.append(Gate('cr', 2, [angle]), [0, 1])
         if self.experiment_options.control_state == 2:
-            template.append(X12Gate(), [0])        
+            template.append(X12Gate(), [0])
         template.measure(1, 0)
         template.add_calibration('cr', self.physical_qubits, sched, [angle])
 
-        circuits = []
-        for aval in self.experiment_options.angles:
+        for aval in angles:
             circuit = template.assign_parameters({angle: aval}, inplace=False)
-            circuit.metadata = {'xval': aval}
+            circuit.metadata = {'series': 'experiment', 'xval': aval}
             circuits.append(circuit)
 
         return circuits
@@ -99,41 +112,63 @@ class CRAngleAnalysis(curve.CurveAnalysis):
         super().__init__(
             models=[
                 lmfit.models.ExpressionModel(
-                    expr="amp * cos(coeff * cos(x - x0) + phase) + base",
-                    name="doublecos",
+                    expr='amp / 2. * (2. * x - 1.) + base',
+                    name='spam-cal'
+                ),
+                lmfit.models.ExpressionModel(
+                    expr='amp * cos(sqrt(1. + s * cos(x - x0)) * psi) + base',
+                    name='experiment',
                 )
             ],
             name=name
         )
-        self.set_options(result_parameters=[ParameterRepr('x0', 'angle')])
+        self.set_options(
+            data_subfit_map={
+                'spam-cal': {'series': 'spam-cal'},
+                'experiment': {'series': 'experiment'}
+            },
+            result_parameters=[ParameterRepr('x0', 'angle')],
+            bounds={
+                'psi': (0., np.inf),
+                's': (0., 1.),
+                'x0': (-np.pi, np.pi)
+            },
+            fixed_parameters={
+                # These values will be updated in _generate_fit_guesses if spam_cal data exist
+                'amp': -0.5,
+                'base': 0.5
+            }
+        )
 
     def _generate_fit_guesses(
         self,
         user_opt: curve.FitOptions,
         curve_data: curve.CurveData,
     ) -> Union[curve.FitOptions, list[curve.FitOptions]]:
-        max_abs_y, _ = curve.guess.max_height(curve_data.y, absolute=True)
-        min_abs_y, ix_min = curve.guess.min_height(curve_data.y, absolute=True)
+        spam_cal_data = curve_data.get_subset_of('spam-cal')
+        if spam_cal_data.x.shape[0] == 0:
+            p0_base = 0.5
+            p0_amp = -0.5
+        else:
+            p0_base = np.mean(spam_cal_data.y)
+            p0_amp = p0_base - np.abs(np.diff(spam_cal_data.y))
+            user_opt.p0['base'] = p0_base
+            user_opt.p0['amp'] = p0_amp
 
-        user_opt.bounds.set_if_empty(
-            amp=(-2 * max_abs_y, 2 * max_abs_y),
-            phase=(-np.pi, np.pi),
-            base=(-max_abs_y, max_abs_y),
-        )
-        p0_base = curve.guess.constant_sinusoidal_offset(curve_data.y)
-        p0_amp = curve.guess.max_height(curve_data.y - p0_base, absolute=True)[0]
-        arg_max = np.arccos((max_abs_y - p0_base) / p0_amp) # phase - coeff
-        arg_min = np.arccos((min_abs_y - p0_base) / p0_amp) # phase + coeff
-        p0_coeff = (arg_min - arg_max) / 2.
-        p0_phase = (arg_min + arg_max) / 2.
-        p0_x0 = curve_data.x[ix_min]
+        exp_data = curve_data.get_subset_of('experiment')
+        cos_val = (exp_data.y - p0_base) / p0_amp
+        cos_arg = np.arccos(np.maximum(np.minimum(cos_val, 1.), -1.))
+        max_cos_arg_sq = np.square(np.amax(cos_arg)) # (1 + s) * psi^2
+        min_cos_arg_sq = np.square(np.amin(cos_arg)) # (1 - s) * psi^2
+        psi2 = max_cos_arg_sq + min_cos_arg_sq / 2.
+        p0_psi = np.sqrt(psi2)
+        p0_s = max_cos_arg_sq / psi2 - 1.
+        p0_x0 = exp_data.x[np.argmax(cos_arg)]
 
         user_opt.p0.set_if_empty(
-            amp=p0_amp,
-            base=p0_base,
-            coeff=p0_coeff,
-            phase=p0_phase,
-            x0=p0_x0
+            x0=p0_x0,
+            psi=p0_psi,
+            s=p0_s
         )
 
         return user_opt
@@ -207,10 +242,10 @@ class CRAngleCounterScanAnalysis(CompoundAnalysis):
 
         def model(params, x):
             return params[0] * x + params[1]
-        
+
         def residual(params, x, y, yerr):
             return (model(params, x) - y) / yerr
-        
+
         def jacobian(params, x, y, yerr):
             return np.stack([x, np.ones_like(x)], axis=1) / yerr[:, None]
 
@@ -271,7 +306,7 @@ class FineCRAngleCal(BaseCalibrationExperiment, CRAngleCounterScan):
         }
         schedule = calibrations.get_schedule(schedule_name, physical_qubits,
                                              assign_params=assign_params)
-        
+
         super().__init__(
             calibrations,
             physical_qubits,
