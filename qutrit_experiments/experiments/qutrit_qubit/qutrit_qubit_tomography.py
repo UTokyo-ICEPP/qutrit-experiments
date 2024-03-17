@@ -1,6 +1,5 @@
 from collections.abc import Sequence
 import logging
-from threading import Lock
 from typing import Any, Optional, Union
 import jax
 import jax.numpy as jnp
@@ -574,27 +573,30 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
             self._postprocess_params(upopt, xvals_norm)
             logger.debug('Control state %d adjusted parameters %s', control_state, upopt)
             popt_ufloats[control_state] = upopt
-            
+
         return popt_ufloats
-    
+
     def _get_p0s(self, unitary_params: np.ndarray, control_state: int):
         raise NotImplementedError()
-    
+
     def _postprocess_params(self, upopt: np.ndarray, norm: float):
         return
-    
-    _lock = Lock()
-    _fit_functions_cache = {}
+
+    _lock = None
+    _fit_functions_cache = None
 
     @classmethod
-    def fit_functions(cls, params, widths, indices, expvals, expvals_err, prep_unitary):
-        key = (widths.shape[0], expvals.shape[0])
+    def fit_functions(cls, params, xvals, indices, expvals, expvals_err, prep_unitary):
+        key = (xvals.shape[0], expvals.shape[0])
         with cls._lock:
-            return cls._fit_functions_cache.setdefault(
-                key,
-                cls.setup_fitter(params, widths, indices, expvals, expvals_err, prep_unitary)
-            )
-    
+            if (functions := cls._fit_functions_cache.get(key)) is None:
+                logger.debug('Compiling fit functions for %s', key)
+                functions = cls._fit_functions_cache.setdefault(
+                    key,
+                    cls.setup_fitter(params, xvals, indices, expvals, expvals_err, prep_unitary)
+                )
+        return functions
+
     @classmethod
     def setup_fitter(cls, params, xvals, indices, expvals, expvals_err, prep_unitary):
         def objective(params, xvals, indices, expvals, expvals_err, prep_unitary):
@@ -603,14 +605,13 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
             r_elements = unitaries[indices]
             return jnp.sum(jnp.square((r_elements - expvals) / expvals_err))
 
-        key = (xvals.shape[0], expvals.shape[0])
         args = (xvals, indices, expvals, expvals_err, prep_unitary)
         in_axes = [0] + [None] * len(args)
         vobj = jax.jit(jax.vmap(objective, in_axes=in_axes)).lower(params, *args).compile()
         solver = jaxopt.GradientDescent(objective, maxiter=10000, tol=1.e-4)
         vsolve = jax.jit(jax.vmap(solver.run, in_axes=in_axes)).lower(params, *args).compile()
         hess = jax.jit(jax.hessian(objective)).lower(params[0], *args).compile()
-        cls._fit_functions_cache[key] = (vobj, vsolve, hess)
+        return vobj, vsolve, hess
 
     @classmethod
     def unitary_params(cls, fit_params, xval, npmod=np):

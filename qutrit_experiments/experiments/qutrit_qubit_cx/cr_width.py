@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 import logging
+from threading import Lock
 from typing import Any, Optional, Union
 from matplotlib.figure import Figure
 import numpy as np
@@ -117,6 +118,9 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         options.intercept_min = -np.pi / 2.
         options.intercept_max_wind = 0
         return options
+
+    _lock = Lock()
+    _fit_functions_cache = {}
 
     def _get_p0s(self, unitary_params, control_state):
         unitary_params_n = unp.nominal_values(unitary_params)
@@ -250,12 +254,12 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
             calibrations,
             physical_qubits,
             schedule,
-            'width',
-            widths,
             backend=backend,
             schedule_name=schedule_name,
             cal_parameter_name=cal_parameter_name,
-            auto_update=auto_update
+            auto_update=auto_update,
+            width_param_name='width',
+            widths=widths
         )
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
