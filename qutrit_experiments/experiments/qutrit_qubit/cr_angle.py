@@ -76,10 +76,12 @@ class CRAngle(MapToPhysicalQubits, BaseExperiment):
     def circuits(self) -> list[QuantumCircuit]:
         angles = self.experiment_options.angles
         # Circuits for normalization
-        c0 = QuantumCircuit(2)
+        c0 = QuantumCircuit(2, 1)
+        c0.measure(1, 0)
         c0.metadata = {'series': 'spam-cal', 'xval': 0.}
-        c1 = QuantumCircuit(2)
+        c1 = QuantumCircuit(2, 1)
         c1.x(1)
+        c1.measure(1, 0)
         c1.metadata = {'series': 'spam-cal', 'xval': 1.}
 
         circuits = [c0, c1]
