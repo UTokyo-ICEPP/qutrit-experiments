@@ -119,12 +119,11 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         options.intercept_max_wind = 0
         return options
 
-    _lock = Lock()
+    _compile_lock = Lock()
     _fit_functions_cache = {}
 
-    def _get_p0s(self, unitary_params, control_state):
-        unitary_params_n = unp.nominal_values(unitary_params)
-        axes = unitary_params_n[:, control_state].copy()
+    def _get_p0s(self, unitary_params: np.ndarray):
+        axes = unp.nominal_values(unitary_params)
         axes /= np.sqrt(np.sum(np.square(axes), axis=-1))[:, None]
         # Align along a single orientation and take the mean
         mean_ax = np.mean(axes * np.where(axes @ axes[0] < 0., -1., 1.)[:, None], axis=0)
@@ -159,7 +158,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         upopt[0] /= norm
 
     @classmethod
-    def unitary_params(cls, fit_params, wval, npmod=np):
+    def unitary_params(cls, fit_params: np.ndarray, wval: np.ndarray, npmod=np):
         if npmod is np:
             wval = np.asarray(wval)
         slope, intercept, psi, phi = fit_params

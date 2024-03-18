@@ -180,8 +180,8 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
                 AnalysisResultData(name='prep_parameters', value=dict(prep_unitary_parameters))
             ])
             for control_state, prep_params in prep_unitary_parameters.items():
-                unitary = (so3_cartesian(-prep_params, npmod=unp)
-                           @ so3_cartesian(unitary_parameters[control_state], npmod=unp))
+                unitary = (so3_cartesian(unitary_parameters[control_state], npmod=unp)
+                           @ so3_cartesian(-prep_params, npmod=unp))
                 unitary_parameters[control_state] = so3_cartesian_params(unitary, npmod=unp)
 
         analysis_results.extend([
@@ -391,42 +391,47 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         figures: list[Figure]
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata['component_child_index']
-        parameters = experiment_data.metadata['scan_parameters']
-        scan_values = [np.array(v) for v in experiment_data.metadata['scan_values']]
-
-        control_states = None
-        unitaries = []
-        observeds = []
-        predicteds = []
-        prep_params = None
+        # Get the control states information (common to all children) and prep unitary params from
+        # the first child data
+        first_child = experiment_data.child_data(component_index[0])
+        control_states = first_child.metadata['control_states']
+        try:
+            prep_params = first_child.analysis_results('prep_parameters').value
+            prep_inverses = {state: so3_cartesian(-params, npmod=unp)
+                             for state, params in prep_params.items()}
+        except ExperimentEntryNotFound:
+            prep_params = {}
+            prep_inverses = None
+        
+        # Compile the child data fit results into a dict keyed on control state
+        # Optionally correct for preparation
+        unitaries = {state: [] for state in control_states}
+        observeds = {state: [] for state in control_states}
+        predicteds = {state: [] for state in control_states}
         for child_index in component_index:
             child_data = experiment_data.child_data(child_index)
-            if not control_states:
-                control_states = child_data.metadata['control_states']
-            try:
-                prep_params = child_data.analysis_results('prep_parameters').value
-                unitary_params = child_data.analysis_results('raw_parameters').value
-            except ExperimentEntryNotFound:
-                unitary_params = child_data.analysis_results('unitary_parameters').value
-            if prep_params is not None:
-                for state, params in prep_params.items():
-                    unitary = (so3_cartesian(-params, npmod=unp)
-                               @ so3_cartesian(unitary_params[state], npmod=unp))
+            unitary_params = child_data.analysis_results('unitary_parameters').value
+            observed = child_data.analysis_results('expvals_observed').value
+            predicted = child_data.analysis_results('expvals_predicted').value
+            if prep_inverses is not None and child_index != component_index[0]:
+                # first child data is already corrected
+                for state, cancellation in prep_inverses.items():
+                    unitary = so3_cartesian(unitary_params[state], npmod=unp) @ cancellation
                     unitary_params[state] = so3_cartesian_params(unitary, npmod=unp)
-            unitaries.append(unitary_params)
-            observeds.append(child_data.analysis_results('expvals_observed').value)
-            predicteds.append(child_data.analysis_results('expvals_predicted').value)
 
-        unitaries = np.array([[u[c] for c in control_states] for u in unitaries])
-        observeds = np.array([[o[(c, '')] for c in control_states] for o in observeds])
-        predicteds = np.array([[p[(c, '')] for c in control_states] for p in predicteds])
+            for state in control_states:
+                unitaries[state].append(unitary_params[state])
+                observeds[state].append(observed[(state, '')])
+                predicteds[state].append(predicted[(state, '')])
 
-        chisq = np.sum(
-            np.square((unp.nominal_values(observeds) - predicteds)
-                       / unp.std_devs(observeds)),
-            axis=2
-        )
-        chisq /= observeds.shape[2]
+        for lists in [unitaries, observeds, predicteds]:
+            for state in control_states:
+                lists[state] = np.array(lists[state])
+
+        chisq = {state: np.mean(np.square((unp.nominal_values(observeds[state]) - predicteds[state])
+                                           / unp.std_devs(observeds[state])),
+                                axis=1)
+                 for state in control_states}
 
         analysis_results.extend([
             AnalysisResultData(name='control_states', value=control_states),
@@ -440,23 +445,50 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
             ])
 
         if self.options.simul_fit:
-            popt_ufloats = self.simultaneous_fit(experiment_data, unitaries,
-                                                 self.options.data_processor)
+            # Array of init and meas should have common shapes for all xvals
+            # In fact the shape shouldn't depend on control state either unless we do something
+            # really strange
+            initial_states = {state: [] for state in control_states}
+            meas_bases = {state: [] for state in control_states}
+            axes = ['x', 'y', 'z']
+            for ut_index in first_child.metadata['component_child_index']:
+                ut_data = first_child.child_data(ut_index)
+                if ut_data.metadata.get('state_preparation', False):
+                    continue
+                control_state = ut_data.metadata['control_state']
+                for datum in ut_data.data():
+                    metadata = datum['metadata']
+                    initial_states[control_state].append(axes.index(metadata['initial_state']))
+                    meas_bases[control_state].append(axes.index(metadata['meas_basis']))
+
+            for lists in [initial_states, meas_bases]:
+                for state in control_states:
+                    lists[state] = np.array(lists[state])
+
+            # The scanned parameter must be the first in scan_values list
+            xvals = np.array(experiment_data.metadata['scan_values'][0])
+            popt_ufloats = {}
+            for state in control_states:
+                if (params := prep_params.get(state)) is not None:
+                    prep = so3_cartesian(unp.nominal_values(params))
+                else:
+                    prep = np.eye(3)
+
+                logger.debug('Performing simultaneous fit for control state %d', state)
+                popt_ufloats[state] = self.simultaneous_fit(
+                    xvals, initial_states[state], meas_bases[state], observeds[state], prep,
+                    unitaries[state]
+                )
+
             analysis_results.append(
                 AnalysisResultData('simul_fit_params', value=popt_ufloats)
             )
 
         if self.options.plot:
-            if self.options.simul_fit:
-                xvals = experiment_data.metadata['scan_values'][0]
-                x_interp = np.linspace(xvals[0], xvals[-1], 100)
-                upopts = next(res.value for res in analysis_results
-                              if res.name == 'simul_fit_params')
-                popts = {control_state: unp.nominal_values(params)
-                         for control_state, params in upopts.items()}
-                xyz_preds = [self.unitary_params(popts[control_state], x_interp)
-                             for control_state in control_states]
+            parameters = experiment_data.metadata['scan_parameters']
+            scan_values = experiment_data.metadata['scan_values']
 
+            plotters = []
             for iop, op in enumerate(['X', 'Y', 'Z']):
                 plotter = CurvePlotter(MplDrawer())
                 plotter.set_figure_options(
@@ -467,145 +499,139 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
                     plotter.set_figure_options(ylim=ylim)
                 else:
                     plotter.set_figure_options(ylim=(-np.pi - 0.1, np.pi + 0.1))
-                for ic, control_state in enumerate(control_states):
+                for control_state in control_states:
                     plotter.set_series_data(
                         f'c{control_state}',
                         x_formatted=scan_values[0],
-                        y_formatted=unp.nominal_values(unitaries[:, ic, iop]),
-                        y_formatted_err=unp.std_devs(unitaries[:, ic, iop])
+                        y_formatted=unp.nominal_values(unitaries[control_state][:, iop]),
+                        y_formatted_err=unp.std_devs(unitaries[control_state][:, iop])
                     )
-                    if self.options.simul_fit:
+                plotters.append(plotter)
+
+            if self.options.simul_fit:
+                x_interp = np.linspace(scan_values[0][0], scan_values[0][-1], 100)
+                xyz_preds = {state: self.unitary_params(unp.nominal_values(popt_ufloats[state]),
+                                                        x_interp)
+                             for state in control_states}
+
+                for iop, plotter in enumerate(plotters):
+                    for control_state in control_states:
                         plotter.set_series_data(
                             f'c{control_state}',
                             x_interp=x_interp,
-                            y_interp=xyz_preds[ic][:, iop]
+                            y_interp=xyz_preds[control_state][:, iop]
                         )
 
-                figures.append(plotter.figure())
+            figures.extend([plotter.figure() for plotter in plotters])
 
             plotter = CurvePlotter(MplDrawer())
             plotter.set_figure_options(
                 xlabel='Circuit',
                 ylabel='chisq'
             )
-            for ic, control_state in enumerate(control_states):
+            for state in control_states:
                 plotter.set_series_data(
-                    f'c{control_state}',
+                    f'c{state}',
                     x_formatted=np.arange(len(scan_values[0])),
-                    y_formatted=chisq[:, ic],
+                    y_formatted=chisq[state],
                     y_formatted_err=np.zeros_like(scan_values[0])
                 )
+                
+                if self.options.simul_fit:
+                    unitary_params = self.unitary_params(
+                        unp.nominal_values(popt_ufloats[state]), scan_values[0]
+                    )
+                    preds = so3_cartesian(unitary_params)[:, meas_bases[state], initial_states[state]]
+                    y_interp = np.mean(
+                        np.square(
+                            (unp.nominal_values(observeds[state]) - preds)
+                            / unp.std_devs(observeds[state])
+                        ),
+                        axis=1
+                    )
+                    plotter.set_series_data(
+                        f'c{state}',
+                        x_interp=np.arange(len(scan_values[0])),
+                        y_interp=y_interp
+                    )
+
             figures.append(plotter.figure())
 
         return analysis_results, figures
 
     def simultaneous_fit(
         self,
-        experiment_data: ExperimentData,
-        unitary_params: np.ndarray,
-        data_processor: Optional[DataProcessor] = None
+        xvals: np.ndarray,
+        initial_states: np.ndarray,
+        meas_bases: np.ndarray,
+        expvals: np.ndarray,
+        prep_unitary: np.ndarray,
+        unitary_params: np.ndarray
     ):
-        # The scanned parameter must be the first in scan_values list
-        xvals = np.array(experiment_data.metadata['scan_values'][0])
+        logger.debug('Simul fit input:\nxvals %s\nexpvals %s\ninitial_states %s\nmeas_bases %s',
+                     xvals, expvals, initial_states, meas_bases)
         # Use normalized xvals throughout
         xvals_norm = xvals[-1] - xvals[0]
         norm_xvals = xvals / xvals_norm
 
-        # Use the first child data for control state information
-        first = experiment_data.child_data(0)
-        control_states = first.metadata['control_states']
-        index_state_map = {idx: first.child_data(idx).metadata['control_state']
-                            for idx in first.metadata['component_child_index']
-                            if not first.child_data(idx).metadata.get('state_preparation', False)}
-        try:
-            prep_params = first.analysis_results('prep_parameters').value
-        except ExperimentEntryNotFound:
-            prep_unitaries = {}
-        else:
-            prep_unitaries = {state: so3_cartesian(unp.nominal_values(params))
-                                for state, params in prep_params.items()}
+        expvals_n = unp.nominal_values(expvals)
+        expvals_e = unp.std_devs(expvals)
+        expvals_e_norm = expvals_e / np.mean(expvals_e)
+        fit_args = (norm_xvals, meas_bases, initial_states, expvals_n, expvals_e_norm, prep_unitary)
+        p0s = self._get_p0s(unitary_params)
+        logger.debug('Initial parameters %s', p0s)
+        vobj, vsolve, hess = self.fit_functions(p0s.shape, expvals.shape)
 
-        if data_processor is None:
-            data_processor = DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
+        fit_result = vsolve(p0s, *fit_args)
+        fvals = vobj(fit_result.params, *fit_args)
+        iopt = np.argmin(fvals)
+        popt = np.array(fit_result.params[iopt])
+        logger.debug('Optimal parameters %s', popt)
 
-        axes = ['x', 'y', 'z']
+        hess_args = (norm_xvals, meas_bases, initial_states, expvals_n, expvals_e, prep_unitary)
+        pcov = np.linalg.inv(hess(popt, *hess_args))
+        upopt = np.array(correlated_values(popt, pcov))
+        self._postprocess_params(upopt, xvals_norm)
+        logger.debug('Adjusted parameters %s', upopt)
+        return upopt
 
-        expvals = {state: [] for state in control_states}
-        ixvals = {state: [] for state in control_states}
-        initial_states = {state: [] for state in control_states}
-        meas_bases = {state: [] for state in control_states}
-        for datum, expval in zip(experiment_data.data(), data_processor(experiment_data.data())):
-            scan_metadata = datum['metadata']
-            qqt_metadata = scan_metadata['composite_metadata'][0]
-            ut_metadata = qqt_metadata['composite_metadata'][0]
-            if (control_state := index_state_map.get(qqt_metadata['composite_index'][0])) is None:
-                continue
-
-            ix = scan_metadata['composite_index'][0]
-            expvals[control_state].append(expval)
-            ixvals[control_state].append(ix)
-            initial_states[control_state].append(axes.index(ut_metadata['initial_state']))
-            meas_bases[control_state].append(axes.index(ut_metadata['meas_basis']))
-
-        # Fit in the unitary space
-        popt_ufloats = {}
-        for control_state in control_states:
-            indices = (ixvals[control_state], meas_bases[control_state], initial_states[control_state])
-            expvals_n = unp.nominal_values(expvals[control_state])
-            expvals_e = unp.std_devs(expvals[control_state])
-            fit_args = (norm_xvals, indices, expvals_n, expvals_e / np.mean(expvals_e),
-                        prep_unitaries.get(control_state, np.eye(3)))
-
-            p0s = self._get_p0s(unitary_params, control_state)
-            logger.debug('Control state %d initial parameters %s', control_state, p0s)
-            vobj, vsolve, hess = self.fit_functions(p0s, *fit_args)
-
-            fit_result = vsolve(p0s, *fit_args)
-            fvals = vobj(fit_result.params, *fit_args)
-            iopt = np.argmin(fvals)
-            popt = np.array(fit_result.params[iopt])
-            logger.debug('Control state %d optimal parameters %s', control_state, popt)
-
-            prep_unitary = prep_unitaries.get(control_state, np.eye(3))
-            hess_args = (norm_xvals, indices, expvals_n, expvals_e, prep_unitary)
-            pcov = np.linalg.inv(hess(popt, *hess_args))
-            upopt = np.array(correlated_values(popt, pcov))
-            self._postprocess_params(upopt, xvals_norm)
-            logger.debug('Control state %d adjusted parameters %s', control_state, upopt)
-            popt_ufloats[control_state] = upopt
-
-        return popt_ufloats
-
-    def _get_p0s(self, unitary_params: np.ndarray, control_state: int):
+    def _get_p0s(self, unitary_params: np.ndarray):
         raise NotImplementedError()
 
     def _postprocess_params(self, upopt: np.ndarray, norm: float):
         return
 
-    _lock = None
+    _compile_lock = None
     _fit_functions_cache = None
 
     @classmethod
-    def fit_functions(cls, params, xvals, indices, expvals, expvals_err, prep_unitary):
-        key = (xvals.shape[0], expvals.shape[0])
-        with cls._lock:
+    def fit_functions(cls, params_shape: tuple[int, ...], expvals_shape: tuple[int, int]):
+        key = (params_shape, expvals_shape)
+        with cls._compile_lock:
             if (functions := cls._fit_functions_cache.get(key)) is None:
                 logger.debug('Compiling fit functions for %s', key)
-                functions = cls._fit_functions_cache.setdefault(
-                    key,
-                    cls.setup_fitter(params, xvals, indices, expvals, expvals_err, prep_unitary)
-                )
+                functions = cls.setup_fitter(params_shape, expvals_shape)
+                cls._fit_functions_cache[key] = functions
+
         return functions
 
     @classmethod
-    def setup_fitter(cls, params, xvals, indices, expvals, expvals_err, prep_unitary):
-        def objective(params, xvals, indices, expvals, expvals_err, prep_unitary):
+    def setup_fitter(cls, params_shape: tuple[int, ...], expvals_shape: tuple[int, int]):
+        def objective(params, xvals, meas_bases, initial_states, expvals, expvals_err, prep):
             xyzs = cls.unitary_params(params, xvals, npmod=jnp)
-            unitaries = prep_unitary @ so3_cartesian(xyzs, npmod=jnp)
-            r_elements = unitaries[indices]
+            unitaries = so3_cartesian(xyzs, npmod=jnp) @ prep
+            r_elements = unitaries[:, meas_bases, initial_states]
             return jnp.sum(jnp.square((r_elements - expvals) / expvals_err))
 
-        args = (xvals, indices, expvals, expvals_err, prep_unitary)
+        params = np.zeros(params_shape, dtype=float)
+        args = (
+            np.zeros(expvals_shape[0], dtype=float), # xvals
+            np.zeros(expvals_shape[1], dtype=int), # meas_bases
+            np.zeros(expvals_shape[1], dtype=int), # initial_states
+            np.zeros(expvals_shape, dtype=float), # expvals
+            np.zeros(expvals_shape, dtype=float), # expvals_err
+            np.zeros((3, 3), dtype=float) # prep
+        )
         in_axes = [0] + [None] * len(args)
         vobj = jax.jit(jax.vmap(objective, in_axes=in_axes)).lower(params, *args).compile()
         solver = jaxopt.GradientDescent(objective, maxiter=10000, tol=1.e-4)
@@ -614,5 +640,5 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         return vobj, vsolve, hess
 
     @classmethod
-    def unitary_params(cls, fit_params, xval, npmod=np):
+    def unitary_params(cls, fit_params: np.ndarray, xval: np.ndarray, npmod=np):
         raise NotImplementedError()
