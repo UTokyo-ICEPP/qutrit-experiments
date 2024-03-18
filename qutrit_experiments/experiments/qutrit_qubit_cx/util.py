@@ -80,7 +80,7 @@ def make_rcr_circuit(
 def make_crcr_circuit(
     physical_qubits: Sequence[int],
     arg: Union[tuple[ScheduleBlock, ScheduleBlock], Calibrations],
-    rx_angle: Optional[float] = None,
+    rx_angle: Optional[Union[float, Parameter]] = None,
     rcr_type: Optional[RCRType] = None,
     param_cal_groups: Optional[dict[str, str]] = None
 ) -> QuantumCircuit:
