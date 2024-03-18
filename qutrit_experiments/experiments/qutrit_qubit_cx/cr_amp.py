@@ -9,6 +9,7 @@ from qiskit.circuit import Parameter
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
+from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 
 from ...util.polynomial import PolynomialOrder
@@ -121,4 +122,14 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, RepeatedCRAmplitude):
         pass
 
     def update_calibrations(self, experiment_data: ExperimentData):
-        pass
+        fit_params = experiment_data.analysis_results('simul_fit_params', block=False)
+        nonpart_state = experiment_data.metadata['control_states'][0]
+        slope = (fit_params[1][0] - fit_params[nonpart_state][0]).n
+        intercept = (fit_params[1][1] - fit_params[nonpart_state][1]).n
+        cx_sign = self._cals.get_parameter_value('qutrit_qubit_cx_sign', self.physical_qubits)
+        target_angle = np.pi / 2. * cx_sign
+        new_amp = (target_angle - intercept) / slope
+        BaseUpdater.add_parameter_value(
+            self._cals, experiment_data, new_amp, self._param_name, schedule=self._sched_name,
+            group=self.experiment_options.group
+        )
