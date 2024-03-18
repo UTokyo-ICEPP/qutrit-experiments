@@ -8,7 +8,8 @@ from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
-from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
+from qiskit_experiments.calibration_management import (BaseCalibrationExperiment, Calibrations,
+                                                       ParameterValue)
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 
@@ -85,24 +86,30 @@ class RepeatedCRAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
 
     
 class CRRoughAmplitudeCal(BaseCalibrationExperiment, RepeatedCRAmplitude):
+    @classmethod
+    def _default_run_options(cls) -> Options:
+        options = super()._default_run_options()
+        options.calibration_qubit_index = {}
+        return options
+
     def __init__(
         self,
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        cal_parameter_name: str = 'cr_amp',
-        schedule_name: str = 'cr',
+        cal_parameter_name: list[str] = ['cr_amp', 'qutrit_qubit_cx_offsetrx'],
+        schedule_name: list[str] = ['cr', None],
         auto_update: bool = True,
         amplitudes: Optional[Sequence[float]] = None
     ):
         cr_amp = Parameter('cr_amp')
-        assign_params = {cal_parameter_name: cr_amp}
-        schedule = calibrations.get_schedule(schedule_name, physical_qubits,
+        assign_params = {cal_parameter_name[0]: cr_amp}
+        schedule = calibrations.get_schedule(schedule_name[0], physical_qubits,
                                              assign_params=assign_params)
 
         if amplitudes is None:
-            current = calibrations.get_parameter_value(cal_parameter_name, physical_qubits,
-                                                       schedule_name)
+            current = calibrations.get_parameter_value(cal_parameter_name[0], physical_qubits,
+                                                       schedule_name[0])
             amplitudes = np.linspace(current - 0.2, current + 0.05, 6)
 
         super().__init__(
@@ -117,6 +124,7 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, RepeatedCRAmplitude):
             amp_param_name='cr_amp',
             amplitudes=amplitudes
         )
+        self.set_experiment_options(calibration_qubit_index={(self._param_name[1], None): [1]})
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         pass
@@ -130,6 +138,15 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, RepeatedCRAmplitude):
         target_angle = np.pi / 2. * cx_sign
         new_amp = (target_angle - intercept) / slope
         BaseUpdater.add_parameter_value(
-            self._cals, experiment_data, new_amp, self._param_name, schedule=self._sched_name,
+            self._cals, experiment_data, new_amp, self._param_name[0], schedule=self._sched_name[0],
             group=self.experiment_options.group
         )
+
+        theta_0 = fit_params[nonpart_state][0].n * new_amp + fit_params[nonpart_state][1].n
+        param_value = ParameterValue(
+            value=-theta_0,
+            date_time=BaseUpdater._time_stamp(experiment_data),
+            group=self.experiment_options.group,
+            exp_id=experiment_data.experiment_id,
+        )
+        self._cals.add_parameter_value(param_value, self._param_name[1], self.physical_qubits[1])
