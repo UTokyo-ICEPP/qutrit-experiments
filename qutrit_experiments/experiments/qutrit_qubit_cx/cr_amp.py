@@ -130,7 +130,7 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, RepeatedCRAmplitude):
         pass
 
     def update_calibrations(self, experiment_data: ExperimentData):
-        fit_params = experiment_data.analysis_results('simul_fit_params', block=False)
+        fit_params = experiment_data.analysis_results('simul_fit_params', block=False).value
         nonpart_state = experiment_data.metadata['control_states'][0]
         slope = (fit_params[1][0] - fit_params[nonpart_state][0]).n
         intercept = (fit_params[1][1] - fit_params[nonpart_state][1]).n

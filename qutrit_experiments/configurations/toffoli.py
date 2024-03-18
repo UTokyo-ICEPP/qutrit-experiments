@@ -145,12 +145,21 @@ def c2t_cr_counter_stark_amp(runner):
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1])
-def c2t_cr_rough_cr_amp(runner):
+def c2t_rcr_rough_cr_amp(runner):
     """CR angle calibration to eliminate the y component of RCR non-participating state."""
     from ..experiments.qutrit_qubit_cx.cr_amp import CRRoughAmplitudeCal
     return ExperimentConfig(
         CRRoughAmplitudeCal,
         runner.program_data['qubits'][1:]
+    )
+
+@register_post
+def c2t_rcr_rough_cr_amp(runner, experiment_data):
+    fit_params = experiment_data.analysis_results('simul_fit_params', block=False).value
+    qubits = tuple(runner.program_data['qubits'][1:])
+    rcr_type = runner.calibrations.get_parameter_value('rcr_type', qubits)
+    runner.program_data['crcr_dxda'] = np.array(
+        [2. * fit_params[rcr_type][0].n, 2. * fit_params[1][0].n - fit_params[rcr_type][0].n]
     )
 
 @register_exp
