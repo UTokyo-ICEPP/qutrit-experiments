@@ -391,10 +391,9 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         figures: list[Figure]
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata['component_child_index']
-        # Get the control states information (common to all children) and prep unitary params from
-        # the first child data
+        control_states = experiment_data.metadata['control_states']
+        # Get the prep unitary params from the first child data
         first_child = experiment_data.child_data(component_index[0])
-        control_states = first_child.metadata['control_states']
         try:
             prep_params = first_child.analysis_results('prep_parameters').value
             prep_inverses = {state: so3_cartesian(-params, npmod=unp)

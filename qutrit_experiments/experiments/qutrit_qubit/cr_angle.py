@@ -160,7 +160,7 @@ class CRAngleAnalysis(curve.CurveAnalysis):
         cos_arg = np.arccos(np.maximum(np.minimum(cos_val, 1.), -1.))
         max_cos_arg_sq = np.square(np.amax(cos_arg)) # (1 + s) * psi^2
         min_cos_arg_sq = np.square(np.amin(cos_arg)) # (1 - s) * psi^2
-        psi2 = max_cos_arg_sq + min_cos_arg_sq / 2.
+        psi2 = (max_cos_arg_sq + min_cos_arg_sq) / 2.
         p0_psi = np.sqrt(psi2)
         p0_s = max_cos_arg_sq / psi2 - 1.
         p0_x0 = exp_data.x[np.argmax(cos_arg)]
