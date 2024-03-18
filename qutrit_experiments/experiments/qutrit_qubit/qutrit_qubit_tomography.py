@@ -578,7 +578,7 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         expvals_e = unp.std_devs(expvals)
         expvals_e_norm = expvals_e / np.mean(expvals_e)
         fit_args = (norm_xvals, meas_bases, initial_states, expvals_n, expvals_e_norm, prep_unitary)
-        p0s = self._get_p0s(unitary_params)
+        p0s = self._get_p0s(norm_xvals, unitary_params)
         logger.debug('Initial parameters %s', p0s)
         vobj, vsolve, hess = self.fit_functions(p0s.shape, expvals.shape)
 

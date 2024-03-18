@@ -109,7 +109,11 @@ class CycledRepeatedCRWidth(QutritQubitTomographyScan):
 
 
 class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
-    """Analysis for CRWidth."""
+    """Analysis for CRWidth.
+    
+    Simultaneous fit model is
+    [x, y, z] = (slope * w + intercept) * [sin(psi) * cos(phi), sin(psi) * sin(phi), cos(psi)]
+    """
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
@@ -122,7 +126,21 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
     _compile_lock = Lock()
     _fit_functions_cache = {}
 
-    def _get_p0s(self, unitary_params: np.ndarray):
+    @classmethod
+    def unitary_params(cls, fit_params: np.ndarray, wval: np.ndarray, npmod=np):
+        if npmod is np:
+            wval = np.asarray(wval)
+        slope, intercept, psi, phi = fit_params
+        angle = wval * slope + intercept
+        axis = npmod.array([
+            npmod.sin(psi) * npmod.cos(phi),
+            npmod.sin(psi) * npmod.sin(phi),
+            npmod.cos(psi)
+        ])
+        wval_dims = tuple(range(len(wval.shape)))
+        return npmod.expand_dims(angle, axis=-1) * npmod.expand_dims(axis, axis=wval_dims)
+
+    def _get_p0s(self, norm_xvals: np.ndarray, unitary_params: np.ndarray):
         axes = unp.nominal_values(unitary_params)
         axes /= np.sqrt(np.sum(np.square(axes), axis=-1))[:, None]
         # Align along a single orientation and take the mean
@@ -156,20 +174,6 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         # Keep phi in [-pi, pi]
         upopt[3] = (upopt[3] + np.pi) % twopi - np.pi
         upopt[0] /= norm
-
-    @classmethod
-    def unitary_params(cls, fit_params: np.ndarray, wval: np.ndarray, npmod=np):
-        if npmod is np:
-            wval = np.asarray(wval)
-        slope, intercept, psi, phi = fit_params
-        angle = wval * slope + intercept
-        axis = npmod.array([
-            npmod.sin(psi) * npmod.cos(phi),
-            npmod.sin(psi) * npmod.sin(phi),
-            npmod.cos(psi)
-        ])
-        wval_dims = tuple(range(len(wval.shape)))
-        return npmod.expand_dims(angle, axis=-1) * npmod.expand_dims(axis, axis=wval_dims)
 
 
 class CycledRepeatedCRWidthAnalysis(CRWidthAnalysis):
