@@ -87,8 +87,8 @@ class RepeatedCRAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
     
 class CRRoughAmplitudeCal(BaseCalibrationExperiment, RepeatedCRAmplitude):
     @classmethod
-    def _default_run_options(cls) -> Options:
-        options = super()._default_run_options()
+    def _default_experiment_options(cls) -> Options:
+        options = super()._default_experiment_options()
         options.calibration_qubit_index = {}
         return options
 
