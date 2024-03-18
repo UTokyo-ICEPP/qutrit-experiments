@@ -1,0 +1,124 @@
+from collections.abc import Sequence
+from threading import Lock
+from typing import Optional
+from matplotlib.figure import Figure
+import numpy as np
+from uncertainties import unumpy as unp
+from qiskit import QuantumCircuit
+from qiskit.circuit import Parameter
+from qiskit.providers import Backend
+from qiskit.pulse import ScheduleBlock
+from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
+from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
+
+from ...util.polynomial import PolynomialOrder
+from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
+                                                    QutritQubitTomographyScanAnalysis)
+from .util import RCRType, make_rcr_circuit
+
+
+class RepeatedCRAmplitude(QutritQubitTomographyScan):
+    @classmethod
+    def _default_experiment_options(cls) -> Options:
+        options = super()._default_experiment_options()
+        amplitudes = np.linspace(0., 0.8, 9)
+        options.parameter_values = [amplitudes]
+        return options
+
+    def __init__(
+        self,
+        physical_qubits: Sequence[int],
+        cr_schedule: ScheduleBlock,
+        rcr_type: RCRType,
+        amp_param_name: str = 'cr_amp',
+        amplitudes: Optional[Sequence[float]] = None,
+        measure_preparations: bool = True,
+        backend: Optional[Backend] = None
+    ):
+        if amplitudes is None:
+            amplitudes = self._default_experiment_options().parameter_values[0]
+
+        super().__init__(physical_qubits,
+                         make_rcr_circuit(physical_qubits, cr_schedule, rcr_type),
+                         amp_param_name, amplitudes, measure_preparations=measure_preparations,
+                         control_states=(int(rcr_type), 1), backend=backend,
+                         analysis_cls=RepeatedCRAmplitudeAnalysis)
+
+
+class RepeatedCRAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
+    """Analysis for RepeatedCRAmplitude.
+    
+    Simultaneous fit model is
+    [x, y, z] = [ax*A + bx, ay*A + by, az*A + bz]
+    although the amplitude dependency shouldn't really be linear. Should be OK since the experiment
+    is used to scan a narrow range of amplitudes.
+    """
+    @classmethod
+    def _default_options(cls) -> Options:
+        options = super()._default_options()
+        options.simul_fit = True
+        return options
+    
+    _compile_lock = Lock()
+    _fit_functions_cache = {}
+
+    @classmethod
+    def unitary_params(cls, fit_params: np.ndarray, aval: np.ndarray, npmod=np):
+        if npmod is np:
+            aval = np.asarray(aval)
+        slopes = fit_params[::2]
+        intercepts = fit_params[1::2]
+        return aval[..., None] * slopes + intercepts
+    
+    def _get_p0s(self, norm_xvals: np.ndarray, unitary_params: np.ndarray):
+        p0s = []
+        for axis in range(3):
+            params = unp.nominal_values(unitary_params[:, axis])
+            slope = np.diff(params[[0, -1]])[0] / np.diff(norm_xvals[[0, -1]])[0]
+            intercept = params[0] - slope * norm_xvals[0]
+            p0s.extend([slope, intercept])
+        return np.array([p0s])
+
+    def _postprocess_params(self, upopt: np.ndarray, norm: float):
+        upopt[[0, 2, 4]] /= norm
+
+    
+class CRRoughAmplitudeCal(BaseCalibrationExperiment, RepeatedCRAmplitude):
+    def __init__(
+        self,
+        physical_qubits: Sequence[int],
+        calibrations: Calibrations,
+        backend: Optional[Backend] = None,
+        cal_parameter_name: str = 'cr_amp',
+        schedule_name: str = 'cr',
+        auto_update: bool = True,
+        amplitudes: Optional[Sequence[float]] = None
+    ):
+        cr_amp = Parameter('cr_amp')
+        assign_params = {cal_parameter_name: cr_amp}
+        schedule = calibrations.get_schedule(schedule_name, physical_qubits,
+                                             assign_params=assign_params)
+
+        if amplitudes is None:
+            current = calibrations.get_parameter_value(cal_parameter_name, physical_qubits,
+                                                       schedule_name)
+            amplitudes = np.linspace(current - 0.2, current + 0.05, 6)
+
+        super().__init__(
+            calibrations,
+            physical_qubits,
+            schedule,
+            RCRType(calibrations.get_parameter_value('rcr_type', physical_qubits)),
+            backend=backend,
+            schedule_name=schedule_name,
+            cal_parameter_name=cal_parameter_name,
+            auto_update=auto_update,
+            amp_param_name='cr_amp',
+            amplitudes=amplitudes
+        )
+
+    def _attach_calibrations(self, circuit: QuantumCircuit):
+        pass
+
+    def update_calibrations(self, experiment_data: ExperimentData):
+        pass
