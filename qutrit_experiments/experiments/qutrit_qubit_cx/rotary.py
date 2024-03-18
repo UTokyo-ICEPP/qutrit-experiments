@@ -23,17 +23,6 @@ twopi = 2. * np.pi
 logger = logging.getLogger(__name__)
 
 
-def rotary_angle_per_amp(
-    backend: Backend,
-    calibrations: Calibrations,
-    qubits: tuple[int, int]
-) -> float:
-    duration = gs_effective_duration(calibrations, qubits, 'cr')
-    angle_per_amp = rabi_cycles_per_area(backend, qubits[1]) * twopi * duration
-    angle_per_amp *= 2. # Un-understood empirical factor 2
-    return angle_per_amp
-
-
 class RepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
     """BatchExperiment of RepeatedCRTomography scanning the rotary amplitude."""
     @classmethod
@@ -56,75 +45,13 @@ class RepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
         if amplitudes is None:
             amplitudes = self._default_experiment_options().parameter_values[0]
 
+        control_states = list(range(3))
+        control_states.remove(int(rcr_type))
+
         super().__init__(physical_qubits, make_rcr_circuit(physical_qubits, cr_schedule, rcr_type),
                          amp_param_name, amplitudes, angle_param_name=angle_param_name,
-                         measure_preparations=measure_preparations, control_states=(1,),
+                         measure_preparations=measure_preparations, control_states=control_states,
                          backend=backend, analysis_cls=MinimumYZRotaryAmplitudeAnalysis)
-
-
-class RepeatedCRRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
-    """Analysis for CycledRepeatedCRWidth."""
-    @classmethod
-    def _default_options(cls) -> Options:
-        options = super()._default_options()
-        options.thetax_per_amp = None
-        return options
-
-    def _run_additional_analysis(
-        self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
-    ) -> tuple[list[AnalysisResultData], list[Figure]]:
-        analysis_results, figures = super()._run_additional_analysis(experiment_data,
-                                                                     analysis_results, figures)
-        amplitudes = np.array(experiment_data.metadata['scan_values'][0])
-        if (scale_p0 := self.options.thetax_per_amp) is None:
-            scale_p0 = 2. / np.amax(amplitudes)
-        unitaries = next(unp.nominal_values(np.squeeze(res.value)) for res in analysis_results
-                         if res.name == 'unitary_parameters')
-        # unitaries has shape [scan, 3] because of np.squeeze (only one control state is used)
-        # First identify the amplitude range where thetax has not jumped
-        # point closest to zero
-        center = np.argmin(np.abs(unitaries[:, 0]))
-        if center == len(amplitudes) - 1:
-            # Pathological case - what happened?
-            slope = (np.diff(unitaries[[center - 1, center], 0])
-                     / np.diff(amplitudes[[center - 1, center]]))[0]
-        else:
-            slope = (np.diff(unitaries[[center, center + 1], 0])
-                     / np.diff(amplitudes[[center, center + 1]]))[0]
-        intercept = unitaries[center, 0] - slope * amplitudes[center]
-        # Points where linear prediction is not off from observation by more than 1
-        indices = np.nonzero(np.abs(slope * amplitudes + intercept - unitaries[:, 0]) < 1.)[0]
-        amps_selected = amplitudes[indices]
-        uy_selected = unitaries[indices, 1]
-
-        # Fit a tangent curve to uy_selected
-        def curve(x, norm, amp0, scale, offset):
-            return norm * np.tan((x - amp0) * scale) + offset
-
-        norm_p0 = (np.diff(uy_selected[[0, -1]])
-                   / np.diff(np.tan(amps_selected[[0, -1]] * scale_p0)))[0]
-        center = len(amps_selected) // 2
-        offset_p0 = uy_selected[center] - norm_p0 * np.tan(amps_selected[center] * scale_p0)
-
-        popt, pcov = sciopt.curve_fit(curve, amps_selected, uy_selected,
-                                      p0=(norm_p0, 0., scale_p0, offset_p0))
-        popt_ufloats = correlated_values(popt, pcov)
-        # Necessary rotary amplitude
-        analysis_results.append(
-            AnalysisResultData(name='rotary_amp', value=popt_ufloats[1])
-        )
-
-        if self.options.plot:
-            ax = figures[1].axes[0]
-            x_interp = np.linspace(amps_selected[0], amps_selected[-1], 100)
-            y_interp = curve(x_interp, *popt)
-            ax.plot(x_interp, y_interp, label='fit')
-            ax.legend()
-
-        return analysis_results, figures
 
 
 class CycledRepeatedCRRotaryAmplitude(QutritQubitTomographyScan):
@@ -174,31 +101,30 @@ class MinimumYZRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
                                                                      analysis_results, figures)
 
         amplitudes = np.array(experiment_data.metadata['scan_values'][0])
-        unitary_params = next(res for res in analysis_results
-                              if res.name == 'unitary_parameters').value
-        unitary_params_n = unp.nominal_values(unitary_params[:, :, [1, 2]])
-        unitary_params_e = unp.std_devs(unitary_params[:, :, [1, 2]])
+        u_params = next(res.value for res in analysis_results if res.name == 'unitary_parameters')
+        yz_n = np.array([unp.nominal_values(params[:, [1, 2]]) for params in u_params.values()])
+        yz_e = np.array([unp.std_devs(params[:, [1, 2]]) for params in u_params.values()])
 
-        # Cut on chi2
+        # Cut on chi2 mean over states for each xval
         chisq = next(res for res in analysis_results if res.name == 'chisq').value
-        good_fit = np.mean(chisq, axis=1) < self.options.chi2_per_block_cutoff
-        if np.any(good_fit):
+        good_fit = np.mean(list(chisq.values()), axis=0) < self.options.chi2_per_block_cutoff
+        if not np.any(good_fit):
             logger.warning('No rotary value had sum of chi2 per block less than %f',
                            self.options.chi2_per_block_cutoff)
             good_fit = np.ones_like(amplitudes, dtype=bool)
 
-        zero_consistent = np.all((unitary_params_n > -unitary_params_e)
-                                 & (unitary_params_n < unitary_params_e),
-                                 axis=(1, 2))
+        # Any amplitude value where y and z are consistent with zero for all control states?
+        zero_consistent = np.all(np.abs(yz_n) < yz_e, axis=(0, 2))
+                                 
         filter = good_fit & zero_consistent
         if np.any(filter):
-            # If there are points where y and z are consistent with zero, choose one with the lowest
+            # There are points where y and z are consistent with zero -> choose one with the lowest
             # amp
             iamp = np.argmin(np.abs(amplitudes[filter]))
         else:
             # Pick the rotary value with the smallest y^2 + z^2
             filter = good_fit
-            iamp = np.argmin(np.sum(np.square(unitary_params_n[filter]), axis=(1, 2)))
+            iamp = np.argmin(np.sum(np.square(yz_n[:, filter]), axis=(0, 2)))
 
         analysis_results.append(
             AnalysisResultData(name='rotary_amp', value=amplitudes[filter][iamp])

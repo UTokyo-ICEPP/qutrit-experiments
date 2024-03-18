@@ -6,7 +6,6 @@ from qiskit.providers import Backend
 from qiskit_experiments.framework import ExperimentData
 
 from ..experiment_config import experiments
-from ..experiments.qutrit_qubit_cx.rotary import rotary_angle_per_amp
 from ..experiments.qutrit_qubit_cx.util import RCRType
 from ..runners import ExperimentsRunner
 from ..util.bloch import so3_cartesian, so3_cartesian_params

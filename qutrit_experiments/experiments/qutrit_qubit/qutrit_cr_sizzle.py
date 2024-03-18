@@ -87,7 +87,7 @@ class QutritCRTargetStarkAnalysis(QutritQubitTomographyScanAnalysis):
 
         amplitudes = experiment_data.metadata['scan_values'][0]
         unitaries = next(res.value for res in analysis_results if res.name == 'unitary_parameters')
-        theta_iz = np.mean(unitaries[..., 2], axis=1)
+        theta_iz = np.mean([params[:, 2] for params in unitaries.values()], axis=0)
 
         def model(params, x2):
             return params[0] * x2 + params[1]
