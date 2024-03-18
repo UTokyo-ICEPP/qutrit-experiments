@@ -144,6 +144,16 @@ def c2t_cr_counter_stark_amp(runner):
     )
 
 @register_exp
+@add_readout_mitigation(logical_qubits=[1])
+def c2t_cr_rough_cr_amp(runner):
+    """CR angle calibration to eliminate the y component of RCR non-participating state."""
+    from ..experiments.qutrit_qubit_cx.cr_amp import CRRoughAmplitudeCal
+    return ExperimentConfig(
+        CRRoughAmplitudeCal,
+        runner.program_data['qubits'][1:]
+    )
+
+@register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_sizzle_t_amp_scan(runner):
     from ..experiments.qutrit_qubit.qutrit_cr_sizzle import QutritCRTargetStarkCal
