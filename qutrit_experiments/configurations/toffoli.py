@@ -248,6 +248,15 @@ def c2t_crcr_rotary(runner):
     )
 
 @register_exp
+@add_readout_mitigation(logical_qubits=[1])
+def c2t_crcr_fine_scanbased(runner):
+    from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineScanCal
+    return ExperimentConfig(
+        CycledRepeatedCRFineScanCal,
+        runner.program_data['qubits'][1:]
+    )
+
+@register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_crcr_angle_width_rate(runner):
     """Measure the X rotation angles in 0 and 1 with the rotary."""
