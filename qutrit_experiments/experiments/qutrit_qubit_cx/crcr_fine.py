@@ -304,7 +304,7 @@ class CycledRepeatedCRRxScan(MapToPhysicalQubits, BaseExperiment):
         self.extra_metadata = {}
 
     def circuits(self) -> list[QuantumCircuit]:
-        rx_angle = self._crcr_circuit.get_parameter('rx_angle')
+        rx_angle = next(param for param in self._crcr_circuit.parameters if param.name == 'rx_angle')
         circuits = []
         for angle in self.experiment_options.angles:
             crcr = self._crcr_circuit.assign_parameters({rx_angle: angle}, inplace=False)
@@ -325,13 +325,13 @@ class CycledRepeatedCRRxScan(MapToPhysicalQubits, BaseExperiment):
             circuits.append(circuit)
 
         return circuits
-    
+
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
         metadata['control_state'] = self._control_state
         metadata.update(self.extra_metadata)
         return metadata
-    
+
 
 class CycledRepeatedCRRxOffsetAmpScan(BatchExperiment):
     def __init__(
@@ -357,7 +357,7 @@ class CycledRepeatedCRRxOffsetAmpScan(BatchExperiment):
         analyses = [exp.analysis for exp in experiments]
         super().__init__(experiments, backend=backend,
                          analysis=CycledRepeatedCRRxOffsetAmpScanAnalysis(analyses))
-        
+
 
 class CycledRepeatedCRRxOffsetAmpScanAnalysis(CompoundAnalysis):
     def _run_additional_analysis(
@@ -396,7 +396,7 @@ class CycledRepeatedCRRxOffsetAmpScanAnalysis(CompoundAnalysis):
         popt_ufloats = np.array(popt_ufloats)
 
         analysis_results.append(AnalysisResultData(name='linear_fit_params', value=popt_ufloats))
-        
+
         diff_slope = np.diff(popt_ufloats[:, 0])[0]
         diff_intercept = np.diff(popt_ufloats[:, 1])[0]
         amp_opt = ((np.pi - diff_intercept) / diff_slope) % (twopi / np.abs(diff_slope.n))
@@ -450,7 +450,7 @@ class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxO
         current_cr_amp = calibrations.get_parameter_value(cal_parameter_name[0], physical_qubits,
                                                           schedule_name[0], group=current_cal_group)
         cr_amps = np.linspace(current_cr_amp - 0.05, current_cr_amp + 0.05, 4)
-        
+
         super().__init__(
             calibrations,
             physical_qubits,
