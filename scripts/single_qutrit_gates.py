@@ -22,13 +22,25 @@ if __name__ == '__main__':
     from qiskit_ibm_runtime import QiskitRuntimeService
     from qiskit_ibm_runtime.exceptions import IBMNotAuthorizedError
     from qutrit_experiments.calibrations import make_single_qutrit_gate_calibrations
-    import qutrit_experiments.configurations.single_qutrit
     from qutrit_experiments.programs.common import (get_program_config, load_calibrations,
-                                                    setup_backend, setup_data_dir, setup_runner)
+                                                    setup_data_dir, setup_runner)
     from qutrit_experiments.programs.single_qutrit_gates import (calibrate_single_qutrit_gates,
                                                                  characterize_qutrit)
 
     program_config = get_program_config()
+    assert program_config['qubits'] is not None
+    runner_args = {}
+    if len(program_config['qubits']) > 1 or program_config['qubits'][0] == -1:
+        import qutrit_experiments.configurations.full_backend_qutrits
+        from qutrit_experiments.runners import ParallelRunner
+        runner_cls = ParallelRunner
+        if len(program_config['qubits']) > 1:
+            runner_args = {'active_qubits': set(program_config['qubits'])}
+    else:
+        import qutrit_experiments.configurations.single_qutrit
+        from qutrit_experiments.runners import ExperimentsRunner
+        runner_cls = ExperimentsRunner
+
     setup_data_dir(program_config)
     while True:
         try:
@@ -38,10 +50,10 @@ if __name__ == '__main__':
             continue
         break
 
-    assert program_config['qubits'] is not None and len(program_config['qubits']) == 1
     print('Starting single_qutrit_gates:', program_config['name'])
     calibrations = make_single_qutrit_gate_calibrations(backend)
-    runner = setup_runner(backend, calibrations, program_config)
+    runner = setup_runner(backend, calibrations, program_config, runner_cls=runner_cls,
+                          runner_args=runner_args)
     runner.qutrit_transpile_options.use_waveform = True
     runner.qutrit_transpile_options.remove_custom_pulses = True
     runner.job_retry_interval = 120
