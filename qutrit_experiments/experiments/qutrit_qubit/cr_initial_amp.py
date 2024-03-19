@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 class CRDiagonality(MapToPhysicalQubits, BaseExperiment):
     """CR characterization.
-    
+
     Experiment: Raise the control qubit to |2>, run the CR tone, and measure the control state.
     Mid-circuit measurement is used to discriminate |2> from |0> and |1>:
     state result
@@ -68,7 +68,7 @@ class CRDiagonality(MapToPhysicalQubits, BaseExperiment):
         template.measure(0, 1)
         template.append(X12Gate(), [0]) # For active reset
         template.add_calibration('cr', self.physical_qubits, sched, [amplitude])
-        
+
         circuits = []
         for aval in self.experiment_options.amplitudes:
             circ = template.assign_parameters({amplitude: aval}, inplace=False)
@@ -98,7 +98,10 @@ class CRDiagonalityAnalysis(TernaryMCMResultAnalysis):
             ],
             name=name
         )
-        self.set_options(result_parameters=[ParameterRepr('a', 'curvature')])
+        self.set_options(
+            result_parameters=[ParameterRepr('a', 'curvature')],
+            bounds={'a': (0., np.inf)}
+        )
 
     def _generate_fit_guesses(
         self,
@@ -163,7 +166,7 @@ class CRInitialAmplitudeCal(BaseCalibrationExperiment, CRDiagonality):
 
     def update_calibrations(self, experiment_data: ExperimentData):
         curvature = BaseUpdater.get_value(experiment_data, 'curvature')
-        cr_amp = np.sqrt((1. - self._cutoff) / curvature)
+        cr_amp = min(0.8, np.sqrt((1. - self._cutoff) / curvature))
         BaseUpdater.add_parameter_value(self._cals, experiment_data, cr_amp, self._param_name,
                                         schedule=self._sched_name,
                                         group=self.experiment_options.group)
