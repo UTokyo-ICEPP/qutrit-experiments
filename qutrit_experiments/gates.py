@@ -10,6 +10,7 @@ from qiskit.circuit.parameterexpression import ParameterValueType
 
 QUTRIT_PULSE_GATES = []
 QUTRIT_VIRTUAL_GATES = []
+QUTRIT_COMPOSITE_GATES = []
 
 
 class QutritGate(Gate):
@@ -21,6 +22,8 @@ class QutritGate(Gate):
             QUTRIT_PULSE_GATES.append(cls)
         elif gate_type == 'virtual':
             QUTRIT_VIRTUAL_GATES.append(cls)
+        elif gate_type == 'composite':
+            QUTRIT_COMPOSITE_GATES.append(cls)
 
 
 class X12Gate(QutritGate, gate_name='x12', gate_type='pulse'):
@@ -73,10 +76,8 @@ class U12Gate(QutritGate, gate_name='u12', gate_type='composite'):
         return U12Gate(-self.params[0], -self.params[2], -self.params[1])
 
 
-class CrossResonanceGate(Gate):
+class CrossResonanceGate(QutritGate, gate_name='cr', gate_type='pulse'):
     """CR gate with a control qutrit and target qubit."""
-    gate_name = 'cr'
-
     def __init__(
         self,
         params: Optional[Sequence[ParameterValueType]] = None,
@@ -99,6 +100,68 @@ class CrossResonancePlusGate(CrossResonanceGate):
 class CrossResonanceMinusGate(CrossResonanceGate):
     """CR- gate."""
     gate_name = 'crm'
+
+
+class QutritQubitCXTypeXGate(QutritGate, gate_name='qutrit_qubit_cx_rcr2', gate_type='composite'):
+    """CX gate with a control qutrit and target qubit."""
+    @classmethod
+    def decomposition(cls, params) -> QuantumCircuit:
+        circuit = QuantumCircuit(2)
+        # [Rx]
+        circuit.rz(np.pi / 2., 1)
+        circuit.sx(1)
+        circuit.rz(params.get('rx', 0.) + np.pi, 1)
+        circuit.sx(1)
+        circuit.rz(np.pi / 2., 1)
+        # [X+]-[RCR-]
+        circuit.append(X12Gate(), [0])
+        circuit.append(CrossResonanceMinusGate(params.get('crm')), [0, 1])
+        circuit.x(0)
+        circuit.append(CrossResonanceMinusGate(params.get('crm')), [0, 1])
+        # [X+]-[RCR+] x 2
+        for _ in range(2):
+            circuit.append(X12Gate(), [0])
+            circuit.append(CrossResonancePlusGate(params.get('crp')), [0, 1])
+            circuit.x(0)
+            circuit.append(CrossResonancePlusGate(params.get('crp')), [0, 1])
+        return circuit
+
+    def __init__(
+        self,
+        label: Optional[str] = None
+    ):
+        super().__init__(self.gate_name, 2, [], label=label)
+
+
+class QutritQubitCXTypeX12Gate(QutritGate, gate_name='qutrit_qubit_cx_rcr0', gate_type='composite'):
+    """CX gate with a control qutrit and target qubit."""
+    @classmethod
+    def decomposition(cls, params) -> QuantumCircuit:
+        circuit = QuantumCircuit(2)
+        # [RCR+]-[X+] x 2
+        for _ in range(2):
+            circuit.append(CrossResonancePlusGate(params.get('crp')), [0, 1])
+            circuit.append(X12Gate(), [0])
+            circuit.append(CrossResonancePlusGate(params.get('crp')), [0, 1])
+            circuit.x(0)
+        # [RCR-]-[X+]
+        circuit.append(CrossResonanceMinusGate(params.get('crm')), [0, 1])
+        circuit.append(X12Gate(), [0])
+        circuit.append(CrossResonanceMinusGate(params.get('crm')), [0, 1])
+        circuit.x(0)
+        # [Rx]
+        circuit.rz(np.pi / 2., 1)
+        circuit.sx(1)
+        circuit.rz(params.get('rx', 0.) + np.pi, 1)
+        circuit.sx(1)
+        circuit.rz(np.pi / 2., 1)
+        return circuit
+
+    def __init__(
+        self,
+        label: Optional[str] = None
+    ):
+        super().__init__(self.gate_name, 2, [], label=label)
 
 
 q = QuantumRegister(1, "q")
