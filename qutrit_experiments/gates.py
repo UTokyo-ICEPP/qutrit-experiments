@@ -92,14 +92,12 @@ class CrossResonanceGate(QutritGate, gate_name='cr', gate_type='pulse'):
         self.block_unitaries = block_unitaries
 
 
-class CrossResonancePlusGate(CrossResonanceGate):
+class CrossResonancePlusGate(CrossResonanceGate, gate_name='crp', gate_type='pulse'):
     """CR+ gate."""
-    gate_name = 'crp'
 
 
-class CrossResonanceMinusGate(CrossResonanceGate):
+class CrossResonanceMinusGate(CrossResonanceGate, gate_name='crm', gate_type='pulse'):
     """CR- gate."""
-    gate_name = 'crm'
 
 
 class QutritQubitCXTypeXGate(QutritGate, gate_name='qutrit_qubit_cx_rcr2', gate_type='composite'):
