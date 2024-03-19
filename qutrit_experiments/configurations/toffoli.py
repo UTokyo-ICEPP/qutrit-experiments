@@ -32,21 +32,15 @@ from .qutrit import (
     qutrit_x_stark_shift,
     qutrit_sx_stark_shift,
     qutrit_rotary_stark_shift,
-    qutrit_assignment_error
+    qutrit_assignment_error,
+    qutrit_assignment_error_post
 )
 
 logger = logging.getLogger(__name__)
 twopi = 2. * np.pi
 
 
-def register_single_qutrit_exp(function):
-    @wraps(function)
-    def conf_gen(runner):
-        return function(runner, runner.program_data['qubits'][1])
-
-    register_exp(conf_gen)
-
-qutrit_functions = [
+for func in [
     qutrit_rough_frequency,
     qutrit_rough_amplitude,
     qutrit_semifine_frequency,
@@ -63,10 +57,11 @@ qutrit_functions = [
     qutrit_sx_stark_shift,
     qutrit_rotary_stark_shift,
     qutrit_assignment_error
-]
-for func in qutrit_functions:
-    register_single_qutrit_exp(func)
-
+]:
+    @wraps(func)
+    def conf_gen(runner):
+        return func(runner, runner.program_data['qubits'][1])
+    register_exp(conf_gen)
 
 @register_exp
 @wraps(qubits_assignment_error)
@@ -74,6 +69,7 @@ def qubits_assignment_error_func(runner):
     return qubits_assignment_error(runner, runner.program_data['qubits'])
 
 register_post(qubits_assignment_error_post, exp_type='qubits_assignment_error')
+register_post(qutrit_assignment_error_post, exp_type='qutrit_assignment_error')
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
