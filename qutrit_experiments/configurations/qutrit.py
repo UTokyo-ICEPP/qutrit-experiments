@@ -269,7 +269,7 @@ def qutrit_rotary_stark_shift(runner, qubit):
     )
 
 def qutrit_assignment_error(runner, qubit):
-    from ..experiments.readout_error import MCMLocalReadoutError
+    from ..experiments.single_qutrit.ternary_readout import MCMLocalReadoutError
     return ExperimentConfig(
         MCMLocalReadoutError,
         [qubit],

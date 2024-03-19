@@ -3,12 +3,12 @@ import logging
 from collections.abc import Sequence
 from typing import Optional, Union
 import lmfit
+from matplotlib.figure import Figure
 import numpy as np
 import scipy.linalg as scilin
 from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.providers import Backend
-from qiskit_experiments.data_processing import DataProcessor
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.curve_analysis.base_curve_analysis import (DATA_ENTRY_PREFIX,
                                                                    PARAMS_ENTRY_PREFIX)
@@ -16,8 +16,8 @@ from qiskit_experiments.framework import (AnalysisResultData, BackendTiming, Bas
                                           ExperimentData, Options)
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 
-from ...data_processing import MultiProbability, ReadoutMitigation, SerializeMultiProbability
 from ...experiment_mixins import MapToPhysicalQubits
+from ...framework.ternary_mcm_analysis import TernaryMCMResultAnalysis
 from ...gates import X12Gate
 
 logger = logging.getLogger(__name__)
@@ -129,13 +129,12 @@ def _variance(x, p0, p1, p2, g10, g20, g21, covar):
     return np.sum((jac @ covar)[..., :, None, :] * jac[..., None, :, :], axis=-1)
 
 
-class EFT1Analysis(curve.CurveAnalysis):
+class EFT1Analysis(TernaryMCMResultAnalysis):
     """Run fit with rate equations."""
 
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
-        options.assignment_matrix = None
         options.filter_data = {'unit': 's'}
         return options
 
@@ -147,8 +146,6 @@ class EFT1Analysis(curve.CurveAnalysis):
         ], name=name)
 
         self.set_options(
-            # dummy subfit map
-            data_subfit_map={name: {'unit': None} for name in ['0', '1', '2']},
             result_parameters=[
                 curve.ParameterRepr('g10', 'Γ10'),
                 curve.ParameterRepr('g20', 'Γ20'),
@@ -168,7 +165,7 @@ class EFT1Analysis(curve.CurveAnalysis):
 
     def _run_analysis(
         self, experiment_data: ExperimentData
-    ) -> tuple[list[AnalysisResultData], list["pyplot.Figure"]]:
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
         # Plotting fails for complex non-expression models (at eval_with_uncertainties)
         if (plot_option := self.options.plot):
             self.options.return_data_points = True
@@ -229,35 +226,6 @@ class EFT1Analysis(curve.CurveAnalysis):
                 figures.append(ax.get_figure())
 
         return results, figures
-
-    def _initialize(self, experiment_data: ExperimentData):
-        if self.options.data_processor is None:
-            nodes = []
-            if (cal_matrix := self.options.assignment_matrix) is not None:
-                nodes.append(ReadoutMitigation(cal_matrix))
-            nodes += [
-                MultiProbability(),
-                SerializeMultiProbability(['10', '01', '11'])
-            ]
-            self.options.data_processor = DataProcessor('counts', nodes)
-
-        super()._initialize(experiment_data)
-
-    def _run_data_processing(
-        self,
-        raw_data: list[dict],
-        models: list[lmfit.Model]
-    ) -> curve.CurveData:
-        curve_data = super()._run_data_processing(raw_data, models)
-        # ydata is serialized multiprobability -> repeated threefold
-        return curve.CurveData(
-            x=np.repeat(curve_data.x, 3),
-            y=curve_data.y,
-            y_err=curve_data.y_err,
-            shots=np.repeat(curve_data.shots, 3),
-            data_allocation=np.tile([0, 1, 2], curve_data.x.shape[0]),
-            labels=curve_data.labels
-        )
 
     def _generate_fit_guesses(
         self,
