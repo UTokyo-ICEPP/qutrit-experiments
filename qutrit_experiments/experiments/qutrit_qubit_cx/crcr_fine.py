@@ -360,6 +360,12 @@ class CycledRepeatedCRRxOffsetAmpScan(BatchExperiment):
 
 
 class CycledRepeatedCRRxOffsetAmpScanAnalysis(CompoundAnalysis):
+    @classmethod
+    def _default_options(cls) -> Options:
+        options = super()._default_options()
+        options.plot = True
+        return options
+
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,
@@ -425,6 +431,8 @@ class CycledRepeatedCRRxOffsetAmpScanAnalysis(CompoundAnalysis):
                 )
             figures.append(plotter.figure())
 
+        return analysis_results, figures
+
 
 class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxOffsetAmpScan):
     """Calibration experiment with CycledRepeatedCRRxOffsetAmpScan."""
@@ -470,7 +478,7 @@ class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxO
 
     def update_calibrations(self, experiment_data: ExperimentData):
         qubit_lists = [self.physical_qubits, [self.physical_qubits[1]]]
-        for pname, sname, qubits in zip(self._parma_name, self._sched_name, qubit_lists):
+        for pname, sname, qubits in zip(self._param_name, self._sched_name, qubit_lists):
             value = BaseUpdater.get_value(experiment_data, pname)
             param_value = ParameterValue(
                 value=value,
