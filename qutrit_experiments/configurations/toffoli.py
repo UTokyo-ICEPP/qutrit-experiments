@@ -31,7 +31,8 @@ from .qutrit import (
     qutrit_sx12_stark_shift,
     qutrit_x_stark_shift,
     qutrit_sx_stark_shift,
-    qutrit_rotary_stark_shift
+    qutrit_rotary_stark_shift,
+    qutrit_assignment_error
 )
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,8 @@ qutrit_functions = [
     qutrit_sx12_stark_shift,
     qutrit_x_stark_shift,
     qutrit_sx_stark_shift,
-    qutrit_rotary_stark_shift
+    qutrit_rotary_stark_shift,
+    qutrit_assignment_error
 ]
 for func in qutrit_functions:
     register_single_qutrit_exp(func)
@@ -101,6 +103,17 @@ def c2t_crcr_unitaries(runner):
         qubits,
         args={'circuit': crcr_circuit},
         run_options={'shots': 8000}
+    )
+
+@register_exp
+def c2t_cr_initial_amp(runner):
+    from ..experiments.qutrit_qubit.cr_initial_amp import CRInitialAmplitudeCal
+    qubits = tuple(runner.program_data['qubits'][1:])
+    assignment_matrix = runner.program_data['qutrit_assignment_matrix'][qubits[0]]
+    return ExperimentConfig(
+        CRInitialAmplitudeCal,
+        qubits,
+        analysis_options={'assignment_matrix': assignment_matrix}
     )
 
 @register_exp
