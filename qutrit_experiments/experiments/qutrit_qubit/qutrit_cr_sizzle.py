@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from typing import Optional
 from matplotlib.figure import Figure
 import numpy as np
-from scipy.optimize import least_squares
+from scipy.optimize import curve_fit
 from uncertainties import correlated_values, ufloat, unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.circuit import Gate, Parameter
@@ -88,26 +88,20 @@ class QutritCRTargetStarkAnalysis(QutritQubitTomographyScanAnalysis):
         amplitudes = experiment_data.metadata['scan_values'][0]
         unitaries = next(res.value for res in analysis_results if res.name == 'unitary_parameters')
         theta_iz = np.mean([params[:, 2] for params in unitaries.values()], axis=0)
+        theta_iz_n = unp.nominal_values(theta_iz)
+        theta_iz_e = unp.std_devs(theta_iz)
 
-        def model(params, x2):
-            return params[0] * x2 + params[1]
+        def curve(x2, curvature, offset):
+            return curvature * x2 + offset
 
-        def residual(params, x2, y, yerr):
-            return (model(params, x2) - y) / yerr
-        
-        def jacobian(params, x2, y, yerr):
-            return np.stack([x2, np.ones_like(x2)], axis=1) / yerr[:, None]
-        
-        p0 = (theta_iz[-1].n / amplitudes[-1] ** 2, 0.)
-        args = (np.square(amplitudes), unp.nominal_values(theta_iz), unp.std_devs(theta_iz))
-        result = least_squares(residual, p0, jac=jacobian, args=args)
-        popt = result.x
-        approx_pcov = np.linalg.inv(result.jac.T @ result.jac) * 2.
+        ampsq = np.square(amplitudes)
+        p0 = (theta_iz[-1].n / ampsq[-1], 0.)
+        popt, pcov = curve_fit(curve, ampsq, theta_iz_n, sigma=theta_iz_e, p0=p0)
         
         if popt[0] * popt[1] > 0.:
             amp = ufloat(0., 0.)
         else:
-            popt_ufloats = correlated_values(popt, approx_pcov)
+            popt_ufloats = correlated_values(popt, pcov)
             amp = unp.sqrt(-popt_ufloats[1] / popt_ufloats[0])[()]
 
         analysis_results.append(AnalysisResultData(name='counter_stark_amp', value=amp))
@@ -121,7 +115,7 @@ class QutritCRTargetStarkAnalysis(QutritQubitTomographyScanAnalysis):
                 y_formatted=unp.nominal_values(theta_iz),
                 y_formatted_err=unp.std_devs(theta_iz),
                 x_interp=x_interp,
-                y_interp=model(popt, x_interp ** 2)
+                y_interp=curve(x_interp ** 2, *popt)
             )
             figures.append(plotter.figure())
 

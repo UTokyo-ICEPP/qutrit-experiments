@@ -10,7 +10,7 @@ from typing import Any, Optional, Union
 import lmfit
 from matplotlib.figure import Figure
 import numpy as np
-from scipy.optimize import least_squares
+from scipy.optimize import curve_fit
 from uncertainties import correlated_values, unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.circuit import Gate, Parameter
@@ -242,20 +242,12 @@ class CRAngleCounterScanAnalysis(CompoundAnalysis):
         yvals_n = unp.nominal_values(yvals)
         yvals_e = unp.std_devs(yvals)
 
-        def model(params, x):
-            return params[0] * x + params[1]
-
-        def residual(params, x, y, yerr):
-            return (model(params, x) - y) / yerr
-
-        def jacobian(params, x, y, yerr):
-            return np.stack([x, np.ones_like(x)], axis=1) / yerr[:, None]
+        def curve(x, slope, intercept):
+            return slope * x + intercept
 
         p0 = (1., np.mean(yvals_n - xvals))
-        result = least_squares(residual, p0, jac=jacobian, args=(xvals, yvals_n, yvals_e))
-        popt = result.x
-        approx_pcov = np.linalg.inv(result.jac.T @ result.jac) * 2.
-        popt_ufloats = correlated_values(popt, approx_pcov)
+        popt, pcov = curve_fit(curve, xvals, yvals_n, sigma=yvals_e, p0=p0)
+        popt_ufloats = correlated_values(popt, pcov)
 
         analysis_results.append(AnalysisResultData(name='angle', value=popt_ufloats[1]))
 
@@ -272,7 +264,7 @@ class CRAngleCounterScanAnalysis(CompoundAnalysis):
                 y_formatted=yvals_n,
                 y_formatted_err=yvals_e,
                 x_interp=x_interp,
-                y_interp=model(popt, x_interp)
+                y_interp=curve(x_interp, *popt)
             )
             figures.append(plotter.figure())
 
