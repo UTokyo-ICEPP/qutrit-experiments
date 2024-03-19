@@ -17,14 +17,17 @@ logger = logging.getLogger(__name__)
 def calibrate_qutrit_qubit_cx(
     runner: ExperimentsRunner,
     qubits: tuple[int, int],
-    initial_cr_amp: float = 0.8,
     refresh_readout_error: bool = True
 ):
     if 'readout_assignment_matrices' not in runner.program_data:
         # Construct the error mitigation matrix and find the rough CR pulse width
         runner.run_experiment('qubits_assignment_error', force_resubmit=refresh_readout_error)
 
-    runner.calibrations.add_parameter_value(initial_cr_amp, 'cr_amp', qubits, 'cr')
+    # Construct the error mitigation matrix for ternary discriminator
+    runner.run_experiment('qutrit_assignment_error')
+    
+    # Find the amplitude that does not disrupt the |2> state too much
+    runner.run_experiment('c2t_cr_initial_amp')
 
     # Determine the RCR type to use and corresponding CR width and Rx offset angle
     rough_width_data = runner.run_experiment('c2t_cr_rough_width')
@@ -43,6 +46,9 @@ def calibrate_qutrit_qubit_cx(
         config = experiments['c2t_cr_counter_stark_amp'](runner)
         config.args['amplitudes'] = np.linspace(0., amp * 2., 8)
         runner.run_experiment(config)
+
+    # Calculate the amplitude for CX given the width
+    runner.run_experiment('c2t_rcr_rough_cr_amp')
 
     # Minimize the y and z components of RCR
     runner.run_experiment('c2t_rcr_rotary_amp')
