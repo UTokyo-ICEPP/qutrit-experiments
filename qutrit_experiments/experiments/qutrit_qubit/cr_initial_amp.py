@@ -5,14 +5,11 @@ control=|2> as a function of the amplitude and determine an acceptable amplitude
 """
 from collections.abc import Sequence
 import logging
-from typing import Any, Optional, Union
+from typing import Optional, Union
 import lmfit
-from matplotlib.figure import Figure
 import numpy as np
-from scipy.optimize import least_squares
-from uncertainties import correlated_values, unumpy as unp
 from qiskit import QuantumCircuit
-from qiskit.circuit import Gate, Parameter
+from qiskit.circuit import Parameter
 from qiskit.providers import Backend
 from qiskit.providers.options import Options
 from qiskit.pulse import ScheduleBlock
@@ -20,15 +17,11 @@ from qiskit_experiments.calibration_management import BaseCalibrationExperiment,
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.curve_analysis.curve_data import ParameterRepr
-from qiskit_experiments.framework import AnalysisResultData, BaseExperiment, ExperimentData
-from qiskit_experiments.visualization import CurvePlotter, MplDrawer
+from qiskit_experiments.framework import BaseExperiment, ExperimentData
 
 from ...experiment_mixins import MapToPhysicalQubits
-from ...framework.compound_analysis import CompoundAnalysis
 from ...framework.ternary_mcm_analysis import TernaryMCMResultAnalysis
-from ...framework_overrides.batch_experiment import BatchExperiment
 from ...gates import CrossResonanceGate, X12Gate
-from ...util.pulse_area import gs_effective_duration, rabi_cycles_per_area
 
 logger = logging.getLogger(__name__)
 
