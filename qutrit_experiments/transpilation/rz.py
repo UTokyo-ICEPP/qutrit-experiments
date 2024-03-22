@@ -105,6 +105,7 @@ class CastRZToAngle(TransformationPass):
         channel_map: dict[str, dict],
         gates_to_convert: Union[str, list[str]] = 'all'
     ):
+        super().__init__()
         if gates_to_convert == 'all':
             self._gates = None
         else:
