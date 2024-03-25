@@ -39,12 +39,29 @@ def make_instruction_durations(
 
     instruction_durations = InstructionDurations(backend.instruction_durations, dt=backend.dt)
     for inst in QUTRIT_PULSE_GATES:
-        durations = [(inst.gate_name, qubit,
-                      calibrations.get_schedule(inst.gate_name, qubit).duration)
-                     for qubit in qubits]
+        match inst.num_qubits:
+            case 1:
+                durations = [(inst.gate_name, qubit,
+                             calibrations.get_schedule(inst.gate_name, qubit).duration)
+                             for qubit in qubits]
+            case 2:
+                durations = []
+                for edge in backend.coupling_map.get_edges():
+                    if edge[0] in qubits and edge[1] in qubits:
+                        durations.append((inst.gate_name, edge,
+                                          calibrations.get_schedule(inst.gate_name, edge).duration))
         instruction_durations.update(durations)
     for inst in QUTRIT_VIRTUAL_GATES:
-        instruction_durations.update([(inst.gate_name, qubit, 0) for qubit in qubits])
+        match inst.num_qubits:
+            case 1:
+                durations = [(inst.gate_name, qubit, 0) for qubit in qubits]
+            case 2:
+                durations = []
+                for edge in backend.coupling_map.get_edges():
+                    if edge[0] in qubits and edge[1] in qubits:
+                        durations.append((inst.gate_name, edge, 0))
+        instruction_durations.update(durations)
+
     return instruction_durations
 
 

@@ -33,7 +33,7 @@ from ..framework.child_data import set_child_data_structure, fill_child_data
 from ..framework_overrides.batch_experiment import BatchExperiment
 from ..framework_overrides.composite_analysis import CompositeAnalysis
 from ..framework_overrides.parallel_experiment import ParallelExperiment
-from ..gates import QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES
+from ..gates import QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES, QUTRIT_COMPOSITE_GATES
 from ..transpilation.qutrit_transpiler import (QutritTranspileOptions, make_instruction_durations,
                                                transpile_qutrit_circuits)
 # Temporary patch for qiskit-experiments 0.5.1
@@ -311,7 +311,8 @@ class ExperimentsRunner:
                     # all gates to basis gates) will reference the passed basis_gates list and leaves
                     # all gates appearing in the list untouched.
                     basis_gates=self._backend.basis_gates + [
-                        inst.gate_name for inst in QUTRIT_PULSE_GATES + QUTRIT_VIRTUAL_GATES
+                        inst.gate_name
+                        for inst in QUTRIT_PULSE_GATES + QUTRIT_VIRTUAL_GATES + QUTRIT_COMPOSITE_GATES
                     ],
                     # Scheduling method has to be specified in case there are delay instructions that
                     # violate the alignment constraints, in which case a ConstrainedRescheduling is
