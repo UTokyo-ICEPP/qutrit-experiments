@@ -27,8 +27,7 @@ def setup_runner(
     backend: Backend,
     calibrations: Calibrations,
     program_config: dict[str, Any],
-    runner_cls: type[ExperimentsRunner] = ExperimentsRunner,
-    runner_args: Optional[dict[str, Any]] = None
+    runner_cls: type[ExperimentsRunner] = ExperimentsRunner
 ) -> ExperimentsRunner:
     data_dir = os.path.join(program_config['base_dir'], program_config['name'])
     if program_config.get('work_dir'):
@@ -48,13 +47,8 @@ def setup_runner(
     else:
         runtime_session = None
 
-    if runner_args is None:
-        runner_args = {}
-    runner = runner_cls(backend, calibrations=calibrations, data_dir=data_dir,
-                        runtime_session=runtime_session, **runner_args)
-
-    if (qubits := program_config.get('qubits')) is not None:
-        runner.program_data['qubits'] = tuple(qubits)
+    runner = runner_cls(backend, qubits=program_config.get('qubits'), calibrations=calibrations,
+                        data_dir=data_dir, runtime_session=runtime_session)
 
     return runner
 

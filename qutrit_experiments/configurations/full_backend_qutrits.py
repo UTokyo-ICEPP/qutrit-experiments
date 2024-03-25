@@ -76,9 +76,7 @@ for func in qutrit_functions:
     register_backend_qutrit_exp(func)
 
 def qutrit_rough_amplitude_parallel(runner):
-    active_qubits = runner.active_qubits
-    current_max_size = max(len(group) for group in runner.qubit_grouping)
-    qubit_grouping = runner.get_qubit_grouping(active_qubits=active_qubits, max_group_size=5)
+    qubit_grouping = runner.get_qubit_grouping(active_qubits=runner.qubits, max_group_size=5)
     conf = runner.make_batch_config(qutrit_rough_amplitude, exp_type='qutrit_rough_amplitude',
                                     qubit_grouping=qubit_grouping)
     conf.experiment_options['max_circuits'] = 150
