@@ -14,6 +14,8 @@ def calibrate_single_qutrit_gates(
         # Construct the error mitigation matrix and find the rough CR pulse width
         runner.run_experiment('qubits_assignment_error', force_resubmit=refresh_readout_error)
 
+    active_qubits = set(runner.qubits)
+
     exp_types = [
         'qutrit_rough_frequency',
         'qutrit_rough_amplitude',
@@ -33,6 +35,11 @@ def calibrate_single_qutrit_gates(
     for exp_type in exp_types:
         if exp_type not in calibrated:
             runner.run_experiment(exp_type)
+            # Exclude qubits that failed calibration
+            cal_data = runner.calibrations.parameters_table(group=exp_type,
+                                                            most_recent_only=False)['data']
+            active_qubits &= set(row['qubits'][0] for row in cal_data)
+            runner.qubits = list(active_qubits)
 
 
 def characterize_qutrit(runner: ExperimentsRunner):

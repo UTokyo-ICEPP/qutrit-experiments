@@ -5,7 +5,7 @@ import os
 import pickle
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 from numbers import Number
 from typing import Optional, Union
@@ -62,6 +62,7 @@ class ExperimentsRunner:
     def __init__(
         self,
         backend: Backend,
+        qubits: Optional[Sequence[int]] = None,
         calibrations: Optional[Calibrations] = None,
         data_dir: Optional[str] = None,
         read_only: bool = False,
@@ -72,6 +73,8 @@ class ExperimentsRunner:
         self._calibrations = calibrations
         if calibrations is not None:
             update_add_schedule(self._calibrations)
+
+        self.qubits = qubits
 
         self._data_dir = data_dir
         if data_dir and not os.path.exists(self._data_dir):
@@ -97,6 +100,14 @@ class ExperimentsRunner:
     @property
     def backend(self):
         return self._backend
+
+    @property
+    def qubits(self):
+        return self._qubits
+
+    @qubits.setter
+    def qubits(self, value: Union[Sequence[int], None]):
+        self._qubits = None if value is None else tuple(value)
 
     @property
     def runtime_session(self):
@@ -181,6 +192,7 @@ class ExperimentsRunner:
         analyze: bool = True,
         calibrate: bool = True,
         print_level: int = 2,
+        exp_data: Optional[ExperimentData] = None,
         force_resubmit: bool = False
     ) -> ExperimentData:
         if isinstance(config, str):
@@ -196,34 +208,34 @@ class ExperimentsRunner:
         if force_resubmit:
             self.delete_data(exp_type)
 
-        exp_data = None
-        ## Try retrieving exp_data from the pickle
-        if self.saved_data_exists(exp_type):
-            exp_data = self.load_data(exp_type)
-        else:
-            # Construct the data from running or retrieving jobs -> publish the raw data
-            # Finalize the experiment before executions
-            experiment._finalize()
-            # Initialize the result container
-            # This line comes after _transpiled_circuits in the original BaseExperiment.run() (see
-            # below) but in terms of good object design there shouldn't be any dependencies between the
-            # two methods
-            exp_data = experiment._initialize_experiment_data()
-
-            if self.code_test:
-                self._run_code_test(experiment, exp_data)
+        if exp_data is None:
+            ## Try retrieving exp_data from the pickle
+            if self.saved_data_exists(exp_type):
+                exp_data = self.load_data(exp_type)
             else:
-                if self.job_ids_exist(exp_type):
-                    jobs = self.load_jobs(exp_type)
+                # Construct the data from running or retrieving jobs -> publish the raw data
+                # Finalize the experiment before executions
+                experiment._finalize()
+                # Initialize the result container
+                # This line comes after _transpiled_circuits in the original BaseExperiment.run() (see
+                # below) but in terms of good object design there shouldn't be any dependencies between the
+                # two methods
+                exp_data = experiment._initialize_experiment_data()
+
+                if self.code_test:
+                    self._run_code_test(experiment, exp_data)
                 else:
-                    jobs = self._submit_jobs(experiment)
+                    if self.job_ids_exist(exp_type):
+                        jobs = self.load_jobs(exp_type)
+                    else:
+                        jobs = self._submit_jobs(experiment)
 
-                exp_data.add_jobs(jobs)
+                    exp_data.add_jobs(jobs)
 
-            with exp_data._analysis_callbacks.lock:
-                if isinstance(experiment, CompositeExperiment):
-                    exp_data.add_analysis_callback(set_child_data_structure)
-                exp_data.add_analysis_callback(self.save_data)
+                with exp_data._analysis_callbacks.lock:
+                    if isinstance(experiment, CompositeExperiment):
+                        exp_data.add_analysis_callback(set_child_data_structure)
+                    exp_data.add_analysis_callback(self.save_data)
 
         if block_for_results:
             # Wait here once just to make the program execution easier to understand
@@ -471,13 +483,7 @@ class ExperimentsRunner:
         update_list = _get_update_list(experiment_data, experiment)
         logger.info('%d/%d parameters to update.',
                     len([x for x in update_list if x[-1]]), len(update_list))
-        self.save_calibrations(exp_type, update_list)
 
-    def save_calibrations(
-        self,
-        exp_type: str,
-        update_list: list[tuple[str, str, tuple[int, ...], bool]]
-    ):
         for pname, sname, qubits, updated in update_list:
             if not updated:
                 continue

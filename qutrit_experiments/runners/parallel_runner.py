@@ -28,24 +28,28 @@ class ParallelRunner(ExperimentsRunner):
     def __init__(
         self,
         backend: Backend,
-        active_qubits: Optional[Sequence[int]] = None,
+        qubits: Optional[Sequence[int]] = None,
         calibrations: Optional[Calibrations] = None,
         data_dir: Optional[str] = None,
         read_only: bool = False,
         runtime_session: Optional[Session] = None
     ):
-        super().__init__(backend, calibrations=calibrations, data_dir=data_dir, read_only=read_only,
-                         runtime_session=runtime_session)
+        self.qubit_grouping = []
+        super().__init__(backend, qubits=qubits, calibrations=calibrations, data_dir=data_dir,
+                         read_only=read_only, runtime_session=runtime_session)
 
-        self.set_qubit_grouping(active_qubits=active_qubits)
         self.num_analysis_procs = -1
         self.plot_all_qubits = False
 
     @property
-    def active_qubits(self):
+    def qubits(self):
         return set(sum(self.qubit_grouping, []))
 
-    def set_qubit_grouping(
+    @qubits.setter
+    def qubits(self, value: Union[Sequence[int], None]):
+        self.qubit_grouping = self.get_qubit_grouping(active_qubits=value)
+
+    def get_qubit_grouping(
         self,
         active_qubits: Optional[Sequence[int]] = None,
         max_group_size: int = 0
@@ -60,33 +64,38 @@ class ParallelRunner(ExperimentsRunner):
             return (set(cpl[1] for cpl in coupling_map if cpl[0] == qubit)
                     | set(cpl[0] for cpl in coupling_map if cpl[1] == qubit))
 
-        self.qubit_grouping = []
+        qubit_grouping = []
 
         for qubit in active_qubits:
             group_candidates = []
-            for group in self.qubit_grouping:
+            for group in qubit_grouping:
                 if (not any((neighbor in group) for neighbor in neighbors(qubit))
                     and (max_group_size <= 0 or len(group) < max_group_size)):
                     group_candidates.append(group)
 
             if len(group_candidates) == 0:
-                self.qubit_grouping.append([qubit])
+                qubit_grouping.append([qubit])
             else:
                 igroup = np.argmin([len(group) for group in group_candidates])
                 group_candidates[igroup].append(qubit)
 
+        return qubit_grouping
+
     def make_batch_config(
         self,
         config: Union[ExperimentConfig, Callable[[ExperimentsRunner, int], ExperimentConfig]],
-        exp_type: Optional[str] = None
+        exp_type: Optional[str] = None,
+        qubit_grouping: Optional[list[list[int]]] = None
     ) -> BatchExperimentConfig:
         """Create a configuration of a batch experiment of parallel experiments of experiments."""
         if not callable(config):
             exp_type = config.exp_type
+        if qubit_grouping is None:
+            qubit_grouping = self.qubit_grouping
 
         batch_conf = BatchExperimentConfig(exp_type=exp_type)
         composite_config = {}
-        for igroup, qubit_group in enumerate(self.qubit_grouping):
+        for igroup, qubit_group in enumerate(qubit_grouping):
             parallel_conf = ParallelExperimentConfig(exp_type=f'{exp_type}-group{igroup}')
             for qubit in qubit_group:
                 if callable(config):
@@ -154,13 +163,24 @@ class ParallelRunner(ExperimentsRunner):
         analyze: bool = True,
         calibrate: bool = True,
         print_level: int = 2,
+        exp_data: Optional[ExperimentData] = None,
         force_resubmit: bool = False
     ) -> ExperimentData:
         """Run the batch experiment."""
         if isinstance(config, str):
             config = experiments[config](self)
+
+        qubit_grouping = None
+        # If we are unpickling saved experiment data, initialize the batch configuration following
+        # the qubit grouping used to create the data.
+        if not force_resubmit and self.saved_data_exists(config.exp_type):
+            exp_data = self.load_data(config.exp_type)
+            qubit_grouping = [[data.metadata['physical_qubits'][0]
+                               for data in par_data.child_data()]
+                              for par_data in exp_data.child_data()]
+
         if isinstance(config, ExperimentConfig):
-            batch_config = self.make_batch_config(config)
+            batch_config = self.make_batch_config(config, qubit_grouping=qubit_grouping)
         else:
             batch_config = config
 
@@ -170,6 +190,7 @@ class ParallelRunner(ExperimentsRunner):
         exp_data = super().run_experiment(batch_config, experiment,
                                           block_for_results=block_for_results,
                                           analyze=analyze, calibrate=calibrate, print_level=0,
+                                          exp_data=exp_data,
                                           force_resubmit=force_resubmit)
 
         if not analyze or experiment.analysis is None:
@@ -194,17 +215,6 @@ class ParallelRunner(ExperimentsRunner):
 
         return exp_data
 
-    def save_calibrations(
-        self,
-        exp_type: str,
-        update_list: list[tuple[str, str, tuple[int, ...], bool]]
-    ):
-        """Save the calibrations and remove qubits that failed the calibration."""
-        super().save_calibrations(exp_type, update_list)
-        failed_qubits = set(qubits[0] for _, _, qubits, updated in update_list if not updated)
-        active_qubits = self.active_qubits - failed_qubits
-        self.set_qubit_grouping(active_qubits=active_qubits)
-
     def consolidate_figures(self, experiment_data: ExperimentData):
         """Extract the figure objects from the experiment data and combine them in one figure.
 
@@ -212,9 +222,12 @@ class ParallelRunner(ExperimentsRunner):
         the first axes of the subanalysis figures.
         """
         if self.plot_all_qubits:
-            num_qubits = self._backend.num_qubits
+            plotted_qubits = list(range(self._backend.num_qubits))
         else:
-            num_qubits = len(self.active_qubits)
+            plotted_qubits = sorted(sum(([data.metadata['physical_qubits'][0]
+                                          for data in pard.child_data()]
+                                         for pard in experiment_data.child_data()), []))
+        num_qubits = len(plotted_qubits)
         nrow = math.floor(math.sqrt(num_qubits))
         ncol = math.ceil(math.sqrt(num_qubits))
         if nrow * ncol < num_qubits:
@@ -228,10 +241,7 @@ class ParallelRunner(ExperimentsRunner):
                 # but we won't worry here
                 continue
 
-            if self.plot_all_qubits:
-                iax = qubit
-            else:
-                iax = sorted(self.active_qubits).index(qubit)
+            iax = plotted_qubits.index(qubit)
 
             if not figures and subdata.figure_names:
                 for _ in range(len(subdata.figure_names)):
@@ -268,7 +278,7 @@ class ParallelRunner(ExperimentsRunner):
         active_qubits: Optional[Sequence[int]] = None
     ) -> dict[int, BaseExperiment]:
         if active_qubits is None:
-            active_qubits = self.active_qubits
+            active_qubits = self.qubits
 
         flattened = {exp.physical_qubits[0]: exp
                      for par_exp in experiment.component_experiment()
@@ -281,7 +291,7 @@ class ParallelRunner(ExperimentsRunner):
         active_qubits: Optional[Sequence[int]] = None
     ) -> dict[int, ExperimentData]:
         if active_qubits is None:
-            active_qubits = self.active_qubits
+            active_qubits = self.qubits
 
         flattened = {data.metadata['physical_qubits'][0]: data
                      for par_data in experiment_data.child_data()
