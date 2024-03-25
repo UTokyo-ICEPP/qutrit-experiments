@@ -39,6 +39,7 @@ class ParallelRunner(ExperimentsRunner):
 
         self.set_qubit_grouping(active_qubits=active_qubits)
         self.num_analysis_procs = -1
+        self.plot_all_qubits = False
 
     @property
     def active_qubits(self):
@@ -210,9 +211,13 @@ class ParallelRunner(ExperimentsRunner):
         The consolidated figure is intended to be a quick-glance summary and therefore only takes
         the first axes of the subanalysis figures.
         """
-        nrow = math.floor(math.sqrt(self._backend.num_qubits))
-        ncol = math.ceil(math.sqrt(self._backend.num_qubits))
-        if nrow * ncol < self._backend.num_qubits:
+        if self.plot_all_qubits:
+            num_qubits = self._backend.num_qubits
+        else:
+            num_qubits = len(self.active_qubits)
+        nrow = math.floor(math.sqrt(num_qubits))
+        ncol = math.ceil(math.sqrt(num_qubits))
+        if nrow * ncol < num_qubits:
             nrow += 1
 
         figures = []
@@ -222,6 +227,11 @@ class ParallelRunner(ExperimentsRunner):
                 # Discrepancy in the experiment data and active_qubits; implies an error somewhere
                 # but we won't worry here
                 continue
+
+            if self.plot_all_qubits:
+                iax = qubit
+            else:
+                iax = sorted(self.active_qubits).index(qubit)
 
             if not figures and subdata.figure_names:
                 for _ in range(len(subdata.figure_names)):
@@ -233,7 +243,7 @@ class ParallelRunner(ExperimentsRunner):
                     figures.append(figure)
 
             for ifig in range(len(subdata.figure_names)):
-                subax = figures[ifig].axes[qubit]
+                subax = figures[ifig].axes[iax]
                 origax = subdata.figure(ifig).figure.axes[0]
 
                 copy_axes(origax, subax)
