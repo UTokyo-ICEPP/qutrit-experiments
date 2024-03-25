@@ -27,6 +27,7 @@ class QutritTranspileOptions:
         if self.rz_casted_gates is None:
             self.rz_casted_gates = []
 
+
 def make_instruction_durations(
     backend: Backend,
     calibrations: Calibrations,

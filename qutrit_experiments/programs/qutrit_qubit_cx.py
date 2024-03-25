@@ -25,7 +25,7 @@ def calibrate_qutrit_qubit_cx(
 
     # Construct the error mitigation matrix for ternary discriminator
     runner.run_experiment('qutrit_assignment_error')
-    
+
     # Find the amplitude that does not disrupt the |2> state too much
     runner.run_experiment('c2t_cr_initial_amp')
 
@@ -40,7 +40,7 @@ def calibrate_qutrit_qubit_cx(
     fit_params = rough_width_data.analysis_results('simul_fit_params').value[rcr_type]
     omega_z = fit_params[0] * unp.cos(fit_params[2]) / runner.backend.dt
     if abs(omega_z.n) > omega_z.std_dev:
-        frequency, amp = get_stark_params(runner.backend, qubits[1], rcr_type, omega_z.n)
+        frequency, amp = get_stark_params(runner.backend, qubits, rcr_type, omega_z.n)
         runner.calibrations.add_parameter_value(frequency, 'stark_frequency', qubits, 'cr')
         # Eliminate the z component of RCR non-participating state
         config = experiments['c2t_cr_counter_stark_amp'](runner)
