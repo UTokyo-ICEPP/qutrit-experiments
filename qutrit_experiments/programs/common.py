@@ -103,7 +103,8 @@ def get_program_config(program_config: Optional[dict[str, Any]] = None) -> dict[
                             metavar='HUB/PROJECT/GROUP', dest='instance')
         parser.add_argument('-b', '--backend', help='IBM Quantum backend name.', metavar='NAME',
                             dest='backend')
-        parser.add_argument('-q', '--qubits', nargs='+', type=int, help='Qubits to use.', dest='qubits')
+        parser.add_argument('-q', '--qubits', nargs='+', default=[], help='Qubits to use.',
+                            dest='qubits')
         parser.add_argument('-c', '--calibrations', nargs='?', const='', help='Load calibrations. If a'
                             ' path is given, data is loaded from BASE_DIR/PATH/parameter_values.csv.')
         parser.add_argument('-s', '--session-id', help='Qiskit Runtime Session ID.', metavar='ID',
@@ -133,5 +134,15 @@ def get_program_config(program_config: Optional[dict[str, Any]] = None) -> dict[
     if not program_config['name']:
         program_config['name'] = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
         program_config['name'] += f'_{program_config["backend"]}'
+
+    qubits = []
+    for qarg in program_config['qubits']:
+        if isinstance(qarg, int):
+            qubits.append(qarg)
+        elif (parts := qarg.partition('-'))[1] == '-':
+            qubits.extend(range(int(parts[0]), int(parts[2]) + 1))
+        else:
+            qubits.append(int(qarg))
+    program_config['qubits'] = qubits
 
     return program_config

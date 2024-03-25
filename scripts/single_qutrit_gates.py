@@ -30,16 +30,16 @@ if __name__ == '__main__':
     program_config = get_program_config()
     assert program_config['qubits'] is not None
     runner_args = {}
-    if len(program_config['qubits']) > 1 or program_config['qubits'][0] == -1:
-        import qutrit_experiments.configurations.full_backend_qutrits
-        from qutrit_experiments.runners import ParallelRunner
-        runner_cls = ParallelRunner
-        if len(program_config['qubits']) > 1:
-            runner_args = {'active_qubits': set(program_config['qubits'])}
-    else:
+    if (nq := len(program_config['qubits'])) == 1:
         import qutrit_experiments.configurations.single_qutrit
         from qutrit_experiments.runners import ExperimentsRunner
         runner_cls = ExperimentsRunner
+    else:
+        import qutrit_experiments.configurations.full_backend_qutrits
+        from qutrit_experiments.runners import ParallelRunner
+        runner_cls = ParallelRunner
+        if nq > 1:
+            runner_args = {'active_qubits': set(program_config['qubits'])}
 
     setup_data_dir(program_config)
     while True:
@@ -59,7 +59,8 @@ if __name__ == '__main__':
     runner.job_retry_interval = 120
     calibrated = load_calibrations(runner, program_config)
 
-    runner.program_data['qutrit'] = runner.program_data['qubits'][0]
+    if nq == 1:
+        runner.program_data['qutrit'] = runner.program_data['qubits'][0]
 
     calibrate_single_qutrit_gates(runner, refresh_readout_error=program_config['refresh_readout'],
                                   calibrated=calibrated)
