@@ -51,4 +51,5 @@ if __name__ == '__main__':
 
     calibrate_single_qutrit_gates(runner, refresh_readout_error=program_config['refresh_readout'],
                                   calibrated=calibrated)
-    calibrate_qutrit_qubit_cx(runner, refresh_readout_error=program_config['refresh_readout'])
+    calibrate_qutrit_qubit_cx(runner, runner.program_data['qubits'][1:],
+                              refresh_readout_error=program_config['refresh_readout'])
