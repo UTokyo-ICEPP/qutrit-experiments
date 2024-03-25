@@ -26,10 +26,13 @@ class QutritGate(Gate):
             QUTRIT_COMPOSITE_GATES.append(cls)
         cls.num_qubits = num_qubits
 
-    def __init__(self, params, label=None, duration=None, unit='dt'):
-        super().__init__(self.gate_name, self.num_qubits, params, label=label, duration=duration,
-                         unit=unit)
-
+    def __init__(self, params, name=None, num_qubits=None, label=None, duration=None, unit='dt'):
+        if name is None:
+            name = self.gate_name
+        if num_qubits is None:
+            num_qubits = self.num_qubits
+        super().__init__(name, num_qubits, params, label=label, duration=duration, unit=unit)
+        
 
 class X12Gate(QutritGate, gate_name='x12', gate_type='pulse', num_qubits=1):
     """The single-qubit X gate on EF subspace."""

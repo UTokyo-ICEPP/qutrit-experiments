@@ -20,7 +20,6 @@ from ...calibrations import get_qutrit_pulse_gate
 from ...constants import DEFAULT_SHOTS
 from ...experiment_mixins.ef_space import EFSpaceExperiment
 from ...experiment_mixins.map_to_physical_qubits import MapToPhysicalQubits
-from ...gates import QutritGate, RZ12Gate
 from ...util.dummy_data import ef_memory, single_qubit_counts
 
 
