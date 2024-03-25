@@ -39,7 +39,7 @@ from qiskit import QuantumRegister, pulse
 from qiskit.circuit import Gate, Parameter
 from qiskit.circuit.library import RZGate
 from qiskit.dagcircuit import DAGCircuit, DAGOpNode
-from qiskit.pulse import Schedule, ScheduleBlock, ScalableSymbolicPulse
+from qiskit.pulse import InstructionScheduleMap, Schedule, ScheduleBlock, ScalableSymbolicPulse
 from qiskit.transpiler import TransformationPass, TranspilerError
 import rustworkx as rx
 
@@ -103,6 +103,7 @@ class CastRZToAngle(TransformationPass):
     def __init__(
         self,
         channel_map: dict[str, dict],
+        inst_map: InstructionScheduleMap,
         gates_to_convert: Union[str, list[str]] = 'all'
     ):
         super().__init__()
@@ -112,6 +113,7 @@ class CastRZToAngle(TransformationPass):
             self._gates = set(gates_to_convert)
 
         self._channel_map = channel_map
+        self._inst_map = inst_map
         self._sched_cache = {} # Container for schedules cache
 
     def run(self, dag: DAGCircuit) -> DAGCircuit:
@@ -181,7 +183,7 @@ class CastRZToAngle(TransformationPass):
                 schedule = dag.calibrations[name][key]
             except KeyError:
                 from_cal = False
-                schedule = self.target.instruction_schedule_map().get(name, qubits)
+                schedule = self._inst_map.get(name, qubits)
                 if isinstance(schedule, Schedule):
                     schedule = schedule_to_block(schedule)
                 else:
