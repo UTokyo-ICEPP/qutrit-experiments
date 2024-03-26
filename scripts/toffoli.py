@@ -24,7 +24,7 @@ if __name__ == '__main__':
     from qutrit_experiments.calibrations import (make_single_qutrit_gate_calibrations,
                                                  make_qutrit_qubit_cx_calibrations)
     import qutrit_experiments.configurations.single_qutrit
-    import qutrit_experiments.configurations.toffoli
+    import qutrit_experiments.configurations.qutrit_qubit_cx
     from qutrit_experiments.programs.common import (get_program_config, load_calibrations,
                                                     setup_data_dir, setup_runner)
     from qutrit_experiments.programs.single_qutrit_gates import calibrate_single_qutrit_gates

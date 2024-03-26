@@ -33,13 +33,13 @@ def calibrate_qutrit_qubit_cx(
     runner.run_experiment('qutrit_assignment_error')
 
     # Find the amplitude that does not disrupt the |2> state too much
-    runner.run_experiment('c2t_cr_initial_amp')
+    runner.run_experiment('cr_initial_amp')
 
     # Determine the RCR type to use and corresponding CR width and Rx offset angle
-    rough_width_data = runner.run_experiment('c2t_cr_rough_width')
+    rough_width_data = runner.run_experiment('cr_rough_width')
 
     # Eliminate the y component of RCR non-participating state
-    runner.run_experiment('c2t_cr_cr_angle')
+    runner.run_experiment('cr_angle')
 
     # Set the target Stark frequency from observed sign of Z
     rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits)
@@ -49,27 +49,27 @@ def calibrate_qutrit_qubit_cx(
         frequency, amp = get_stark_params(runner.backend, runner.qubits, rcr_type, omega_z.n)
         runner.calibrations.add_parameter_value(frequency, 'stark_frequency', runner.qubits, 'cr')
         # Eliminate the z component of RCR non-participating state
-        config = experiments['c2t_cr_counter_stark_amp'](runner)
+        config = experiments['cr_counter_stark_amp'](runner)
         config.args['amplitudes'] = np.linspace(0., amp * 2., 8)
         runner.run_experiment(config)
 
     # Calculate the amplitude for CX given the width
-    runner.run_experiment('c2t_rcr_rough_cr_amp')
+    runner.run_experiment('rcr_rough_cr_amp')
 
     # Minimize the y and z components of RCR
-    runner.run_experiment('c2t_rcr_rotary_amp')
+    runner.run_experiment('rcr_rotary_amp')
 
-    config = experiments['c2t_crcr_unitaries'](runner)
+    config = experiments['crcr_unitaries'](runner)
     config.exp_type += '_prefine'
     runner.run_experiment(config)
 
     # Fine calibration
-    runner.run_experiment('c2t_crcr_fine_scanbased')
+    runner.run_experiment('crcr_fine_scanbased')
 
     for exp_type in [
-    #    'c2t_crcr_fine_iter1',
-    #    'c2t_crcr_fine_iter2',
-        'c2t_crcr_unitaries'
+    #    'crcr_fine_iter1',
+    #    'crcr_fine_iter2',
+        'crcr_unitaries'
     ]:
         runner.run_experiment(exp_type)
 
