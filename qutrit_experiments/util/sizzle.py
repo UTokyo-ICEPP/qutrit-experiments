@@ -202,22 +202,6 @@ def sizzle_shifted_energies(
     return perturbed_eigvals(hfull_driveframe).real + drive_diag
 
 
-def sizzle_hamiltonian_shifts_statebasis(
-    hvars: dict[str, float],
-    qubits: tuple[int, int],
-    amps: tuple[float, float],
-    frequency: 'array_like',
-    phase: float = 0.,
-    nlevels: int = 3,
-    truncate_to: tuple[int, int] = (3, 2)
-):
-    hstat = static_hamiltonian(hvars, qubits, nlevels=nlevels)
-    efull = sizzle_shifted_energies(hvars, qubits, amps, frequency, phase=phase, nlevels=nlevels)
-    shifts = efull - perturbed_eigvals(hstat)
-    shifts = np.reshape(shifts, shifts.shape[:-1] + (nlevels, nlevels))
-    return shifts[..., :truncate_to[0], :truncate_to[1]]
-
-
 def sizzle_hamiltonian_shifts(
     hvars: dict[str, float],
     qubits: tuple[int, int],

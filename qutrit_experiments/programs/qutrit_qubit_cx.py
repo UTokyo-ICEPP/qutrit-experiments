@@ -9,7 +9,7 @@ from ..experiment_config import experiments
 from ..experiments.qutrit_qubit_cx.util import RCRType
 from ..runners import ExperimentsRunner
 from ..util.bloch import so3_cartesian, so3_cartesian_params
-from ..util.sizzle import sizzle_hamiltonian_shifts_statebasis
+from ..util.sizzle import sizzle_hamiltonian_shifts
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +53,16 @@ def calibrate_qutrit_qubit_cx(
     # Minimize the y and z components of RCR
     runner.run_experiment('c2t_rcr_rotary_amp')
 
+    config = experiments['c2t_crcr_unitaries'](runner)
+    config.exp_type += '_prefine'
+    runner.run_experiment(config)
+
+    # Fine calibration
+    runner.run_experiment('c2t_crcr_fine_scanbased')
+
     for exp_type in [
-        'c2t_crcr_fine_iter1',
-        'c2t_crcr_fine_iter2',
+    #    'c2t_crcr_fine_iter1',
+    #    'c2t_crcr_fine_iter2',
         'c2t_crcr_unitaries'
     ]:
         runner.run_experiment(exp_type)
@@ -70,8 +77,11 @@ def get_stark_params(
     frequencies = nonresonant_frequencies(backend, qubits[1])
     hvars = backend.configuration().hamiltonian['vars']
     amp = 0.08
-    shifts = sizzle_hamiltonian_shifts_statebasis(hvars, qubits, (0., amp),
-                                                  frequencies)[:, control_state, 1]
+    shifts_quditbasis = sizzle_hamiltonian_shifts(hvars, qubits, (0., amp), frequencies)[..., 1]
+    # shifts is in [Izζ][Iz] basis
+    qudit_to_control = np.array([[1., 1., 0.], [1., -1., 1.], [1., 0., -1.]])[control_state]
+    shifts = np.einsum('i,fi->f', qudit_to_control, shifts_quditbasis)
+
     # Align the sign of shifts so we always deal with maxima
     shifts *= -np.sign(omega_z)
     targ = abs(omega_z)
