@@ -66,7 +66,7 @@ class ParallelRunner(ExperimentsRunner):
 
         qubit_grouping = []
 
-        for qubit in active_qubits:
+        for qubit in sorted(active_qubits):
             group_candidates = []
             for group in qubit_grouping:
                 if (not any((neighbor in group) for neighbor in neighbors(qubit))
@@ -170,16 +170,16 @@ class ParallelRunner(ExperimentsRunner):
         if isinstance(config, str):
             config = experiments[config](self)
 
-        qubit_grouping = None
-        # If we are unpickling saved experiment data, initialize the batch configuration following
-        # the qubit grouping used to create the data.
-        if not force_resubmit and self.saved_data_exists(config.exp_type):
-            exp_data = self.load_data(config.exp_type)
-            qubit_grouping = [[data.metadata['physical_qubits'][0]
-                               for data in par_data.child_data()]
-                              for par_data in exp_data.child_data()]
-
         if isinstance(config, ExperimentConfig):
+            qubit_grouping = None
+            # If we are unpickling saved experiment data, initialize the batch configuration following
+            # the qubit grouping used to create the data.
+            if not force_resubmit and self.saved_data_exists(config.exp_type):
+                exp_data = self.load_data(config.exp_type)
+                qubit_grouping = [sorted(par_data.metadata['physical_qubits'])
+                                for par_data in exp_data.child_data()]
+                logger.debug('Loaded experiment data for %s with qubit grouping %s', config.exp_type,
+                            qubit_grouping)
             batch_config = self.make_batch_config(config, qubit_grouping=qubit_grouping)
         else:
             batch_config = config
@@ -224,9 +224,7 @@ class ParallelRunner(ExperimentsRunner):
         if self.plot_all_qubits:
             plotted_qubits = list(range(self._backend.num_qubits))
         else:
-            plotted_qubits = sorted(sum(([data.metadata['physical_qubits'][0]
-                                          for data in pard.child_data()]
-                                         for pard in experiment_data.child_data()), []))
+            plotted_qubits = sorted(experiment_data.metadata['physical_qubits'])
         num_qubits = len(plotted_qubits)
         nrow = math.floor(math.sqrt(num_qubits))
         ncol = math.ceil(math.sqrt(num_qubits))

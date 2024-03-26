@@ -67,7 +67,7 @@ if __name__ == '__main__':
     calibrated = load_calibrations(runner, program_config)
 
     if nq == 1:
-        runner.program_data['qutrit'] = runner.program_data['qubits'][0]
+        runner.program_data['qutrit'] = runner.qubits[0]
 
     calibrate_single_qutrit_gates(runner, refresh_readout_error=program_config['refresh_readout'],
                                   calibrated=calibrated)

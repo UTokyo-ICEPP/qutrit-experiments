@@ -39,14 +39,12 @@ def register_backend_qutrit_exp(function):
 def register_backend_qutrit_postexp(function):
     @wraps(function)
     def postexp(runner, experiment_data):
-        for parallel_data in experiment_data.child_data():
-            for qutrit_data in parallel_data.child_data():
-                try:
-                    function(runner, qutrit_data)
-                except Exception as ex:
-                    logger.error('Postexperiment error at qubit %d',
-                                 qutrit_data.metadata['physical_qubits'][0])
-                    raise ex
+        for qubit, qutrit_data in runner.decompose_data(experiment_data).items():
+            try:
+                function(runner, qutrit_data)
+            except Exception as ex:
+                logger.error('Postexperiment error at qubit %d', qubit)
+                raise ex
 
     register_post(postexp, exp_type=function.__name__[:-5])
 

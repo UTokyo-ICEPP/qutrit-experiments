@@ -1,5 +1,32 @@
+import logging
 from typing import Optional
 from ..runners.experiments_runner import ExperimentsRunner
+
+logger = logging.getLogger(__name__)
+
+
+def _run_experiment(runner, exp_type, is_calibration=True, force_resubmit=False):
+    runner_qubits = set(runner.qubits)
+
+    exp_data = None
+    if runner.saved_data_exists(exp_type):
+        exp_data = runner.load_data(exp_type)
+        if (data_qubits := set(exp_data.metadata['physical_qubits'])) - runner_qubits:
+            logger.warning('Saved experiment data for %s has out-of-configuration qubits.',
+                            exp_type)
+        runner.qubits = data_qubits
+
+    runner.run_experiment(exp_type, exp_data=exp_data, force_resubmit=force_resubmit)
+
+    if is_calibration:
+        # Exclude qubits that failed calibration
+        cal_data = runner.calibrations.parameters_table(group=exp_type,
+                                                        most_recent_only=False)['data']
+        runner.qubits = runner_qubits & set(row['qubits'][0] for row in cal_data)
+    else:
+        runner.qubits = runner_qubits
+
+    return exp_data
 
 
 def calibrate_single_qutrit_gates(
@@ -12,9 +39,8 @@ def calibrate_single_qutrit_gates(
 
     if 'readout_assignment_matrices' not in runner.program_data:
         # Construct the error mitigation matrix and find the rough CR pulse width
-        runner.run_experiment('qubits_assignment_error', force_resubmit=refresh_readout_error)
-
-    active_qubits = set(runner.qubits)
+        _run_experiment(runner, 'qubits_assignment_error', is_calibration=False,
+                        force_resubmit=refresh_readout_error)
 
     exp_types = [
         'qutrit_rough_frequency',
@@ -34,17 +60,12 @@ def calibrate_single_qutrit_gates(
     ]
     for exp_type in exp_types:
         if exp_type not in calibrated:
-            runner.run_experiment(exp_type)
-            # Exclude qubits that failed calibration
-            cal_data = runner.calibrations.parameters_table(group=exp_type,
-                                                            most_recent_only=False)['data']
-            active_qubits &= set(row['qubits'][0] for row in cal_data)
-            runner.qubits = list(active_qubits)
+            _run_experiment(runner, exp_type)
 
 
 def characterize_qutrit(runner: ExperimentsRunner):
     for exp_type in ['qutrit_assignment_error', 'qutrit_t1']:
-        runner.run_experiment(exp_type)
+        _run_experiment(runner, exp_type, is_calibration=False)
 
     runner.qutrit_transpile_options.rz_casted_gates = 'all'
-    runner.run_experiment('qutrit_x12_irb')
+    _run_experiment(runner, 'qutrit_x12_irb', is_calibration=False)
