@@ -56,18 +56,15 @@ if __name__ == '__main__':
     for qubit in program_config['qubits']:
         if props.qubit_property(qubit).get('T1', (0.,))[0] > RESTLESS_REP_DELAY:
             qubits.append(qubit)
-    program_config['qubits'] = qubits
     if not qubits:
         raise RuntimeError('No qubits have T1 > RESTLESS_REP_DELAY')
+    program_config['qubits'] = qubits
 
     runner = setup_runner(backend, calibrations, program_config, runner_cls=runner_cls)
     runner.qutrit_transpile_options.use_waveform = True
     runner.qutrit_transpile_options.remove_custom_pulses = True
     runner.job_retry_interval = 120
     calibrated = load_calibrations(runner, program_config)
-
-    if nq == 1:
-        runner.program_data['qutrit'] = runner.qubits[0]
 
     calibrate_single_qutrit_gates(runner, refresh_readout_error=program_config['refresh_readout'],
                                   calibrated=calibrated)

@@ -31,7 +31,7 @@ from ..experiment_config import register_exp, register_post
 def register_single_qutrit_exp(function):
     @wraps(function)
     def conf_gen(runner):
-        return function(runner, runner.program_data['qutrit'])
+        return function(runner, runner.qubits[0])
 
     register_exp(conf_gen)
 
