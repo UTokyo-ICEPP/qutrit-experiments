@@ -7,6 +7,7 @@ from qiskit.providers import Backend
 from qiskit.transpiler import InstructionDurations, PassManager
 from qiskit.transpiler.passes import ALAPScheduleAnalysis
 from qiskit_experiments.calibration_management import Calibrations
+from qiskit_experiments.exceptions import CalibrationError
 
 from ..constants import LO_SIGN
 from ..gates import QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES
@@ -39,17 +40,24 @@ def make_instruction_durations(
 
     instruction_durations = InstructionDurations(backend.instruction_durations, dt=backend.dt)
     for inst in QUTRIT_PULSE_GATES:
+        durations = []
         match inst.num_qubits:
             case 1:
-                durations = [(inst.gate_name, qubit,
-                             calibrations.get_schedule(inst.gate_name, qubit).duration)
-                             for qubit in qubits]
+                for qubit in qubits:
+                    try:
+                        duration = calibrations.get_schedule(inst.gate_name, qubit).duration
+                    except CalibrationError:
+                        continue
+                    durations.append((inst.gate_name, qubit, duration))
             case 2:
-                durations = []
                 for edge in backend.coupling_map.get_edges():
                     if edge[0] in qubits and edge[1] in qubits:
-                        durations.append((inst.gate_name, edge,
-                                          calibrations.get_schedule(inst.gate_name, edge).duration))
+                        try:
+                            duration = calibrations.get_schedule(inst.gate_name, edge).duration
+                        except CalibrationError:
+                            continue
+                        durations.append((inst.gate_name, edge, duration))
+
         instruction_durations.update(durations)
     for inst in QUTRIT_VIRTUAL_GATES:
         match inst.num_qubits:
