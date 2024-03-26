@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 import logging
 from typing import Optional
 from ..runners.experiments_runner import ExperimentsRunner
@@ -32,14 +33,18 @@ def _run_experiment(runner, exp_type, is_calibration=True, force_resubmit=False)
 def calibrate_single_qutrit_gates(
     runner: ExperimentsRunner,
     refresh_readout_error: bool = True,
-    calibrated: Optional[set[str]] = None
+    calibrated: Optional[set[str]] = None,
+    qutrit_index: Optional[Sequence[int]] = None
 ):
     if calibrated is None:
         calibrated = set()
+    if qutrit_index is not None:
+        runner_qubits = list(runner.qubits)
+        runner.qubits = [runner.qubits[idx] for idx in qutrit_index]
 
     if 'readout_assignment_matrices' not in runner.program_data:
         # Construct the error mitigation matrix and find the rough CR pulse width
-        _run_experiment(runner, 'qubits_assignment_error', is_calibration=False,
+        _run_experiment(runner, 'qubits_assignment_error', qutrit_index, is_calibration=False,
                         force_resubmit=refresh_readout_error)
 
     exp_types = [
@@ -62,10 +67,20 @@ def calibrate_single_qutrit_gates(
         if exp_type not in calibrated:
             _run_experiment(runner, exp_type)
 
+    if qutrit_index is not None:
+        runner.qubits = runner_qubits
 
-def characterize_qutrit(runner: ExperimentsRunner):
+
+def characterize_qutrit(runner: ExperimentsRunner, qutrit_index: Optional[Sequence[int]] = None):
+    if qutrit_index is not None:
+        runner_qubits = list(runner.qubits)
+        runner.qubits = [runner.qubits[idx] for idx in qutrit_index]
+
     for exp_type in ['qutrit_assignment_error', 'qutrit_t1']:
         _run_experiment(runner, exp_type, is_calibration=False)
 
     runner.qutrit_transpile_options.rz_casted_gates = 'all'
     _run_experiment(runner, 'qutrit_x12_irb', is_calibration=False)
+
+    if qutrit_index is not None:
+        runner.qubits = runner_qubits

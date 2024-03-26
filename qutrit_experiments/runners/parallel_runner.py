@@ -43,7 +43,7 @@ class ParallelRunner(ExperimentsRunner):
 
     @property
     def qubits(self):
-        return set(sum(self.qubit_grouping, []))
+        return tuple(sum(self.qubit_grouping, []))
 
     @qubits.setter
     def qubits(self, value: Union[Sequence[int], None]):

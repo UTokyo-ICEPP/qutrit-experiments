@@ -16,52 +16,10 @@ from ..transpilation.qutrit_transpiler import make_instruction_durations
 from ..transpilation.rz import ConsolidateRZAngle
 from ..util.pulse_area import gs_effective_duration, rabi_cycles_per_area
 from .common import add_readout_mitigation, qubits_assignment_error, qubits_assignment_error_post
-from .qutrit import (
-    qutrit_rough_frequency,
-    qutrit_rough_amplitude,
-    qutrit_semifine_frequency,
-    qutrit_fine_frequency,
-    qutrit_rough_x_drag,
-    qutrit_rough_sx_drag,
-    qutrit_fine_sx_amplitude,
-    qutrit_fine_sx_drag,
-    qutrit_fine_x_amplitude,
-    qutrit_fine_x_drag,
-    qutrit_x12_stark_shift,
-    qutrit_sx12_stark_shift,
-    qutrit_x_stark_shift,
-    qutrit_sx_stark_shift,
-    qutrit_rotary_stark_shift,
-    qutrit_assignment_error,
-    qutrit_assignment_error_post
-)
 
 logger = logging.getLogger(__name__)
 twopi = 2. * np.pi
 
-
-for func in [
-    qutrit_rough_frequency,
-    qutrit_rough_amplitude,
-    qutrit_semifine_frequency,
-    qutrit_fine_frequency,
-    qutrit_rough_x_drag,
-    qutrit_rough_sx_drag,
-    qutrit_fine_sx_amplitude,
-    qutrit_fine_sx_drag,
-    qutrit_fine_x_amplitude,
-    qutrit_fine_x_drag,
-    qutrit_x12_stark_shift,
-    qutrit_sx12_stark_shift,
-    qutrit_x_stark_shift,
-    qutrit_sx_stark_shift,
-    qutrit_rotary_stark_shift,
-    qutrit_assignment_error
-]:
-    @wraps(func)
-    def conf_gen(runner):
-        return func(runner, runner.qubits[1])
-    register_exp(conf_gen)
 
 @register_exp
 @wraps(qubits_assignment_error)
@@ -69,20 +27,15 @@ def qubits_assignment_error_func(runner):
     return qubits_assignment_error(runner, runner.qubits)
 
 register_post(qubits_assignment_error_post, exp_type='qubits_assignment_error')
-register_post(qutrit_assignment_error_post, exp_type='qutrit_assignment_error')
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_cr_unitaries(runner):
     from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
-
-    qubits = runner.qubits[1:]
-    cr_circuit = make_cr_circuit(qubits, runner.calibrations)
-
     return ExperimentConfig(
         QutritQubitTomography,
-        qubits,
-        args={'circuit': cr_circuit},
+        runner.qubits,
+        args={'circuit': make_cr_circuit(runner.qubits, runner.calibrations)},
         run_options={'shots': 8000}
     )
 
@@ -90,25 +43,20 @@ def c2t_cr_unitaries(runner):
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_crcr_unitaries(runner):
     from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
-
-    qubits = tuple(runner.qubits[1:])
-    crcr_circuit = make_crcr_circuit(qubits, runner.calibrations)
-
     return ExperimentConfig(
         QutritQubitTomography,
-        qubits,
-        args={'circuit': crcr_circuit},
+        runner.qubits,
+        args={'circuit': make_crcr_circuit(runner.qubits, runner.calibrations)},
         run_options={'shots': 8000}
     )
 
 @register_exp
 def c2t_cr_initial_amp(runner):
     from ..experiments.qutrit_qubit.cr_initial_amp import CRInitialAmplitudeCal
-    qubits = tuple(runner.qubits[1:])
-    assignment_matrix = runner.program_data['qutrit_assignment_matrix'][qubits[0]]
+    assignment_matrix = runner.program_data['qutrit_assignment_matrix'][runner.qubits[0]]
     return ExperimentConfig(
         CRInitialAmplitudeCal,
-        qubits,
+        runner.qubits,
         analysis_options={'assignment_matrix': assignment_matrix}
     )
 
@@ -119,7 +67,7 @@ def c2t_cr_rough_width(runner):
     from ..experiments.qutrit_qubit_cx.cr_width import CRRoughWidthCal
     return ExperimentConfig(
         CRRoughWidthCal,
-        runner.qubits[1:],
+        runner.qubits,
         args={
             'widths': np.arange(128., 384., 64.)
         }
@@ -130,11 +78,10 @@ def c2t_cr_rough_width(runner):
 def c2t_cr_cr_angle(runner):
     """CR angle calibration to eliminate the y component of RCR non-participating state."""
     from ..experiments.qutrit_qubit.cr_angle import FineCRAngleCal
-    qubits = tuple(runner.qubits[1:])
-    control_state = runner.calibrations.get_parameter_value('rcr_type', qubits)
+    control_state = runner.calibrations.get_parameter_value('rcr_type', runner.qubits)
     return ExperimentConfig(
         FineCRAngleCal,
-        qubits,
+        runner.qubits,
         args={'control_state': control_state}
     )
 
@@ -144,11 +91,10 @@ def c2t_cr_counter_stark_amp(runner):
     """CR counter Stark tone amplitude calibration to eliminate the z component of RCR
     non-participating state."""
     from ..experiments.qutrit_qubit.qutrit_cr_sizzle import QutritCRTargetStarkCal
-    qubits = tuple(runner.qubits[1:])
-    control_state = runner.calibrations.get_parameter_value('rcr_type', qubits)
+    control_state = runner.calibrations.get_parameter_value('rcr_type', runner.qubits)
     return ExperimentConfig(
         QutritCRTargetStarkCal,
-        qubits,
+        runner.qubits,
         args={'control_states': (control_state,)}
     )
 
@@ -159,14 +105,13 @@ def c2t_rcr_rough_cr_amp(runner):
     from ..experiments.qutrit_qubit_cx.cr_amp import CRRoughAmplitudeCal
     return ExperimentConfig(
         CRRoughAmplitudeCal,
-        runner.qubits[1:]
+        runner.qubits
     )
 
 @register_post
 def c2t_rcr_rough_cr_amp(runner, experiment_data):
     fit_params = experiment_data.analysis_results('simul_fit_params', block=False).value
-    qubits = tuple(runner.qubits[1:])
-    rcr_type = runner.calibrations.get_parameter_value('rcr_type', qubits)
+    rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits)
     runner.program_data['crcr_dxda'] = np.array(
         [2. * fit_params[rcr_type][0].n, 2. * fit_params[1][0].n - fit_params[rcr_type][0].n]
     )
@@ -177,7 +122,7 @@ def c2t_sizzle_t_amp_scan(runner):
     from ..experiments.qutrit_qubit.qutrit_cr_sizzle import QutritCRTargetStarkCal
     return ExperimentConfig(
         QutritCRTargetStarkCal,
-        runner.qubits[1:]
+        runner.qubits
     )
 
 @register_exp
@@ -186,7 +131,7 @@ def c2t_sizzle_c2_amp_scan(runner):
     from ..experiments.qutrit_qubit.qutrit_cr_sizzle import QutritCRControlStarkCal
     return ExperimentConfig(
         QutritCRControlStarkCal,
-        runner.qubits[1:]
+        runner.qubits
     )
 
 @register_exp
@@ -194,13 +139,12 @@ def c2t_sizzle_c2_amp_scan(runner):
 def c2t_rcr_rotary_amp(runner):
     """Rotary tone amplitude calibration to minimize the y and z components of RCR."""
     from ..experiments.qutrit_qubit_cx.rotary import RepeatedCRRotaryAmplitudeCal
-    qubits = tuple(runner.qubits[1:])
-    duration = gs_effective_duration(runner.calibrations, qubits, 'cr')
-    cycles_per_amp = rabi_cycles_per_area(runner.backend, qubits[1]) * duration
+    duration = gs_effective_duration(runner.calibrations, runner.qubits, 'cr')
+    cycles_per_amp = rabi_cycles_per_area(runner.backend, runner.qubits[1]) * duration
     amplitudes = np.linspace(2.5, 3.5, 20) / cycles_per_amp
     return ExperimentConfig(
         RepeatedCRRotaryAmplitudeCal,
-        qubits,
+        runner.qubits,
         args={'amplitudes': amplitudes}
     )
 
@@ -208,14 +152,12 @@ def c2t_rcr_rotary_amp(runner):
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def c2t_crcr_cr_width(runner):
     from ..experiments.qutrit_qubit_cx.cr_width import CycledRepeatedCRWidthCal
-    qubits = runner.qubits[1:]
-
     # Frequency (cycles / clock) from the rotary tone (should dominate)
-    rotary_amp = runner.calibrations.get_parameter_value('counter_amp', qubits, 'cr')
-    cycles_per_width = rabi_cycles_per_area(runner.backend, qubits[1]) * rotary_amp
+    rotary_amp = runner.calibrations.get_parameter_value('counter_amp', runner.qubits, 'cr')
+    cycles_per_width = rabi_cycles_per_area(runner.backend, runner.qubits[1]) * rotary_amp
     # CRCR frequency is roughly (rotary+rotary)*(1+1-1) = 2*rotary
     # Aim for the width scan range of +-0.2 cycles total in CRCR
-    current_width = runner.calibrations.get_parameter_value('width', qubits, schedule='cr')
+    current_width = runner.calibrations.get_parameter_value('width', runner.qubits, schedule='cr')
     widths = np.linspace(current_width - 0.05 / cycles_per_width,
                          current_width + 0.05 / cycles_per_width, 5)
     if widths[0] < 0.:
@@ -223,7 +165,7 @@ def c2t_crcr_cr_width(runner):
 
     return ExperimentConfig(
         CycledRepeatedCRWidthCal,
-        qubits,
+        runner.qubits,
         args={
             'widths': widths,
         }
@@ -234,8 +176,7 @@ def c2t_crcr_cr_width(runner):
 def c2t_crcr_rotary(runner):
     from ..experiments.qutrit_qubit_cx.rotary import (CycledRepeatedCRRotaryAmplitudeCal,
                                                       rotary_angle_per_amp)
-    qubits = runner.qubits[1:]
-    angle_per_amp = rotary_angle_per_amp(runner.backend, runner.calibrations, qubits)
+    angle_per_amp = rotary_angle_per_amp(runner.backend, runner.calibrations, runner.qubits)
     # crcr_rotary_test_angles are the rotary angles with the current CR parameters
     if (angles := runner.program_data.get('crcr_rotary_test_angles')) is None:
         # Scan rotary amplitudes expected to generate +-1 rad rotations within one CR pulse
@@ -243,7 +184,7 @@ def c2t_crcr_rotary(runner):
 
     return ExperimentConfig(
         CycledRepeatedCRRotaryAmplitudeCal,
-        runner.qubits[1:],
+        runner.qubits,
         args={'amplitudes': angles / angle_per_amp}
     )
 
@@ -253,7 +194,7 @@ def c2t_crcr_fine_scanbased(runner):
     from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineScanCal
     return ExperimentConfig(
         CycledRepeatedCRFineScanCal,
-        runner.qubits[1:]
+        runner.qubits
     )
 
 @register_exp
@@ -261,18 +202,16 @@ def c2t_crcr_fine_scanbased(runner):
 def c2t_crcr_angle_width_rate(runner):
     """Measure the X rotation angles in 0 and 1 with the rotary."""
     from ..experiments.qutrit_qubit_cx.cr_width import CycledRepeatedCRWidth
-    qubits = runner.qubits[1:]
-
-    current_width = runner.calibrations.get_parameter_value('width', qubits, schedule='cr')
+    current_width = runner.calibrations.get_parameter_value('width', runner.qubits, schedule='cr')
     widths = np.linspace(-10., 10., 5) + current_width
 
-    cr_schedules = get_cr_schedules(runner.calibrations, qubits,
+    cr_schedules = get_cr_schedules(runner.calibrations, runner.qubits,
                                     free_parameters=['width', 'margin'])
-    rcr_type = RCRType(runner.calibrations.get_parameter_value('rcr_type', qubits))
+    rcr_type = RCRType(runner.calibrations.get_parameter_value('rcr_type', runner.qubits))
 
     return ExperimentConfig(
         CycledRepeatedCRWidth,
-        qubits,
+        runner.qubits,
         args={
             'cr_schedules': cr_schedules,
             'rcr_type': rcr_type,
@@ -293,7 +232,7 @@ def c2t_crcr_fine_iter1(runner):
     from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineCal
     return ExperimentConfig(
         CycledRepeatedCRFineCal,
-        runner.qubits[1:],
+        runner.qubits,
         args={
             'width_rate': runner.program_data['crcr_angle_per_width'],
             'current_cal_groups': ('c2t_crcr_cr_width', 'c2t_crcr_rotary')
@@ -307,7 +246,7 @@ def c2t_crcr_fine_iter2(runner):
     from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineCal
     return ExperimentConfig(
         CycledRepeatedCRFineCal,
-        runner.qubits[1:],
+        runner.qubits,
         args={
             'width_rate': runner.program_data['crcr_angle_per_width'],
             'current_cal_groups': ('c2t_crcr_fine_iter1', 'c2t_crcr_fine_iter1')
@@ -321,7 +260,7 @@ def c2t_crcr_fine_iterrx(runner):
     from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineRxAngleCal
     return ExperimentConfig(
         CycledRepeatedCRFineRxAngleCal,
-        runner.qubits[1:],
+        runner.qubits,
         args={
             'current_cal_group': 'c2t_crcr_fine_iter2'
         }

@@ -23,6 +23,7 @@ if __name__ == '__main__':
     from qiskit_ibm_runtime.exceptions import IBMNotAuthorizedError
     from qutrit_experiments.calibrations import (make_single_qutrit_gate_calibrations,
                                                  make_qutrit_qubit_cx_calibrations)
+    import qutrit_experiments.configurations.single_qutrit
     import qutrit_experiments.configurations.toffoli
     from qutrit_experiments.programs.common import (get_program_config, load_calibrations,
                                                     setup_data_dir, setup_runner)
@@ -50,6 +51,5 @@ if __name__ == '__main__':
     calibrated = load_calibrations(runner, program_config)
 
     calibrate_single_qutrit_gates(runner, refresh_readout_error=program_config['refresh_readout'],
-                                  calibrated=calibrated)
-    calibrate_qutrit_qubit_cx(runner, runner.qubits[1:],
-                              refresh_readout_error=program_config['refresh_readout'])
+                                  calibrated=calibrated, qutrit_index=[1])
+    calibrate_qutrit_qubit_cx(runner, refresh_readout_error=False, qutrit_qubit_index=(1, 2))
