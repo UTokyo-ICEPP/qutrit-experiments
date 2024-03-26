@@ -16,7 +16,7 @@ def sizzle_template(runner, exp_type):
     Frequency, amplitudes should be set in args.
     """
     from ..experiments.qutrit_qubit.sizzle import SiZZle
-    qubits = runner.program_data['qubits'][1:]
+    qubits = runner.qubits[1:]
 
     cr_base_angle = runner.calibrations.get_parameter_value('cr_base_angle', qubits, schedule='cr')
     counter_base_angle = runner.calibrations.get_parameter_value('counter_base_angle', qubits,
@@ -41,7 +41,7 @@ def zzramsey(runner):
     from ..experiments.qutrit_qubit.zzramsey import QutritZZRamsey
     return ExperimentConfig(
         QutritZZRamsey,
-        runner.program_data['qubits'][1:],
+        runner.qubits[1:],
         args={
             'delays': np.linspace(0., 4.e-7, 6),
             'osc_freq': 2.e+6
@@ -59,7 +59,7 @@ def zzramsey(runner, experiment_data):
 def sizzle_frequency_scan(runner):
     from ..experiments.qutrit_qubit.sizzle import SiZZleFrequencyScan
 
-    control2, target = runner.program_data['qubits'][1:]
+    control2, target = runner.qubits[1:]
     c2_props = runner.backend.qubit_properties(control2)
     t_props = runner.backend.qubit_properties(target)
 
@@ -98,7 +98,7 @@ def hcr_template(runner, exp_type):
     """CR HT with undefined amplitude."""
     from ..experiments.qutrit_qubit.qutrit_cr_hamiltonian import QutritCRHamiltonianTomography
 
-    control2, target = runner.program_data['qubits'][1:]
+    control2, target = runner.qubits[1:]
     assign_params = {
         'width': Parameter('width'),
         'margin': 0.,
@@ -126,7 +126,7 @@ def t_hx(runner):
     """Target qubit Rx tone Hamiltonian with amplitude set for two cycles in 2048 dt."""
     from ..experiments.hamiltonian_tomography import HamiltonianTomography
 
-    qubit = runner.program_data['qubits'][2]
+    qubit = runner.qubits[2]
     width = Parameter('width')
     sigma = 64
     rsr = 2
@@ -134,7 +134,7 @@ def t_hx(runner):
     cycles_per_amp = 2048. * rabi_cycles_per_area(runner.backend, qubit)
     amp = 2. / cycles_per_amp
     angle = runner.calibrations.get_parameter_value('counter_base_angle',
-                                                    runner.program_data['qubits'][1:],
+                                                    runner.qubits[1:],
                                                     schedule='cr')
     with pulse.build(name='rx') as sched:
         pulse.play(
@@ -167,7 +167,7 @@ def hcr_singlestate_template(runner, exp_type):
     from ..experiments.hamiltonian_tomography import HamiltonianTomography
     from ..experiments.gs_rabi import GSRabi
 
-    control2, target = runner.program_data['qubits'][1:]
+    control2, target = runner.qubits[1:]
     cycles_per_amp = 2048. * rabi_cycles_per_area(runner.backend, target)
     counter_amp = 2. / cycles_per_amp
     assign_params = {
@@ -204,7 +204,7 @@ def hcr_singlestate_template(runner, exp_type):
 def hcr_amplitude_scan(runner):
     from ..experiments.qutrit_qubit.qutrit_cr_hamiltonian import QutritCRHamiltonianTomographyScan
 
-    control2, target = runner.program_data['qubits'][1:]
+    control2, target = runner.qubits[1:]
     assign_params = {
         'width': Parameter('width'),
         'margin': 0.,
@@ -238,7 +238,7 @@ def hcr_amplitude_scan(runner):
 def ucr_tomography_template(runner, exp_type):
     from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
 
-    qubits = runner.program_data['qubits'][1:]
+    qubits = runner.qubits[1:]
     assign_params = {
         'width': Parameter('width'),
         'margin': 0.,
