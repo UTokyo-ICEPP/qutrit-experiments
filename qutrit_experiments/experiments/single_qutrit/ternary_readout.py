@@ -46,7 +46,7 @@ class MCMLocalReadoutError(MapToPhysicalQubits, BaseExperiment):
         meas_template.measure(0, 1)
 
         circuits = []
-        for state, gates in enumerate([(), (XGate()), (XGate(), X12Gate())]):
+        for state, gates in enumerate([(), (XGate(),), (XGate(), X12Gate())]):
             circ = QuantumCircuit(1, 2)
             for gate in gates:
                 circ.append(gate, [0])
