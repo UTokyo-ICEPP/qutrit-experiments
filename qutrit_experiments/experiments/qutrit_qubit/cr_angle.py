@@ -137,6 +137,7 @@ class CRAngleAnalysis(curve.CurveAnalysis):
             name=name
         )
         self.set_options(
+            outcome='1',
             data_subfit_map={
                 'spam-cal': {'series': 'spam-cal'},
                 'experiment': {'series': 'experiment'}
