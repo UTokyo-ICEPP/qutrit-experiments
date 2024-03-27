@@ -50,6 +50,8 @@ if __name__ == '__main__':
     runner.job_retry_interval = 120
     calibrated = load_calibrations(runner, program_config)
 
+    runner.run_experiment('qubits_assignment_error',
+                          force_resubmit=program_config['refresh_readout'])
     calibrate_single_qutrit_gates(runner, refresh_readout_error=program_config['refresh_readout'],
                                   calibrated=calibrated, qutrit_index=[1])
     calibrate_qutrit_qubit_cx(runner, refresh_readout_error=False, qutrit_qubit_index=(1, 2))
