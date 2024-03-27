@@ -42,6 +42,12 @@ class CRDiagonality(MapToPhysicalQubits, BaseExperiment):
         options.schedule = None
         options.amplitudes = np.linspace(0., 0.9, 10)
         return options
+    
+    @classmethod
+    def _default_run_options(cls) -> Options:
+        options = super()._default_run_options()
+        options.rep_delay = 5.e-4
+        return options
 
     def __init__(
         self,
@@ -66,7 +72,6 @@ class CRDiagonality(MapToPhysicalQubits, BaseExperiment):
         template.measure(0, 0)
         template.x(0)
         template.measure(0, 1)
-        template.append(X12Gate(), [0]) # For active reset
         template.add_calibration('cr', self.physical_qubits, sched, [amplitude])
 
         circuits = []

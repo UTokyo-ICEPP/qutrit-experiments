@@ -123,8 +123,6 @@ class GSRabi(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
             # Sdg + Hadamard sans last rz
             circuit.sx(measured_qubit)
 
-        circuit.measure(measured_qubit, 0)
-
         return circuit
 
     def circuits(self) -> list[QuantumCircuit]:
@@ -140,6 +138,7 @@ class GSRabi(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
         template.append(gate, template.qregs[0])
         template.barrier()
         template.compose(self._post_circuit(), inplace=True)
+        template.measure(self.experiment_options.measured_logical_qubit, 0)
 
         if not hasattr(template, 'metadata'):
             template.metadata = {}

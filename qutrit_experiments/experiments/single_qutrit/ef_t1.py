@@ -30,7 +30,13 @@ class EFT1(MapToPhysicalQubits, BaseExperiment):
         options = super()._default_experiment_options()
         options.delays = np.linspace(0., 5.e-4, 30)
         # Number of buffer circuits to insert to let the |2> state relax
-        options.insert_buffer_circuits = 3
+        options.insert_buffer_circuits = 2
+        return options
+    
+    @classmethod
+    def _default_run_options(cls) -> Options:
+        options = super()._default_run_options()
+        options.rep_delay = 5.e-4
         return options
 
     def __init__(

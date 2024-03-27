@@ -5,6 +5,7 @@ from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import numpy as np
 from qiskit import QuantumCircuit
+from qiskit.circuit.library import XGate
 from qiskit.providers import Backend
 from qiskit_experiments.framework import (AnalysisResultData, BaseAnalysis, BaseExperiment,
                                           ExperimentData, Options)
@@ -16,6 +17,12 @@ from ...gates import X12Gate
 
 class MCMLocalReadoutError(MapToPhysicalQubits, BaseExperiment):
     """Ternary readout error confusion measurement using mid-circuit measurements."""
+    @classmethod
+    def _default_run_options(cls) -> Options:
+        options = super()._default_run_options()
+        options.rep_delay = 5.e-4
+        return options
+    
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -30,41 +37,26 @@ class MCMLocalReadoutError(MapToPhysicalQubits, BaseExperiment):
             "experiment_type": self._type,
             "qubit": self.physical_qubits[0],
         }
+        meas_template = QuantumCircuit(1, 2)
+        meas_template.barrier(0)
+        meas_template.measure(0, 0)
+        meas_template.barrier(0)
+        meas_template.x(0)
+        meas_template.barrier(0)
+        meas_template.measure(0, 1)
 
         circuits = []
-
-        circ = template.copy()
-        circ.measure(0, 0)
-        circ.barrier(0)
-        circ.x(0)
-        circ.barrier(0)
-        circ.measure(0, 1)
-        circ.metadata['state_label'] = 0
-        circuits.append(circ)
-
-        circ = template.copy()
-        circ.x(0)
-        circ.barrier(0)
-        circ.measure(0, 0)
-        circ.barrier(0)
-        circ.x(0)
-        circ.barrier(0)
-        circ.measure(0, 1)
-        circ.metadata['state_label'] = 1
-        circuits.append(circ)
-
-        circ = template.copy()
-        circ.x(0)
-        circ.append(X12Gate(), [0])
-        circ.barrier(0)
-        circ.measure(0, 0)
-        circ.barrier(0)
-        circ.x(0)
-        circ.barrier(0)
-        circ.measure(0, 1)
-        circ.append(X12Gate(), [0]) # To allow active reset
-        circ.metadata['state_label'] = 2
-        circuits.append(circ)
+        for state, gates in enumerate([(), (XGate()), (XGate(), X12Gate())]):
+            circ = QuantumCircuit(1, 2)
+            for gate in gates:
+                circ.append(gate, [0])
+            circ.compose(meas_template, inplace=True)
+            circ.metadata = {
+                'experiment_type': self._type,
+                'qubit': self.physical_qubits[0],
+                'state_label': state
+            }
+            circuits.append(circ)
 
         return circuits
 
