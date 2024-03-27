@@ -63,7 +63,7 @@ class CRAngle(MapToPhysicalQubits, BaseExperiment):
         self.set_experiment_options(
             control_state=control_state,
             counter_angle=counter_angle,
-            scheudle=schedule
+            schedule=schedule
         )
         if angles is not None:
             self.set_experiment_options(angles=np.array(angles))
