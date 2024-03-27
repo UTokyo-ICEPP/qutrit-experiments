@@ -114,11 +114,11 @@ class CRAngleAnalysis(curve.CurveAnalysis):
         super().__init__(
             models=[
                 lmfit.models.ExpressionModel(
-                    expr='amp / 2. * (2. * x - 1.) + base',
+                    expr='amp * (2. * x - 1.) + base',
                     name='spam-cal'
                 ),
                 lmfit.models.ExpressionModel(
-                    expr='amp * cos(sqrt(1. + s * cos(x - x0)) * psi) + base',
+                    expr='-amp * cos(sqrt(1. + s * cos(x - x0)) * psi) + base',
                     name='experiment',
                 )
             ],
@@ -137,7 +137,7 @@ class CRAngleAnalysis(curve.CurveAnalysis):
             },
             fixed_parameters={
                 # These values will be updated in _generate_fit_guesses if spam_cal data exist
-                'amp': -0.5,
+                'amp': 0.5,
                 'base': 0.5
             }
         )
@@ -150,15 +150,15 @@ class CRAngleAnalysis(curve.CurveAnalysis):
         spam_cal_data = curve_data.get_subset_of('spam-cal')
         if spam_cal_data.x.shape[0] == 0:
             p0_base = 0.5
-            p0_amp = -0.5
+            p0_amp = 0.5
         else:
             p0_base = np.mean(spam_cal_data.y)
-            p0_amp = p0_base - np.abs(np.diff(spam_cal_data.y))
+            p0_amp = np.diff(spam_cal_data.y)[0] / 2.
             user_opt.p0['base'] = p0_base
             user_opt.p0['amp'] = p0_amp
 
         exp_data = curve_data.get_subset_of('experiment')
-        cos_val = (exp_data.y - p0_base) / p0_amp
+        cos_val = (exp_data.y - p0_base) / -p0_amp
         cos_arg = np.arccos(np.maximum(np.minimum(cos_val, 1.), -1.))
         max_cos_arg_sq = np.square(np.amax(cos_arg)) # (1 + s) * psi^2
         min_cos_arg_sq = np.square(np.amin(cos_arg)) # (1 - s) * psi^2
