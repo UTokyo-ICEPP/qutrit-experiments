@@ -52,7 +52,7 @@ class CRDiagonality(MapToPhysicalQubits, BaseExperiment):
     def __init__(
         self,
         physical_qubits: Sequence[int],
-        schedule: ScheduleBlock,
+        schedule: Optional[ScheduleBlock] = None,
         amplitudes: Optional[Sequence[float]] = None,
         backend: Optional[Backend] = None
     ):
@@ -62,17 +62,21 @@ class CRDiagonality(MapToPhysicalQubits, BaseExperiment):
             self.set_experiment_options(amplitudes=amplitudes)
 
     def circuits(self) -> list[QuantumCircuit]:
-        sched = self.experiment_options.schedule
-        amplitude = next(iter(sched.parameters))
+        if (sched := self.experiment_options.schedule) is None:
+            amplitude = Parameter('amplitude')
+        else:
+            amplitude = next(iter(sched.parameters))
 
         template = QuantumCircuit(2, 2)
         template.x(0)
         template.append(X12Gate(), [0])
-        template.append(CrossResonanceGate([amplitude]), [0, 1])
+        template.append(CrossResonanceGate(params=[amplitude]), [0, 1])
         template.measure(0, 0)
         template.x(0)
         template.measure(0, 1)
-        template.add_calibration('cr', self.physical_qubits, sched, [amplitude])
+        if sched is not None:
+            template.add_calibration(CrossResonanceGate.gate_name, self.physical_qubits, sched,
+                                     params=[amplitude])
 
         circuits = []
         for aval in self.experiment_options.amplitudes:
@@ -144,20 +148,20 @@ class CRInitialAmplitudeCal(BaseCalibrationExperiment, CRDiagonality):
         if width is None:
             width = 256
 
+        self._amplitude = Parameter('amplitude')
         assign_params = {
-            cal_parameter_name: Parameter('amplitude'),
+            cal_parameter_name: self._amplitude,
             'cr_stark_amp': 0.,
             'counter_amp': 0.,
             'counter_stark_amp': 0.,
             'width': width
         }
-        schedule = calibrations.get_schedule(schedule_name, physical_qubits,
-                                             assign_params=assign_params)
+        self._schedule = calibrations.get_schedule(schedule_name, physical_qubits,
+                                                   assign_params=assign_params)
 
         super().__init__(
             calibrations,
             physical_qubits,
-            schedule,
             backend=backend,
             schedule_name=schedule_name,
             cal_parameter_name=cal_parameter_name,
@@ -167,7 +171,10 @@ class CRInitialAmplitudeCal(BaseCalibrationExperiment, CRDiagonality):
         self._cutoff = cutoff
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
-        pass
+        amplitude = circuit.metadata['xval']
+        sched = self._schedule.assign_parameters({self._amplitude: amplitude}, inplace=False)
+        circuit.add_calibration(CrossResonanceGate.gate_name, self.physical_qubits, sched,
+                                params=[amplitude])
 
     def update_calibrations(self, experiment_data: ExperimentData):
         curvature = BaseUpdater.get_value(experiment_data, 'curvature')

@@ -6,13 +6,14 @@ import numpy as np
 from scipy.optimize import curve_fit
 from uncertainties import correlated_values, ufloat, unumpy as unp
 from qiskit import QuantumCircuit
-from qiskit.circuit import Gate, Parameter
+from qiskit.circuit import Parameter
 from qiskit.providers import Backend, Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
+from ...gates import CrossResonanceGate
 from .qutrit_qubit_tomography import QutritQubitTomographyScan, QutritQubitTomographyScanAnalysis
 
 
@@ -37,8 +38,9 @@ class QutritCRTargetStarkCal(BaseCalibrationExperiment, QutritQubitTomographySca
                                              assign_params=assign_params)
 
         circuit = QuantumCircuit(2)
-        circuit.append(Gate('cr', 2, [counter_stark_amp]), [0, 1])
-        circuit.add_calibration('cr', physical_qubits, schedule, [counter_stark_amp])
+        circuit.append(CrossResonanceGate(params=[counter_stark_amp]), [0, 1])
+        circuit.add_calibration(CrossResonanceGate.gate_name, physical_qubits, schedule,
+                                [counter_stark_amp])
 
         if amplitudes is None:
             amplitudes = np.linspace(0.005, 0.16, 6)
@@ -141,8 +143,8 @@ class QutritCRControlStarkCal(BaseCalibrationExperiment, QutritQubitTomographySc
                                              assign_params=assign_params)
 
         circuit = QuantumCircuit(2)
-        circuit.append(Gate('cr', 2, parameters), [0, 1])
-        circuit.add_calibration('cr', physical_qubits, schedule, parameters)
+        circuit.append(CrossResonanceGate(params=parameters), [0, 1])
+        circuit.add_calibration(CrossResonanceGate.gate_name, physical_qubits, schedule, parameters)
 
         if amplitudes is None:
             max_amp = 0.99 - calibrations.get_parameter_value('cr_amp', physical_qubits,
