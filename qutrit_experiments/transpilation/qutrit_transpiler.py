@@ -41,7 +41,7 @@ def make_instruction_durations(
     instruction_durations = InstructionDurations(backend.instruction_durations, dt=backend.dt)
     for inst in QUTRIT_PULSE_GATES:
         durations = []
-        match inst.num_qubits:
+        match len(inst.qutrit):
             case 1:
                 for qubit in qubits:
                     try:
@@ -60,7 +60,7 @@ def make_instruction_durations(
 
         instruction_durations.update(durations)
     for inst in QUTRIT_VIRTUAL_GATES:
-        match inst.num_qubits:
+        match len(inst.qutrit):
             case 1:
                 durations = [(inst.gate_name, qubit, 0) for qubit in qubits]
             case 2:
