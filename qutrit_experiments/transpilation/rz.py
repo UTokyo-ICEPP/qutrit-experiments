@@ -129,6 +129,9 @@ class CastRZToAngle(TransformationPass):
                     f"Operation {repr(node)} is likely added after the circuit is scheduled. "
                     "Schedule the circuit again if you transformed it."
                 )
+            
+            if not isinstance(node.op, Gate):
+                continue
 
             qubits = tuple(dag.find_bit(q).index for q in node.qargs)
             logger.debug('%s[%d]', node.op.name, qubits[0])
