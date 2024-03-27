@@ -273,7 +273,8 @@ def qutrit_assignment_error(runner, qubit):
     return ExperimentConfig(
         MCMLocalReadoutError,
         [qubit],
-        run_options={'shots': 10000}
+        run_options={'shots': 10000},
+        parallelizable=False # Some backends seem to not like parallelized MCM
     )
 
 def qutrit_assignment_error_post(runner, experiment_data):
@@ -288,7 +289,8 @@ def qutrit_t1(runner, qubit):
         EFT1,
         [qubit],
         run_options={'rep_delay': runner.backend.configuration().rep_delay_range[1]},
-        analysis_options={'assignment_matrix': assignment_matrix}
+        analysis_options={'assignment_matrix': assignment_matrix},
+        parallelizable=False
     )
 
 @add_readout_mitigation

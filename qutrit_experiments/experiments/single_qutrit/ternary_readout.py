@@ -38,11 +38,8 @@ class MCMLocalReadoutError(MapToPhysicalQubits, BaseExperiment):
             "qubit": self.physical_qubits[0],
         }
         meas_template = QuantumCircuit(1, 2)
-        meas_template.barrier(0)
         meas_template.measure(0, 0)
-        meas_template.barrier(0)
         meas_template.x(0)
-        meas_template.barrier(0)
         meas_template.measure(0, 1)
 
         circuits = []

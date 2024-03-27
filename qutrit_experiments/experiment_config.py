@@ -31,6 +31,7 @@ class ExperimentConfig(ExperimentConfigBase):
     _: KW_ONLY
     args: dict[str, Any] = field(default_factory=dict)
     restless: bool = False
+    parallelizable: bool = True
 
 
 @dataclass

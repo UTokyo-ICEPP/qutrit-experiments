@@ -93,6 +93,14 @@ class ParallelRunner(ExperimentsRunner):
         if qubit_grouping is None:
             qubit_grouping = self.qubit_grouping
 
+        # Check one qubit config and regroup if parallelizable=False
+        if callable(config):
+            parallelizable = config(self, qubit_grouping[0][0]).parallelizable
+        else:
+            parallelizable = config.parallelizable
+        if not parallelizable:
+            qubit_grouping = np.array(sum(qubit_grouping, [])).reshape((-1, 1)).tolist()
+
         batch_conf = BatchExperimentConfig(exp_type=exp_type)
         composite_config = {}
         for igroup, qubit_group in enumerate(qubit_grouping):
