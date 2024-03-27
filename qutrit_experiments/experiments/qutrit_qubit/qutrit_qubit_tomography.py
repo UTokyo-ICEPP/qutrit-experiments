@@ -8,6 +8,7 @@ from matplotlib.figure import Figure
 import numpy as np
 from uncertainties import correlated_values, unumpy as unp
 from qiskit import QuantumCircuit
+from qiskit.circuit import Gate
 from qiskit.providers import Backend, Options
 from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 from qiskit_experiments.database_service.exceptions import ExperimentEntryNotFound
@@ -37,7 +38,7 @@ class QutritQubitTomography(BatchExperiment):
     def __init__(
         self,
         physical_qubits: Sequence[int],
-        circuit: QuantumCircuit,
+        circuit: Union[QuantumCircuit, Gate],
         tomography_type: str = 'unitary',
         measure_preparations: bool = True,
         control_states: Sequence[int] = (0, 1, 2),
@@ -62,7 +63,10 @@ class QutritQubitTomography(BatchExperiment):
                 post_circuit.append(X12Gate(), [0])
 
             if iexp < 3:
-                channel.compose(circuit, inplace=True)
+                if isinstance(circuit, QuantumCircuit):
+                    channel.compose(circuit, inplace=True)
+                else:
+                    channel.append(circuit, [0, 1])
 
             if tomography_type == 'unitary':
                 exp = UnitaryTomography(physical_qubits, channel, backend=backend,
@@ -236,7 +240,7 @@ class QutritQubitTomographyScan(BatchExperiment):
     def __init__(
         self,
         physical_qubits: Sequence[int],
-        circuit: QuantumCircuit,
+        circuit: Union[QuantumCircuit, Gate],
         param_name: Union[str, Sequence[str]],
         values: Union[Sequence[float], Sequence[Sequence[float]]],
         angle_param_name: Optional[Union[str, dict[str, str]]] = None,
@@ -251,7 +255,13 @@ class QutritQubitTomographyScan(BatchExperiment):
 
         if isinstance(param_name, str):
             param_name = [param_name]
-        params = [find_param(pname, circuit.parameters) for pname in param_name]
+
+        if isinstance(circuit, QuantumCircuit):
+            plist = circuit.parameters
+        else:
+            plist = circuit.params
+
+        params = [find_param(pname, plist) for pname in param_name]
 
         try:
             len(values[0])
@@ -264,16 +274,22 @@ class QutritQubitTomographyScan(BatchExperiment):
             angle_param_name = {}
         elif isinstance(angle_param_name, str):
             angle_param_name = {param_name[0]: angle_param_name}
-        angle_params = {find_param(key, params): find_param(value, circuit.parameters)
+        angle_params = {find_param(key, params): find_param(value, plist)
                         for key, value in angle_param_name.items()}
 
         experiments = []
         for iexp, exp_values in enumerate(zip(*values)):
             assign_params = self._make_assign_map(exp_values, params, angle_params)
             extra_metadata = {p.name: v for p, v in zip(params, exp_values)}
+            if isinstance(circuit, QuantumCircuit):
+                circ = circuit.assign_parameters(assign_params, inplace=False)
+            else:
+                circ = circuit.copy()
+                for param, value in assign_params.items():
+                    circ.params[circ.params.index(param)] = value
+
             experiments.append(
-                QutritQubitTomography(physical_qubits,
-                                      circuit.assign_parameters(assign_params, inplace=False),
+                QutritQubitTomography(physical_qubits, circ,
                                       tomography_type=tomography_type,
                                       measure_preparations=(measure_preparations and iexp == 0),
                                       control_states=control_states, backend=backend,
@@ -401,7 +417,7 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         except ExperimentEntryNotFound:
             prep_params = {}
             prep_inverses = None
-        
+
         # Compile the child data fit results into a dict keyed on control state
         # Optionally correct for preparation
         unitaries = {state: [] for state in control_states}
@@ -535,7 +551,7 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
                     y_formatted=chisq[state],
                     y_formatted_err=np.zeros_like(scan_values[0])
                 )
-                
+
                 if self.options.simul_fit:
                     unitary_params = self.unitary_params(
                         unp.nominal_values(popt_ufloats[state]), scan_values[0]

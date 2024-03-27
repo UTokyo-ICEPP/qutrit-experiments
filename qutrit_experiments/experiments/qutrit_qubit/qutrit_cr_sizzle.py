@@ -32,24 +32,14 @@ class QutritCRTargetStarkCal(BaseCalibrationExperiment, QutritQubitTomographySca
         control_states: tuple[int, ...] = (0, 1, 2),
         auto_update: bool = True
     ):
-        counter_stark_amp = Parameter(cal_parameter_name)
-        assign_params = {cal_parameter_name: counter_stark_amp}
-        schedule = calibrations.get_schedule(schedule_name, physical_qubits,
-                                             assign_params=assign_params)
-
-        circuit = QuantumCircuit(2)
-        circuit.append(CrossResonanceGate(params=[counter_stark_amp]), [0, 1])
-        circuit.add_calibration(CrossResonanceGate.gate_name, physical_qubits, schedule,
-                                [counter_stark_amp])
-
         if amplitudes is None:
             amplitudes = np.linspace(0.005, 0.16, 6)
 
         super().__init__(
             calibrations,
             physical_qubits,
-            circuit,
-            param_name=cal_parameter_name,
+            CrossResonanceGate(params=[Parameter('amp')]),
+            param_name='amp',
             values=amplitudes,
             measure_preparations=measure_preparations,
             control_states=control_states,
@@ -59,9 +49,18 @@ class QutritCRTargetStarkCal(BaseCalibrationExperiment, QutritQubitTomographySca
             cal_parameter_name=cal_parameter_name,
             auto_update=auto_update
         )
+        self._schedules = [
+            calibrations.get_schedule(schedule_name, physical_qubits,
+                                      assign_params={cal_parameter_name: aval})
+            for aval in amplitudes
+        ]
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
-        pass
+        iamp = circuit.metadata['composite_index'][0]
+        print('attaching schedule', iamp)
+        circuit.add_calibration(CrossResonanceGate.gate_name, self.physical_qubits,
+                                self._schedules[iamp],
+                                params=[self.experiment_options.parameter_values[0][iamp]])
 
     def update_calibrations(self, experiment_data: ExperimentData):
         BaseUpdater.update(
@@ -99,7 +98,7 @@ class QutritCRTargetStarkAnalysis(QutritQubitTomographyScanAnalysis):
         ampsq = np.square(amplitudes)
         p0 = (theta_iz[-1].n / ampsq[-1], 0.)
         popt, pcov = curve_fit(curve, ampsq, theta_iz_n, sigma=theta_iz_e, p0=p0)
-        
+
         if popt[0] * popt[1] > 0.:
             amp = ufloat(0., 0.)
         else:
@@ -137,14 +136,14 @@ class QutritCRControlStarkCal(BaseCalibrationExperiment, QutritQubitTomographySc
         measure_preparations: bool = True,
         auto_update: bool = True
     ):
-        parameters = [Parameter(pname) for pname in cal_parameter_name]
-        assign_params = {p.name: p for p in parameters}
-        schedule = calibrations.get_schedule(schedule_name, physical_qubits,
-                                             assign_params=assign_params)
-
-        circuit = QuantumCircuit(2)
-        circuit.append(CrossResonanceGate(params=parameters), [0, 1])
-        circuit.add_calibration(CrossResonanceGate.gate_name, physical_qubits, schedule, parameters)
+        self._amp = Parameter('amp')
+        self._sign_phase = Parameter('sign_phase')
+        assign_params = {
+            cal_parameter_name[0]: self._amp,
+            cal_parameter_name[1]: self._sign_phase
+        }
+        self._schedule = calibrations.get_schedule(schedule_name, physical_qubits,
+                                                   assign_params=assign_params)
 
         if amplitudes is None:
             max_amp = 0.99 - calibrations.get_parameter_value('cr_amp', physical_qubits,
@@ -154,19 +153,24 @@ class QutritCRControlStarkCal(BaseCalibrationExperiment, QutritQubitTomographySc
         super().__init__(
             calibrations,
             physical_qubits,
-            circuit,
-            param_name=cal_parameter_name[0],
+            CrossResonanceGate(params=[Parameter('amp'), Parameter('sign_phase')]),
+            param_name='amp',
             values=amplitudes,
             measure_preparations=measure_preparations,
             backend=backend,
             schedule_name=schedule_name,
             cal_parameter_name=cal_parameter_name,
             auto_update=auto_update,
-            angle_param_name=cal_parameter_name[1]
+            angle_param_name='sign_phase'
         )
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
-        pass
+        cr_gate = next(inst.operation for inst in circuit.data
+                       if isinstance(inst.operation, CrossResonanceGate))
+        assign_params = {self._amp: cr_gate.params[0], self._sign_phase: cr_gate.params[1]}
+        sched = self._schedule.assign_parameters(assign_params, inplace=False)
+        circuit.add_calibration(CrossResonanceGate.gate_name, self.physical_qubits, sched,
+                                params=cr_gate.params)
 
     def update_calibrations(self, experiment_data: ExperimentData):
         component_index = experiment_data.metadata['component_child_index']
