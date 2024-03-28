@@ -1,116 +1,27 @@
 from collections.abc import Sequence
 import logging
 from threading import Lock
-from typing import Any, Optional, Union
-from matplotlib.figure import Figure
+from typing import Any, Optional
 import numpy as np
 from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
-from qiskit.pulse import ScheduleBlock
 from qiskit.providers import Backend, Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
-from qiskit_experiments.framework import AnalysisResultData, BackendTiming, ExperimentData, Options
-from qiskit_experiments.visualization import CurvePlotter, MplDrawer
+from qiskit_experiments.framework import BackendTiming, ExperimentData, Options
 
+from ...gates import CrossResonanceGate
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
-from .util import RCRType, get_cr_schedules, get_margin, make_cr_circuit, make_crcr_circuit
 
 twopi = 2. * np.pi
 logger = logging.getLogger(__name__)
 
 
-class CRRoughWidth(QutritQubitTomographyScan):
-    """Qutrit-qubit UT scan to make a rough estimate of what the CR width for CRCR will be."""
-    @classmethod
-    def _default_experiment_options(cls) -> Options:
-        options = super()._default_experiment_options()
-        options.parameter_values = [np.linspace(128., 320., 4)]
-        return options
-
-    def __init__(
-        self,
-        physical_qubits: Sequence[int],
-        schedule: ScheduleBlock,
-        width_param_name: str = 'width',
-        widths: Optional[Sequence[float]] = None,
-        measure_preparations: bool = True,
-        backend: Optional[Backend] = None
-    ):
-        if widths is None:
-            widths = self._default_experiment_options().parameter_values[0]
-
-        super().__init__(physical_qubits, make_cr_circuit(physical_qubits, schedule),
-                         width_param_name, widths, measure_preparations=measure_preparations,
-                         backend=backend)
-        self.analysis = CRWidthAnalysis([exp.analysis for exp in self._experiments])
-        self.extra_metadata = {}
-
-    def _metadata(self) -> dict[str, Any]:
-        metadata = super()._metadata()
-        metadata.update(self.extra_metadata)
-        return metadata
-
-
-class CycledRepeatedCRWidth(QutritQubitTomographyScan):
-    """Experiment to simultaneously scan the CR width with control states 0 and 1."""
-    @classmethod
-    def _default_experiment_options(cls) -> Options:
-        options = super()._default_experiment_options()
-        widths = np.linspace(0., 128., 5)
-        margins = np.zeros(5)
-        options.parameter_values = [widths, margins, widths, margins]
-        return options
-
-    def __init__(
-        self,
-        physical_qubits: Sequence[int],
-        cr_schedules: tuple[ScheduleBlock, ScheduleBlock],
-        rcr_type: RCRType,
-        width_param_name: str = 'width',
-        margin_param_name: str = 'margin',
-        widths: Optional[Sequence[float]] = None,
-        measure_preparations: bool = True,
-        backend: Optional[Backend] = None
-    ):
-        if widths is None:
-            widths = self._default_experiment_options().parameter_values[0]
-
-        assignment = {
-            cr_schedules[0].get_parameters(width_param_name)[0]: 0.,
-            cr_schedules[0].get_parameters(margin_param_name)[0]: 0.
-        }
-        risefall_duration = cr_schedules[0].assign_parameters(assignment, inplace=False).duration
-        margins = get_margin(risefall_duration, widths, backend)
-
-        # Rename the CR parameters to distinguish crp and crm
-        # (The two schedules are separately added to the circuit and I'm not 100% sure if sharing
-        # the parameters would be safe)
-        reparametrized = []
-        for prefix, sched in zip(['crp', 'crm'], cr_schedules):
-            assign_params = {sched.get_parameters(pname)[0]: Parameter(f'{prefix}_{pname}')
-                             for pname in [width_param_name, margin_param_name]}
-            reparametrized.append(sched.assign_parameters(assign_params, inplace=False))
-        cr_schedules = tuple(reparametrized)
-
-        param_names = [f'{prefix}_{pname}'
-                       for prefix in ['crp', 'crm']
-                       for pname in [width_param_name, margin_param_name]]
-        param_values = [widths, margins, widths, margins]
-
-        super().__init__(physical_qubits,
-                         make_crcr_circuit(physical_qubits, cr_schedules, None, rcr_type),
-                         param_names, param_values, measure_preparations=measure_preparations,
-                         control_states=(0, 1), backend=backend,
-                         analysis_cls=CycledRepeatedCRWidthAnalysis)
-        self.analysis.set_options(width_name='crp_width')
-
-
 class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
     """Analysis for CRWidth.
-    
+
     Simultaneous fit model is
     [x, y, z] = (slope * w + intercept) * [sin(psi) * cos(phi), sin(psi) * sin(phi), cos(psi)]
     """
@@ -176,62 +87,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         upopt[0] /= norm
 
 
-class CycledRepeatedCRWidthAnalysis(CRWidthAnalysis):
-    """Analysis for CycledRepeatedCRWidth."""
-    @classmethod
-    def _default_options(cls) -> Options:
-        options = super()._default_options()
-        options.figure_names.append('angle_diff')
-        return options
-
-    def _run_additional_analysis(
-        self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
-    ) -> tuple[list[AnalysisResultData], list[Figure]]:
-        analysis_results, figures = super()._run_additional_analysis(experiment_data,
-                                                                     analysis_results, figures)
-
-        scan_idx = experiment_data.metadata['scan_parameters'].index(self.options.width_name)
-        widths = np.array(experiment_data.metadata['scan_values'][scan_idx])
-        x_interp = np.linspace(widths[0], widths[-1], 100)
-        fit_params = next(res.value for res in analysis_results if res.name == 'simul_fit_params')
-        # Slope and intercept (with uncertainties) of x[1] - x[0]
-        slope, intercept, psi, phi = [
-            np.array([fit_params[0][ip], fit_params[1][ip]]) for ip in range(4)
-        ]
-        dxslope = np.diff(slope * unp.sin(psi) * unp.cos(phi))[0]
-        dxintercept = np.diff(intercept * unp.sin(psi) * unp.cos(phi))[0]
-        wmin = (np.pi - dxintercept) / dxslope
-        while wmin.n < 0.:
-            wmin += twopi / np.abs(dxslope.n)
-        while (wtest := wmin - twopi / np.abs(dxslope.n)).n > 0.:
-            wmin = wtest
-        cx_sign = np.sign(dxslope.n * wmin.n + dxintercept.n)
-
-        analysis_results.extend([
-            AnalysisResultData(name='cr_width', value=wmin),
-            AnalysisResultData(name='cx_sign', value=cx_sign)
-        ])
-
-        if self.options.plot:
-            plotter = CurvePlotter(MplDrawer())
-            plotter.set_figure_options(
-                xlabel='CR width',
-                ylabel=r'$\theta_1 - \theta_0$'
-            )
-            plotter.set_series_data(
-                'angle_diff',
-                x_interp=x_interp,
-                y_interp=dxslope.n * x_interp + dxintercept.n
-            )
-            figures.append(plotter.figure())
-
-        return analysis_results, figures
-
-
-class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
+class CRRoughWidthCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
     """Rough CR width calibration based on pure-X approximationof the CR unitaries.
 
     Type X (2):    RCR angles = [θ1+θ0, θ0+θ1, 2θ2]
@@ -239,6 +95,12 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
     Type X12 (0):  RCR angles = [2θ0, θ2+θ1, θ1+θ2]
                   CRCR angles = [2θ0, 2θ1+2θ2-2θ0, 2θ0]
     """
+    @classmethod
+    def _default_experiment_options(cls) -> Options:
+        options = super()._default_experiment_options()
+        options.parameter_values = [np.linspace(128., 320., 4)]
+        return options
+
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -249,24 +111,39 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         auto_update: bool = True,
         widths: Optional[Sequence[float]] = None
     ):
-        width = Parameter('width')
-        assign_params = {cal_parameter_name[0]: width, 'margin': 0}
-        schedule = calibrations.get_schedule(schedule_name[0], physical_qubits,
-                                             assign_params=assign_params)
+        if widths is None:
+            widths = self._default_experiment_options().parameter_values[0]
+
         super().__init__(
             calibrations,
             physical_qubits,
-            schedule,
+            CrossResonanceGate(params=[Parameter('width')]),
+            'width',
             backend=backend,
             schedule_name=schedule_name,
             cal_parameter_name=cal_parameter_name,
             auto_update=auto_update,
-            width_param_name='width',
-            widths=widths
+            values=widths,
+            analysis_cls=CRWidthAnalysis
         )
+        self.extra_metadata = {}
+
+        self._schedules = [
+            calibrations.get_schedule(schedule_name[0], physical_qubits,
+                                      assign_params={cal_parameter_name[0]: wval, 'margin': 0})
+            for wval in widths
+        ]
+
+    def _metadata(self) -> dict[str, Any]:
+        metadata = super()._metadata()
+        metadata.update(self.extra_metadata)
+        return metadata
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
-        pass
+        iwidth = circuit.metadata['composite_index'][0]
+        circuit.add_calibration(CrossResonanceGate.gate_name, self.physical_qubits,
+                                self._schedules[iwidth],
+                                params=[self.experiment_options.parameter_values[0][iwidth]])
 
     def update_calibrations(self, experiment_data: ExperimentData):
         fit_params = experiment_data.analysis_results('simul_fit_params', block=False).value
@@ -295,7 +172,7 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
         widths = ((np.pi - crcr_rel_offsets) / crcr_rel_freqs) % (twopi / np.abs(crcr_rel_freqs))
         # RCR type with shorter width will be used
         rcr_type_index = np.argmin(widths)
-        rcr_type = [RCRType.X, RCRType.X12][rcr_type_index]
+        rcr_type = [2, 0][rcr_type_index]
 
         cr_width = BackendTiming(self.backend).round_pulse(samples=widths[rcr_type_index])
         # We start with a high CR amp -> width estimate should be on the longer side to allow
@@ -306,54 +183,6 @@ class CRRoughWidthCal(BaseCalibrationExperiment, CRRoughWidth):
 
         values = [cr_width, int(rcr_type), cx_sign]
         for pname, sname, value in zip(self._param_name, self._sched_name, values):
-            BaseUpdater.add_parameter_value(
-                self._cals, experiment_data, value, pname, schedule=sname,
-                group=self.experiment_options.group
-            )
-
-
-class CycledRepeatedCRWidthCal(BaseCalibrationExperiment, CycledRepeatedCRWidth):
-    """Calibration experiment for CR width."""
-    def __init__(
-        self,
-        physical_qubits: Sequence[int],
-        calibrations: Calibrations,
-        backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['width', 'margin', 'qutrit_qubit_cx_sign'],
-        schedule_name: list[Union[str, None]] = ['cr', 'cr', None],
-        widths: Optional[Sequence[float]] = None,
-        measure_preparations: bool = True,
-        auto_update: bool = True
-    ):
-        cr_schedules = get_cr_schedules(calibrations, physical_qubits,
-                                        free_parameters=cal_parameter_name[:2])
-        super().__init__(
-            calibrations,
-            physical_qubits,
-            cr_schedules,
-            RCRType(calibrations.get_parameter_value('rcr_type', physical_qubits)),
-            backend=backend,
-            schedule_name=schedule_name,
-            cal_parameter_name=cal_parameter_name,
-            auto_update=auto_update,
-            width_param_name=cal_parameter_name[0],
-            margin_param_name=cal_parameter_name[1],
-            widths=widths,
-            measure_preparations=measure_preparations
-        )
-
-    def _attach_calibrations(self, circuit: QuantumCircuit):
-        pass
-
-    def update_calibrations(self, experiment_data: ExperimentData):
-        width = experiment_data.analysis_results('cr_width', block=False).value.n
-        null_sched = self._cals.get_schedule(self._sched_name[0], self.physical_qubits,
-                                             assign_params={p: 0. for p in self._param_name[:2]})
-        margin = get_margin(null_sched.duration, width, self._backend)
-        cx_sign = experiment_data.analysis_results('cx_sign', block=False).value
-
-        for pname, sname, value in zip(self._param_name, self._sched_name,
-                                       [width, margin, cx_sign]):
             BaseUpdater.add_parameter_value(
                 self._cals, experiment_data, value, pname, schedule=sname,
                 group=self.experiment_options.group

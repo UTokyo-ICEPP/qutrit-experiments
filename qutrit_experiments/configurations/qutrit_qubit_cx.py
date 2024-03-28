@@ -4,10 +4,12 @@ from functools import wraps
 import logging
 import numpy as np
 from uncertainties import unumpy as unp
+from qiskit import QuantumCircuit
 
 from ..experiment_config import ExperimentConfig, register_exp, register_post
-from ..experiments.qutrit_qubit_cx.util import (RCRType, get_cr_schedules, make_cr_circuit,
-                                                make_crcr_circuit)
+from ..experiments.qutrit_qubit_cx.util import get_cr_schedules
+from ..gates import (CrossResonanceGate, CrossResonanceMinusGate, CrossResonancePlusGate,
+                     QutritQubitCXGate)
 from ..util.pulse_area import gs_effective_duration, rabi_cycles_per_area
 from .common import add_readout_mitigation, qubits_assignment_error, qubits_assignment_error_post
 
@@ -26,10 +28,16 @@ register_post(qubits_assignment_error_post, exp_type='qubits_assignment_error')
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def cr_unitaries(runner):
     from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
+
+    circuit = QuantumCircuit(2)
+    circuit.append(CrossResonanceGate(), [0, 1])
+    circuit.add_calibration(CrossResonanceGate.gate_name, runner.qubits,
+                            runner.calibrations.get_schedule('cr', runner.qubits))
+
     return ExperimentConfig(
         QutritQubitTomography,
         runner.qubits,
-        args={'circuit': make_cr_circuit(runner.qubits, runner.calibrations)},
+        args={'circuit': circuit},
         run_options={'shots': 8000}
     )
 
@@ -37,10 +45,19 @@ def cr_unitaries(runner):
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def crcr_unitaries(runner):
     from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
+
+    rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits)
+    cr_schedules = get_cr_schedules(runner.calibrations, runner.qubits)
+    rx_schedule = runner.calibrations.get_schedule('cx_offset_rx', runner.qubits)
+    circuit = QutritQubitCXGate.of_type(rcr_type).decomposition()
+    circuit.add_calibration(CrossResonancePlusGate.gate_name, runner.qubits, cr_schedules[0])
+    circuit.add_calibration(CrossResonanceMinusGate.gate_name, runner.qubits, cr_schedules[1])
+    circuit.add_calibration(QutritQubitCXGate.rx_gate_name, runner.qubits[1:], rx_schedule)
+
     return ExperimentConfig(
         QutritQubitTomography,
         runner.qubits,
-        args={'circuit': make_crcr_circuit(runner.qubits, runner.calibrations)},
+        args={'circuit': circuit},
         run_options={'shots': 8000}
     )
 
@@ -144,29 +161,6 @@ def rcr_rotary_amp(runner):
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
-def crcr_cr_width(runner):
-    from ..experiments.qutrit_qubit_cx.cr_width import CycledRepeatedCRWidthCal
-    # Frequency (cycles / clock) from the rotary tone (should dominate)
-    rotary_amp = runner.calibrations.get_parameter_value('counter_amp', runner.qubits, 'cr')
-    cycles_per_width = rabi_cycles_per_area(runner.backend, runner.qubits[1]) * rotary_amp
-    # CRCR frequency is roughly (rotary+rotary)*(1+1-1) = 2*rotary
-    # Aim for the width scan range of +-0.2 cycles total in CRCR
-    current_width = runner.calibrations.get_parameter_value('width', runner.qubits, schedule='cr')
-    widths = np.linspace(current_width - 0.05 / cycles_per_width,
-                         current_width + 0.05 / cycles_per_width, 5)
-    if widths[0] < 0.:
-        widths += -widths[0]
-
-    return ExperimentConfig(
-        CycledRepeatedCRWidthCal,
-        runner.qubits,
-        args={
-            'widths': widths,
-        }
-    )
-
-@register_exp
-@add_readout_mitigation(logical_qubits=[1], expval=True)
 def crcr_rotary(runner):
     from ..experiments.qutrit_qubit_cx.rotary import (CycledRepeatedCRRotaryAmplitudeCal,
                                                       rotary_angle_per_amp)
@@ -189,28 +183,6 @@ def crcr_fine_scanbased(runner):
     return ExperimentConfig(
         CycledRepeatedCRFineScanCal,
         runner.qubits
-    )
-
-@register_exp
-@add_readout_mitigation(logical_qubits=[1], expval=True)
-def crcr_angle_width_rate(runner):
-    """Measure the X rotation angles in 0 and 1 with the rotary."""
-    from ..experiments.qutrit_qubit_cx.cr_width import CycledRepeatedCRWidth
-    current_width = runner.calibrations.get_parameter_value('width', runner.qubits, schedule='cr')
-    widths = np.linspace(-10., 10., 5) + current_width
-
-    cr_schedules = get_cr_schedules(runner.calibrations, runner.qubits,
-                                    free_parameters=['width', 'margin'])
-    rcr_type = RCRType(runner.calibrations.get_parameter_value('rcr_type', runner.qubits))
-
-    return ExperimentConfig(
-        CycledRepeatedCRWidth,
-        runner.qubits,
-        args={
-            'cr_schedules': cr_schedules,
-            'rcr_type': rcr_type,
-            'widths': widths,
-        }
     )
 
 @register_post

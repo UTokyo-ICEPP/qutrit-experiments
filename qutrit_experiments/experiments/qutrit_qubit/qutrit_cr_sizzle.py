@@ -57,7 +57,6 @@ class QutritCRTargetStarkCal(BaseCalibrationExperiment, QutritQubitTomographySca
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         iamp = circuit.metadata['composite_index'][0]
-        print('attaching schedule', iamp)
         circuit.add_calibration(CrossResonanceGate.gate_name, self.physical_qubits,
                                 self._schedules[iamp],
                                 params=[self.experiment_options.parameter_values[0][iamp]])

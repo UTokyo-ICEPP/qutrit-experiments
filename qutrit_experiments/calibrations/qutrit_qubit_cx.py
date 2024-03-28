@@ -2,6 +2,7 @@
 
 import logging
 from typing import Optional
+import numpy as np
 from qiskit import pulse
 from qiskit.providers import Backend
 from qiskit.circuit import Parameter
@@ -22,16 +23,15 @@ def make_qutrit_qubit_cx_calibrations(
     if calibrations is None:
         calibrations = Calibrations.from_backend(backend)
 
-    add_qutrit_qubit_cr(backend, calibrations)
+    add_qutrit_qubit_cr_and_rx(backend, calibrations)
 
     calibrations._register_parameter(Parameter('rcr_type'), ())
     calibrations._register_parameter(Parameter('qutrit_qubit_cx_sign'), ())
-    calibrations._register_parameter(Parameter('qutrit_qubit_cx_offsetrx'), ())
 
     return calibrations
 
 
-def add_qutrit_qubit_cr(
+def add_qutrit_qubit_cr_and_rx(
     backend: Backend,
     calibrations: Calibrations
 ) -> None:
@@ -75,6 +75,8 @@ def add_qutrit_qubit_cr(
         pulse.play(counter_pulse, pulse.DriveChannel(Parameter('ch1')), name='Counter')
     calibrations.add_schedule(sched, num_qubits=2)
 
+    rx_angle = Parameter('rx_angle')
+
     for qubits, control_channels in backend.control_channels.items():
         control_channel = control_channels[0]
         target_frequency = backend.qubit_properties(qubits[1]).frequency
@@ -114,3 +116,11 @@ def add_qutrit_qubit_cr(
         for pname, value in param_defaults:
             calibrations.add_parameter_value(ParameterValue(value), pname, qubits=qubits,
                                              schedule='cr')
+
+        default_rz = backend.defaults().instruction_schedule_map.get('rz', qubits[1])
+        with pulse.build(name='cx_offset_rx') as sched:
+            for _, inst in default_rz.instructions:
+                pulse.shift_phase(-(rx_angle + np.pi), inst.channel)
+        calibrations.add_schedule(sched, qubits[1])
+        calibrations.add_parameter_value(ParameterValue(0.), rx_angle.name, qubits=qubits[0],
+                                         schedule='cx_offset_rx')

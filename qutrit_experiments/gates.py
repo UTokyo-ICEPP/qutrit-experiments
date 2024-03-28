@@ -1,8 +1,8 @@
 """Qutrit gates."""
 
 from collections.abc import Sequence
-from enum import Enum, auto
-from typing import Optional
+from enum import Enum, IntEnum, auto
+from typing import Any, Optional
 import numpy as np
 from qiskit import QuantumCircuit, QuantumRegister
 from qiskit.circuit import Gate, Parameter
@@ -39,7 +39,7 @@ class QutritGate(Gate):
         if num_qubits is None:
             num_qubits = len(self.qutrit)
         super().__init__(name, num_qubits, params, label=label, duration=duration, unit=unit)
-        
+
 
 class X12Gate(QutritGate, gate_name='x12', gate_type=GateType.PULSE):
     """The single-qubit X gate on EF subspace."""
@@ -117,16 +117,115 @@ class CrossResonanceMinusGate(CrossResonanceGate, gate_name='crm', gate_type=Gat
     """CR- gate."""
 
 
-class QutritQubitCXTypeXGate(QutritGate, gate_name='qutrit_qubit_cx_rcr2',
+class RCRGate(QutritGate, gate_name='rcr', gate_type=GateType.COMPOSITE, qutrit=(True, False)):
+    """Repeated cross resonance gate."""
+    TYPE_X = 2 # CRCR angle = 2 * (θ_0 + θ_1 - 2*θ_2)
+    TYPE_X12 = 0 # CRCR angle = 2 * (θ_1 + θ_2 - 2*θ_0)
+
+    @classmethod
+    def of_type(cls, rcr_type: int) -> type['RCRGate']:
+        match rcr_type:
+            case cls.TYPE_X:
+                return RCRTypeXGate
+            case cls.TYPE_X12:
+                return RCRTypeX12Gate
+
+    @classmethod
+    def decomposition(
+        cls,
+        params: Optional[dict[str, Any]] = None
+    ) -> QuantumCircuit:
+        raise NotImplementedError('RCRGate is abstract')
+
+    def __init__(
+        self,
+        params: Optional[Sequence[ParameterValueType]] = None,
+        label: Optional[str] = None
+    ):
+        super().__init__(params=params, label=label)
+
+
+class RCRTypeXGate(RCRGate, gate_name='rcr2', gate_type=GateType.COMPOSITE, qutrit=(True, False)):
+    """Repeated cross resonance gate."""
+    @classmethod
+    def decomposition(
+        cls,
+        params: Optional[dict[str, Any]] = None
+    ) -> QuantumCircuit:
+        params = params or {}
+        circuit = QuantumCircuit(2)
+        circuit.x(0)
+        circuit.append(CrossResonanceGate(params=params.get('cr')), [0, 1])
+        circuit.x(0)
+        circuit.append(CrossResonanceGate(params=params.get('cr')), [0, 1])
+        return circuit
+
+
+class RCRTypeX12Gate(RCRGate, gate_name='rcr0', gate_type=GateType.COMPOSITE, qutrit=(True, False)):
+    """Repeated cross resonance gate."""
+    @classmethod
+    def decomposition(
+        cls,
+        params: Optional[dict[str, Any]] = None
+    ) -> QuantumCircuit:
+        params = params or {}
+        circuit = QuantumCircuit(2)
+        circuit.append(CrossResonanceGate(params=params.get('cr')), [0, 1])
+        circuit.append(X12Gate(), [0])
+        circuit.append(CrossResonanceGate(params=params.get('cr')), [0, 1])
+        circuit.append(X12Gate(), [0])
+        return circuit
+
+
+class QutritQubitCXGate(QutritGate, gate_name='qutrit_qubit_cx', gate_type=GateType.COMPOSITE,
+                        qutrit=(True, False)):
+    """CX gate with a control qutrit and target qubit."""
+    TYPE_X = 2 # CRCR angle = 2 * (θ_0 + θ_1 - 2*θ_2)
+    TYPE_X12 = 0 # CRCR angle = 2 * (θ_1 + θ_2 - 2*θ_0)
+
+    rx_gate_name = 'offset_rx'
+
+    @classmethod
+    def of_type(cls, rcr_type: int) -> type['QutritQubitCXGate']:
+        match rcr_type:
+            case cls.TYPE_X:
+                return QutritQubitCXTypeXGate
+            case cls.TYPE_X12:
+                return QutritQubitCXTypeX12Gate
+
+    @classmethod
+    def decomposition(
+        cls,
+        params: Optional[dict[str, Any]] = None
+    ) -> QuantumCircuit:
+        raise NotImplementedError('QutritQubitCXGate is abstract')
+
+    def __init__(
+        self,
+        params: Optional[Sequence[ParameterValueType]] = None,
+        label: Optional[str] = None
+    ):
+        super().__init__(params=params, label=label)
+
+
+class QutritQubitCXTypeXGate(QutritQubitCXGate, gate_name='qutrit_qubit_cx_rcr2',
                              gate_type=GateType.COMPOSITE, qutrit=(True, False)):
     """CX gate with a control qutrit and target qubit."""
     @classmethod
-    def decomposition(cls, params) -> QuantumCircuit:
+    def decomposition(
+        cls,
+        params: Optional[dict[str, Any]] = None
+    ) -> QuantumCircuit:
+        params = params or {}
         circuit = QuantumCircuit(2)
         # [Rx]
         circuit.rz(np.pi / 2., 1)
         circuit.sx(1)
-        circuit.rz(params.get('rx', 0.) + np.pi, 1)
+        if (theta := params.get('rx')) is not None:
+            params = [theta]
+        else:
+            params = []
+        circuit.append(Gate(cls.rx_gate_name, 1, params), [1]) # Rz(theta + pi))
         circuit.sx(1)
         circuit.rz(np.pi / 2., 1)
         # [X+]-[RCR-]
@@ -142,18 +241,16 @@ class QutritQubitCXTypeXGate(QutritGate, gate_name='qutrit_qubit_cx_rcr2',
             circuit.append(CrossResonancePlusGate(params.get('crp')), [0, 1])
         return circuit
 
-    def __init__(
-        self,
-        label: Optional[str] = None
-    ):
-        super().__init__([], label=label)
 
-
-class QutritQubitCXTypeX12Gate(QutritGate, gate_name='qutrit_qubit_cx_rcr0',
+class QutritQubitCXTypeX12Gate(QutritQubitCXGate, gate_name='qutrit_qubit_cx_rcr0',
                                gate_type=GateType.COMPOSITE, qutrit=(True, False)):
     """CX gate with a control qutrit and target qubit."""
     @classmethod
-    def decomposition(cls, params) -> QuantumCircuit:
+    def decomposition(
+        cls,
+        params: Optional[dict[str, Any]] = None
+    ) -> QuantumCircuit:
+        params = params or {}
         circuit = QuantumCircuit(2)
         # [RCR+]-[X+] x 2
         for _ in range(2):
@@ -169,16 +266,14 @@ class QutritQubitCXTypeX12Gate(QutritGate, gate_name='qutrit_qubit_cx_rcr0',
         # [Rx]
         circuit.rz(np.pi / 2., 1)
         circuit.sx(1)
-        circuit.rz(params.get('rx', 0.) + np.pi, 1)
+        if (theta := params.get('rx')) is not None:
+            params = [theta]
+        else:
+            params = []
+        circuit.append(Gate(cls.rx_gate_name, 1, params), [1]) # Rz(theta + pi))
         circuit.sx(1)
         circuit.rz(np.pi / 2., 1)
         return circuit
-
-    def __init__(
-        self,
-        label: Optional[str] = None
-    ):
-        super().__init__([], label=label)
 
 
 q = QuantumRegister(1, "q")

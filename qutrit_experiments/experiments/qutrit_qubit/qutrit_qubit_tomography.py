@@ -46,6 +46,11 @@ class QutritQubitTomography(BatchExperiment):
         extra_metadata: Optional[dict[str, Any]] = None,
         analysis_cls: Optional[type[CompoundAnalysis]] = None
     ):
+        if isinstance(circuit, Gate):
+            gate = circuit
+            circuit = QuantumCircuit(2)
+            circuit.append(gate, [0, 1])
+
         experiments = []
         for iexp in range(5 if measure_preparations else 3):
             control_state = iexp if iexp < 3 else iexp - 2
@@ -63,10 +68,7 @@ class QutritQubitTomography(BatchExperiment):
                 post_circuit.append(X12Gate(), [0])
 
             if iexp < 3:
-                if isinstance(circuit, QuantumCircuit):
-                    channel.compose(circuit, inplace=True)
-                else:
-                    channel.append(circuit, [0, 1])
+                channel.compose(circuit, inplace=True)
 
             if tomography_type == 'unitary':
                 exp = UnitaryTomography(physical_qubits, channel, backend=backend,
@@ -250,19 +252,18 @@ class QutritQubitTomographyScan(BatchExperiment):
         backend: Optional[Backend] = None,
         analysis_cls: Optional[type[CompositeAnalysis]] = None
     ):
+        if isinstance(circuit, Gate):
+            gate = circuit
+            circuit = QuantumCircuit(2)
+            circuit.append(gate, [0, 1])
+
         def find_param(pname, plist):
             return next(p for p in plist if p.name == pname)
 
         if isinstance(param_name, str):
             param_name = [param_name]
 
-        if isinstance(circuit, QuantumCircuit):
-            plist = circuit.parameters
-        else:
-            plist = circuit.params
-
-        params = [find_param(pname, plist) for pname in param_name]
-
+        params = [find_param(pname, circuit.parameters) for pname in param_name]
         try:
             len(values[0])
         except TypeError:
@@ -274,22 +275,16 @@ class QutritQubitTomographyScan(BatchExperiment):
             angle_param_name = {}
         elif isinstance(angle_param_name, str):
             angle_param_name = {param_name[0]: angle_param_name}
-        angle_params = {find_param(key, params): find_param(value, plist)
+        angle_params = {find_param(key, params): find_param(value, circuit.parameters)
                         for key, value in angle_param_name.items()}
 
         experiments = []
         for iexp, exp_values in enumerate(zip(*values)):
             assign_params = self._make_assign_map(exp_values, params, angle_params)
             extra_metadata = {p.name: v for p, v in zip(params, exp_values)}
-            if isinstance(circuit, QuantumCircuit):
-                circ = circuit.assign_parameters(assign_params, inplace=False)
-            else:
-                circ = circuit.copy()
-                for param, value in assign_params.items():
-                    circ.params[circ.params.index(param)] = value
-
             experiments.append(
-                QutritQubitTomography(physical_qubits, circ,
+                QutritQubitTomography(physical_qubits,
+                                      circuit.assign_parameters(assign_params, inplace=False),
                                       tomography_type=tomography_type,
                                       measure_preparations=(measure_preparations and iexp == 0),
                                       control_states=control_states, backend=backend,
