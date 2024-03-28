@@ -48,7 +48,7 @@ def crcr_unitaries(runner):
 
     rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits)
     cr_schedules = get_cr_schedules(runner.calibrations, runner.qubits)
-    rx_schedule = runner.calibrations.get_schedule('cx_offset_rx', runner.qubits)
+    rx_schedule = runner.calibrations.get_schedule('cx_offset_rx', runner.qubits[1:])
     circuit = QutritQubitCXGate.of_type(rcr_type).decomposition()
     circuit.add_calibration(CrossResonancePlusGate.gate_name, runner.qubits, cr_schedules[0])
     circuit.add_calibration(CrossResonanceMinusGate.gate_name, runner.qubits, cr_schedules[1])
@@ -156,7 +156,8 @@ def rcr_rotary_amp(runner):
     return ExperimentConfig(
         RepeatedCRRotaryAmplitudeCal,
         runner.qubits,
-        args={'amplitudes': amplitudes}
+        args={'amplitudes': amplitudes},
+        analysis_options={'parallelize': -1, 'parallelize_on_thread': True}
     )
 
 @register_exp

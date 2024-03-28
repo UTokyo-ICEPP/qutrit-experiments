@@ -158,7 +158,7 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
         calibrations: Calibrations,
         dxda: np.ndarray,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['cr_amp', 'rx_angle'],
+        cal_parameter_name: list[str] = ['cr_amp', 'angle'],
         schedule_name: list[str] = ['cr', 'cx_offset_rx'],
         current_cal_groups: tuple[str, str] = ('default', 'default'),
         repetitions: Optional[Sequence[int]] = None,
@@ -248,7 +248,7 @@ class CycledRepeatedCRFineRxAngleCal(BaseCalibrationExperiment, CycledRepeatedCR
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        cal_parameter_name: str = 'rx_angle',
+        cal_parameter_name: str = 'angle',
         schedule_name: str = 'cx_offset_rx',
         current_cal_group: str = 'default',
         repetitions: Optional[Sequence[int]] = None,
@@ -489,7 +489,7 @@ class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxO
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['cr_amp', 'rx_angle'],
+        cal_parameter_name: list[str] = ['cr_amp', 'angle'],
         schedule_name: list[str] = ['cr', 'cx_offset_rx'],
         current_cal_group: list[str] = ['default', 'default'],
         angles: Optional[Sequence[float]] = None,
@@ -521,8 +521,8 @@ class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxO
             self._cr_schedules.append(
                 get_cr_schedules(calibrations, physical_qubits, assign_params=assign_params)
             )
-        assign_params = {cal_parameter_name[1]: Parameter('rx_angle')}
-        self._rx_schedule = calibrations.get_schedule(self._sched_name[1], physical_qubits,
+        assign_params = {cal_parameter_name[1]: Parameter('angle')}
+        self._rx_schedule = calibrations.get_schedule(self._sched_name[1], physical_qubits[1:],
                                                       assign_params=assign_params)
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
@@ -533,10 +533,10 @@ class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxO
             circuit.add_calibration(gate.gate_name, self.physical_qubits, sched, [amp_val])
 
         angle_val = circuit.metadata['composite_metadata'][0]['xval']
-        rx_angle = self._rx_schedule.get_parameters('rx_angle')[0]
+        rx_angle = self._rx_schedule.get_parameters('angle')[0]
         rx_sched = self._rx_schedule.assign_parameters({rx_angle: angle_val}, inplace=False)
         circuit.add_calibration(QutritQubitCXGate.rx_gate_name, self.physical_qubits[1:], rx_sched,
-                                params=[rx_angle])
+                                params=[angle_val])
 
     def update_calibrations(self, experiment_data: ExperimentData):
         qubit_lists = [self.physical_qubits, [self.physical_qubits[1]]]

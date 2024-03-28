@@ -66,7 +66,7 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['cr_amp', 'rx_angle'],
+        cal_parameter_name: list[str] = ['cr_amp', 'angle'],
         schedule_name: list[str] = ['cr', 'cx_offset_rx'],
         auto_update: bool = True,
         amplitudes: Optional[Sequence[float]] = None

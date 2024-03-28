@@ -164,7 +164,7 @@ class CycledRepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, QutritQubitT
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['counter_amp', 'counter_sign_angle', 'rx_angle'],
+        cal_parameter_name: list[str] = ['counter_amp', 'counter_sign_angle', 'angle'],
         schedule_name: list[str] = ['cr', 'cr', 'cx_offset_rx'],
         amplitudes: Optional[Sequence[float]] = None,
         width: Optional[float] = None,

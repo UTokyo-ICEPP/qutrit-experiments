@@ -219,15 +219,7 @@ class QutritQubitCXTypeXGate(QutritQubitCXGate, gate_name='qutrit_qubit_cx_rcr2'
         params = params or {}
         circuit = QuantumCircuit(2)
         # [Rx]
-        circuit.rz(np.pi / 2., 1)
-        circuit.sx(1)
-        if (theta := params.get('rx')) is not None:
-            params = [theta]
-        else:
-            params = []
-        circuit.append(Gate(cls.rx_gate_name, 1, params), [1]) # Rz(theta + pi))
-        circuit.sx(1)
-        circuit.rz(np.pi / 2., 1)
+        circuit.append(CXOffsetRxGate(params.get('rx')), [1])
         # [X+]-[RCR-]
         circuit.append(X12Gate(), [0])
         circuit.append(CrossResonanceMinusGate(params.get('crm')), [0, 1])
@@ -264,16 +256,22 @@ class QutritQubitCXTypeX12Gate(QutritQubitCXGate, gate_name='qutrit_qubit_cx_rcr
         circuit.append(CrossResonanceMinusGate(params.get('crm')), [0, 1])
         circuit.x(0)
         # [Rx]
-        circuit.rz(np.pi / 2., 1)
-        circuit.sx(1)
-        if (theta := params.get('rx')) is not None:
-            params = [theta]
-        else:
-            params = []
-        circuit.append(Gate(cls.rx_gate_name, 1, params), [1]) # Rz(theta + pi))
-        circuit.sx(1)
-        circuit.rz(np.pi / 2., 1)
+        circuit.append(CXOffsetRxGate(params.get('rx')), [1])
         return circuit
+
+
+class CXOffsetRxGate(Gate):
+    """Rx gate with a fixed angle to nullify the 0 and 2 block rotations of qutrit-qubit CX."""
+    def __init__(
+        self,
+        angle: Optional[ParameterValueType] = None,
+        label: Optional[str] = None
+    ):
+        if angle is None:
+            params = []
+        else:
+            params = [angle]
+        super().__init__('cx_offset_rx', 1, params=params, label=label)
 
 
 q = QuantumRegister(1, "q")

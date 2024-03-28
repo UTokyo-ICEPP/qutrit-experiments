@@ -75,7 +75,7 @@ def add_qutrit_qubit_cr_and_rx(
         pulse.play(counter_pulse, pulse.DriveChannel(Parameter('ch1')), name='Counter')
     calibrations.add_schedule(sched, num_qubits=2)
 
-    rx_angle = Parameter('rx_angle')
+    inst_map = backend.defaults().instruction_schedule_map
 
     for qubits, control_channels in backend.control_channels.items():
         control_channel = control_channels[0]
@@ -117,10 +117,20 @@ def add_qutrit_qubit_cr_and_rx(
             calibrations.add_parameter_value(ParameterValue(value), pname, qubits=qubits,
                                              schedule='cr')
 
-        default_rz = backend.defaults().instruction_schedule_map.get('rz', qubits[1])
+        sx_inst = inst_map.get('sx', qubits[1]).instructions[0][1]
+        sx_pulse = sx_inst.pulse
+        drive_channel = sx_inst.channel
+        rz_channels = [inst.channel for _, inst in inst_map.get('rz', qubits[1]).instructions]
+        angle = Parameter('angle')
         with pulse.build(name='cx_offset_rx') as sched:
-            for _, inst in default_rz.instructions:
-                pulse.shift_phase(-(rx_angle + np.pi), inst.channel)
+            for channel in rz_channels:
+                pulse.shift_phase(-np.pi / 2., channel)
+            pulse.play(sx_pulse, drive_channel)
+            for channel in rz_channels:
+                pulse.shift_phase(-(angle + np.pi), channel)
+            pulse.play(sx_pulse, drive_channel)
+            for channel in rz_channels:
+                pulse.shift_phase(-np.pi / 2., channel)
         calibrations.add_schedule(sched, qubits[1])
-        calibrations.add_parameter_value(ParameterValue(0.), rx_angle.name, qubits=qubits[1],
+        calibrations.add_parameter_value(ParameterValue(0.), angle.name, qubits=qubits[1],
                                          schedule='cx_offset_rx')
