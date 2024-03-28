@@ -5,6 +5,7 @@ from typing import Optional
 import numpy as np
 from qiskit import pulse
 from qiskit.providers import Backend
+from qiskit.pulse import ScalableSymbolicPulse
 from qiskit.circuit import Parameter
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 from qiskit_experiments.exceptions import CalibrationError
@@ -119,18 +120,35 @@ def add_qutrit_qubit_cr_and_rx(
 
         sx_inst = inst_map.get('sx', qubits[1]).instructions[0][1]
         sx_pulse = sx_inst.pulse
+        pulse_parameters = {key: value for key, value in sx_pulse._params.items()
+                            if key not in ['amp', 'angle']}
         drive_channel = sx_inst.channel
         rz_channels = [inst.channel for _, inst in inst_map.get('rz', qubits[1]).instructions]
         angle = Parameter('angle')
         with pulse.build(name='cx_offset_rx') as sched:
+            pulse.play(
+                ScalableSymbolicPulse('sx1', sx_pulse.duration, sx_pulse.amp,
+                                      sx_pulse.angle - np.pi / 2., parameters=pulse_parameters,
+                                      name=f'{sx_pulse.name}_1',
+                                      limit_amplitude=sx_pulse._limit_amplitude,
+                                      envelope=sx_pulse._envelope,
+                                      constraints=sx_pulse._constraints,
+                                      valid_amp_conditions=sx_pulse._valid_amp_conditions),
+                drive_channel
+            )
+            pulse.play(
+                ScalableSymbolicPulse('sx2', sx_pulse.duration, sx_pulse.amp,
+                                      sx_pulse.angle - (angle + 3. * np.pi / 2.),
+                                      parameters=pulse_parameters,
+                                      name=f'{sx_pulse.name}_2',
+                                      limit_amplitude=sx_pulse._limit_amplitude,
+                                      envelope=sx_pulse._envelope,
+                                      constraints=sx_pulse._constraints,
+                                      valid_amp_conditions=sx_pulse._valid_amp_conditions),
+                drive_channel
+            )
             for channel in rz_channels:
-                pulse.shift_phase(-np.pi / 2., channel)
-            pulse.play(sx_pulse, drive_channel)
-            for channel in rz_channels:
-                pulse.shift_phase(-(angle + np.pi), channel)
-            pulse.play(sx_pulse, drive_channel)
-            for channel in rz_channels:
-                pulse.shift_phase(-np.pi / 2., channel)
+                pulse.shift_phase(-angle, channel)
         calibrations.add_schedule(sched, qubits[1])
         calibrations.add_parameter_value(ParameterValue(0.), angle.name, qubits=qubits[1],
                                          schedule='cx_offset_rx')
