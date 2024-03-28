@@ -529,7 +529,8 @@ class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxO
         iamp = circuit.metadata['composite_index'][0]
         amp_val = self.component_experiment(iamp).extra_metadata['cr_amp']
         cr_gates = [CrossResonancePlusGate, CrossResonanceMinusGate]
-        for gate, sched in zip(cr_gates, self._cr_schedules[iamp]):
+        cr_schedules = self._cr_schedules[iamp // 2] # two control states per amp
+        for gate, sched in zip(cr_gates, cr_schedules):
             circuit.add_calibration(gate.gate_name, self.physical_qubits, sched, [amp_val])
 
         angle_val = circuit.metadata['composite_metadata'][0]['xval']
