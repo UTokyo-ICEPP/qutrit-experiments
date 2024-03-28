@@ -122,5 +122,5 @@ def add_qutrit_qubit_cr_and_rx(
             for _, inst in default_rz.instructions:
                 pulse.shift_phase(-(rx_angle + np.pi), inst.channel)
         calibrations.add_schedule(sched, qubits[1])
-        calibrations.add_parameter_value(ParameterValue(0.), rx_angle.name, qubits=qubits[0],
+        calibrations.add_parameter_value(ParameterValue(0.), rx_angle.name, qubits=qubits[1],
                                          schedule='cx_offset_rx')

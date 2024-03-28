@@ -11,7 +11,7 @@ from qiskit_experiments.calibration_management import (BaseCalibrationExperiment
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import ExperimentData, Options
 
-from ...gates import RCRGate
+from ...gates import CrossResonanceGate, RCRGate
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
 
@@ -77,11 +77,11 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
             amplitudes = np.linspace(current - 0.2, current + 0.05, 6)
 
         rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
-        gate = RCRGate.of_type(rcr_type)(params=[Parameter('amp')])
+        circuit = RCRGate.of_type(rcr_type).decomposition(params={'cr': [Parameter('amp')]})
         super().__init__(
             calibrations,
             physical_qubits,
-            gate,
+            circuit,
             'amp',
             backend=backend,
             schedule_name=schedule_name,
@@ -95,7 +95,6 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
             calibration_qubit_index={(self._param_name[1], self._sched_name[1]): [1]}
         )
 
-        self._gate_name = gate.gate_name
         self._schedules = [
             calibrations.get_schedule(schedule_name[0], physical_qubits,
                                       assign_params={cal_parameter_name[0]: aval})
@@ -104,7 +103,7 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         iamp = circuit.metadata['composite_index'][0]
-        circuit.add_calibration(self._gate_name, self.physical_qubits,
+        circuit.add_calibration(CrossResonanceGate.gate_name, self.physical_qubits,
                                 self._schedules[iamp],
                                 params=[self.experiment_options.parameter_values[0][iamp]])
 
