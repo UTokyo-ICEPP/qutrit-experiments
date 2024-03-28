@@ -183,8 +183,6 @@ class QutritQubitCXGate(QutritGate, gate_name='qutrit_qubit_cx', gate_type=GateT
     TYPE_X = 2 # CRCR angle = 2 * (θ_0 + θ_1 - 2*θ_2)
     TYPE_X12 = 0 # CRCR angle = 2 * (θ_1 + θ_2 - 2*θ_0)
 
-    rx_gate_name = 'offset_rx'
-
     @classmethod
     def of_type(cls, rcr_type: int) -> type['QutritQubitCXGate']:
         match rcr_type:

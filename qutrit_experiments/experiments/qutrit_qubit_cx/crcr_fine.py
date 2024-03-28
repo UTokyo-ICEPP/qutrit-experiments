@@ -191,7 +191,7 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
         self._schedules = [
             (CrossResonancePlusGate.gate_name, physical_qubits, cr_schedules[0]),
             (CrossResonanceMinusGate.gate_name, physical_qubits, cr_schedules[1]),
-            (QutritQubitCXGate.rx_gate_name, physical_qubits[1:], rx_schedule)
+            ('cx_offset_rx', physical_qubits[1:], rx_schedule)
         ]
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
@@ -277,7 +277,7 @@ class CycledRepeatedCRFineRxAngleCal(BaseCalibrationExperiment, CycledRepeatedCR
         self._schedules = [
             (CrossResonancePlusGate.gate_name, physical_qubits, cr_schedules[0]),
             (CrossResonanceMinusGate.gate_name, physical_qubits, cr_schedules[1]),
-            (QutritQubitCXGate.rx_gate_name, physical_qubits[1:], rx_schedule)
+            ('cx_offset_rx', physical_qubits[1:], rx_schedule)
         ]
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
@@ -535,7 +535,7 @@ class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxO
         angle_val = circuit.metadata['composite_metadata'][0]['xval']
         rx_angle = self._rx_schedule.get_parameters('angle')[0]
         rx_sched = self._rx_schedule.assign_parameters({rx_angle: angle_val}, inplace=False)
-        circuit.add_calibration(QutritQubitCXGate.rx_gate_name, self.physical_qubits[1:], rx_sched,
+        circuit.add_calibration('cx_offset_rx', self.physical_qubits[1:], rx_sched,
                                 params=[angle_val])
 
     def update_calibrations(self, experiment_data: ExperimentData):

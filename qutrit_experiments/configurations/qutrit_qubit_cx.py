@@ -9,7 +9,7 @@ from qiskit import QuantumCircuit
 from ..experiment_config import ExperimentConfig, register_exp, register_post
 from ..experiments.qutrit_qubit_cx.util import get_cr_schedules
 from ..gates import (CrossResonanceGate, CrossResonanceMinusGate, CrossResonancePlusGate,
-                     QutritQubitCXGate)
+                     CXOffsetRxGate, QutritQubitCXGate)
 from ..util.pulse_area import gs_effective_duration, rabi_cycles_per_area
 from .common import add_readout_mitigation, qubits_assignment_error, qubits_assignment_error_post
 
@@ -52,7 +52,7 @@ def crcr_unitaries(runner):
     circuit = QutritQubitCXGate.of_type(rcr_type).decomposition()
     circuit.add_calibration(CrossResonancePlusGate.gate_name, runner.qubits, cr_schedules[0])
     circuit.add_calibration(CrossResonanceMinusGate.gate_name, runner.qubits, cr_schedules[1])
-    circuit.add_calibration(QutritQubitCXGate.rx_gate_name, runner.qubits[1:], rx_schedule)
+    circuit.add_calibration('cx_offset_rx', runner.qubits[1:], rx_schedule)
 
     return ExperimentConfig(
         QutritQubitTomography,
