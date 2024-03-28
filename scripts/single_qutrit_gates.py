@@ -61,8 +61,6 @@ if __name__ == '__main__':
     program_config['qubits'] = qubits
 
     runner = setup_runner(backend, calibrations, program_config, runner_cls=runner_cls)
-    runner.qutrit_transpile_options.use_waveform = True
-    runner.qutrit_transpile_options.remove_custom_pulses = True
     runner.job_retry_interval = 120
     calibrated = load_calibrations(runner, program_config)
 
