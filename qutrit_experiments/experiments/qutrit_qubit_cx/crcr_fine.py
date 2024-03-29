@@ -330,8 +330,9 @@ class CycledRepeatedCRRxScan(MapToPhysicalQubits, BaseExperiment):
         self.analysis.set_options(
             fixed_parameters={'freq': 1. / twopi},
             result_parameters=['phase'],
-            outcome='1',
-            bounds={'amp': (0., 1.)}
+            outcome='1', # Measure P(1) with negative cosine amplitude
+            bounds={'amp': (-1., 0.)},
+            p0={'amp': -0.5}
         )
 
         self.extra_metadata = {}
