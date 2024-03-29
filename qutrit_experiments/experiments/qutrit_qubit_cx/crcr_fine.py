@@ -330,7 +330,8 @@ class CycledRepeatedCRRxScan(MapToPhysicalQubits, BaseExperiment):
         self.analysis.set_options(
             fixed_parameters={'freq': 1. / twopi},
             result_parameters=['phase'],
-            outcome='1'
+            outcome='1',
+            bounds={'amp': (0., 1.)}
         )
 
         self.extra_metadata = {}
@@ -452,7 +453,7 @@ class CycledRepeatedCRRxOffsetAmpScanAnalysis(CompoundAnalysis):
         angle_opt = -curve(amp_opt, *popt_ufloats[0])
         analysis_results.extend([
             AnalysisResultData(name='cr_amp', value=amp_opt),
-            AnalysisResultData(name='qutrit_qubit_cx_offsetrx', value=angle_opt)
+            AnalysisResultData(name='angle', value=angle_opt)
         ])
 
         if self.options.plot:
