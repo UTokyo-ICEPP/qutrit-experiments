@@ -95,46 +95,52 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomogra
             amplitudes = self._default_experiment_options().parameter_values[0]
 
         rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
-        control_states = list(range(3))
-        control_states.remove(int(rcr_type))
-        params = {'cr': [Parameter('amp'), Parameter('sign_angle')]}
+        amp = Parameter('amp')
+        sign_angle = Parameter('sign_angle')
+        params = {'cra': [amp, sign_angle], 'crb': [amp, sign_angle + np.pi]}
         circuit = RCRGate.of_type(rcr_type).decomposition(params)
 
         super().__init__(
             calibrations,
             physical_qubits,
             circuit,
-            'amp',
+            amp.name,
             amplitudes,
             backend=backend,
             schedule_name=schedule_name,
             cal_parameter_name=cal_parameter_name,
             auto_update=auto_update,
-            angle_param_name='sign_angle',
+            angle_param_name=sign_angle.name,
             measure_preparations=measure_preparations,
-            control_states=control_states,
             analysis_cls=MinimumYZRotaryAmplitudeAnalysis
         )
         self._schedules = []
         for aval in amplitudes:
             if aval >= 0.:
-                assign_params = {self._param_name[0]: aval, self._param_name[1]: 0.}
+                params_a = {self._param_name[0]: aval, self._param_name[1]: 0.}
+                params_b = {self._param_name[0]: aval, self._param_name[1]: np.pi}
             else:
-                assign_params = {self._param_name[0]: -aval, self._param_name[1]: np.pi}
+                params_a = {self._param_name[0]: -aval, self._param_name[1]: np.pi}
+                params_b = {self._param_name[0]: -aval, self._param_name[1]: 0.}
             if width is not None:
-                assign_params['width'] = width
-            self._schedules.append(calibrations.get_schedule(schedule_name, physical_qubits,
-                                                             assign_params=assign_params))
+                params_a['width'] = width
+                params_b['width'] = width
+            self._schedules.append((
+                calibrations.get_schedule(schedule_name, physical_qubits, assign_params=params_a),
+                calibrations.get_schedule(schedule_name, physical_qubits, assign_params=params_b)
+            ))
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         iamp = circuit.metadata['composite_index'][0]
         aval = self.experiment_options.parameter_values[0][iamp]
         if aval >= 0.:
-            params = [aval, 0.]
+            p_a = [aval, 0.]
+            p_b = [aval, np.pi]
         else:
-            params = [-aval, np.pi]
-        circuit.add_calibration(CrossResonanceGate.gate_name, self.physical_qubits,
-                                self._schedules[iamp], params=params)
+            p_a = [-aval, np.pi]
+            p_b = [-aval, 0.]
+        circuit.add_calibration('cra', self.physical_qubits, self._schedules[iamp][0], params=p_a)
+        circuit.add_calibration('crb', self.physical_qubits, self._schedules[iamp][1], params=p_b)
 
     def update_calibrations(self, experiment_data: ExperimentData):
         amplitude = experiment_data.analysis_results('rotary_amp', block=False).value
