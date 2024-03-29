@@ -153,11 +153,24 @@ class RCRTypeXGate(RCRGate, gate_name='rcr2', gate_type=GateType.COMPOSITE, qutr
         params: Optional[dict[str, Any]] = None
     ) -> QuantumCircuit:
         params = params or {}
+        common_params = params.get('cr')
+        if common_params:
+            gate_a = gate_b = CrossResonanceGate(params=common_params)
+        else:
+            gate_a = CrossResonanceGate(params=params.get('cra'))
+            gate_a.name = 'cra'
+            gate_b = CrossResonanceGate(params=params.get('crb'))
+            gate_b.name = 'crb'
         circuit = QuantumCircuit(2)
+        circuit.barrier()
         circuit.x(0)
-        circuit.append(CrossResonanceGate(params=params.get('cr')), [0, 1])
+        circuit.x(1)
+        circuit.x(1)
+        circuit.append(gate_a, [0, 1])
         circuit.x(0)
-        circuit.append(CrossResonanceGate(params=params.get('cr')), [0, 1])
+        circuit.x(1)
+        circuit.x(1)
+        circuit.append(gate_b, [0, 1])
         return circuit
 
 
@@ -169,11 +182,24 @@ class RCRTypeX12Gate(RCRGate, gate_name='rcr0', gate_type=GateType.COMPOSITE, qu
         params: Optional[dict[str, Any]] = None
     ) -> QuantumCircuit:
         params = params or {}
+        common_params = params.get('cr')
+        if common_params:
+            gate_a = gate_b = CrossResonanceGate(params=common_params)
+        else:
+            gate_a = CrossResonanceGate(params=params.get('cra'))
+            gate_a.name = 'cra'
+            gate_b = CrossResonanceGate(params=params.get('crb'))
+            gate_b.name = 'crb'
         circuit = QuantumCircuit(2)
-        circuit.append(CrossResonanceGate(params=params.get('cr')), [0, 1])
+        circuit.append(gate_a, [0, 1])
         circuit.append(X12Gate(), [0])
-        circuit.append(CrossResonanceGate(params=params.get('cr')), [0, 1])
+        circuit.x(1)
+        circuit.x(1)
+        circuit.append(gate_b, [0, 1])
         circuit.append(X12Gate(), [0])
+        circuit.x(1)
+        circuit.x(1)
+        circuit.barrier()
         return circuit
 
 
