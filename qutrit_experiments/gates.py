@@ -153,24 +153,24 @@ class RCRTypeXGate(RCRGate, gate_name='rcr2', gate_type=GateType.COMPOSITE, qutr
         params: Optional[dict[str, Any]] = None
     ) -> QuantumCircuit:
         params = params or {}
-        common_params = params.get('cr')
-        if common_params:
-            gate_a = gate_b = CrossResonanceGate(params=common_params)
+        if (cra_params := params.get('cra')) and (crb_params := params.get('crb')):
+            cra_gate = CrossResonanceGate(params=cra_params)
+            cra_gate.name = 'cra'
+            crb_gate = CrossResonanceGate(params=crb_params)
+            crb_gate.name = 'crb'
         else:
-            gate_a = CrossResonanceGate(params=params.get('cra'))
-            gate_a.name = 'cra'
-            gate_b = CrossResonanceGate(params=params.get('crb'))
-            gate_b.name = 'crb'
+            cra_gate = crb_gate = CrossResonanceGate(params=params.get('cr'))
+
         circuit = QuantumCircuit(2)
         circuit.barrier()
         circuit.x(0)
         circuit.x(1)
         circuit.x(1)
-        circuit.append(gate_a, [0, 1])
+        circuit.append(cra_gate, [0, 1])
         circuit.x(0)
         circuit.x(1)
         circuit.x(1)
-        circuit.append(gate_b, [0, 1])
+        circuit.append(crb_gate, [0, 1])
         return circuit
 
 
@@ -182,20 +182,20 @@ class RCRTypeX12Gate(RCRGate, gate_name='rcr0', gate_type=GateType.COMPOSITE, qu
         params: Optional[dict[str, Any]] = None
     ) -> QuantumCircuit:
         params = params or {}
-        common_params = params.get('cr')
-        if common_params:
-            gate_a = gate_b = CrossResonanceGate(params=common_params)
+        if (cra_params := params.get('cra')) and (crb_params := params.get('crb')):
+            cra_gate = CrossResonanceGate(params=cra_params)
+            cra_gate.name = 'cra'
+            crb_gate = CrossResonanceGate(params=crb_params)
+            crb_gate.name = 'crb'
         else:
-            gate_a = CrossResonanceGate(params=params.get('cra'))
-            gate_a.name = 'cra'
-            gate_b = CrossResonanceGate(params=params.get('crb'))
-            gate_b.name = 'crb'
+            cra_gate = crb_gate = CrossResonanceGate(params=params.get('cr'))
+            
         circuit = QuantumCircuit(2)
-        circuit.append(gate_a, [0, 1])
+        circuit.append(cra_gate, [0, 1])
         circuit.append(X12Gate(), [0])
         circuit.x(1)
         circuit.x(1)
-        circuit.append(gate_b, [0, 1])
+        circuit.append(crb_gate, [0, 1])
         circuit.append(X12Gate(), [0])
         circuit.x(1)
         circuit.x(1)
@@ -241,20 +241,42 @@ class QutritQubitCXTypeXGate(QutritQubitCXGate, gate_name='qutrit_qubit_cx_rcr2'
         params: Optional[dict[str, Any]] = None
     ) -> QuantumCircuit:
         params = params or {}
+        if (crma_params := params.get('crma')) and (crmb_params := params.get('crmb')):
+            crma_gate = CrossResonanceGate(params=crma_params)
+            crma_gate.name = 'cra'
+            crmb_gate = CrossResonanceGate(params=crmb_params)
+            crmb_gate.name = 'crb'
+        else:
+            crma_gate = crmb_gate = CrossResonanceMinusGate(params=params.get('crm'))
+        if (crpa_params := params.get('crpa')) and (crpb_params := params.get('crpb')):
+            crpa_gate = CrossResonanceGate(params=crpa_params)
+            crpa_gate.name = 'cra'
+            crpb_gate = CrossResonanceGate(params=crpb_params)
+            crpb_gate.name = 'crb'
+        else:
+            crpa_gate = crpb_gate = CrossResonanceMinusGate(params=params.get('crp'))
+
         circuit = QuantumCircuit(2)
         # [Rx]
         circuit.append(CXOffsetRxGate(params.get('rx')), [1])
         # [X+]-[RCR-]
         circuit.append(X12Gate(), [0])
-        circuit.append(CrossResonanceMinusGate(params.get('crm')), [0, 1])
+        # Skipping DD here because we have the Rx
+        circuit.append(crma_gate, [0, 1])
         circuit.x(0)
-        circuit.append(CrossResonanceMinusGate(params.get('crm')), [0, 1])
+        circuit.x(1)
+        circuit.x(1)
+        circuit.append(crmb_gate, [0, 1])
         # [X+]-[RCR+] x 2
         for _ in range(2):
             circuit.append(X12Gate(), [0])
-            circuit.append(CrossResonancePlusGate(params.get('crp')), [0, 1])
+            circuit.x(1)
+            circuit.x(1)
+            circuit.append(crpa_gate, [0, 1])
             circuit.x(0)
-            circuit.append(CrossResonancePlusGate(params.get('crp')), [0, 1])
+            circuit.x(1)
+            circuit.x(1)
+            circuit.append(crpb_gate, [0, 1])
         return circuit
 
 
@@ -267,18 +289,40 @@ class QutritQubitCXTypeX12Gate(QutritQubitCXGate, gate_name='qutrit_qubit_cx_rcr
         params: Optional[dict[str, Any]] = None
     ) -> QuantumCircuit:
         params = params or {}
+        if (crma_params := params.get('crma')) and (crmb_params := params.get('crmb')):
+            crma_gate = CrossResonanceGate(params=crma_params)
+            crma_gate.name = 'cra'
+            crmb_gate = CrossResonanceGate(params=crmb_params)
+            crmb_gate.name = 'crb'
+        else:
+            crma_gate = crmb_gate = CrossResonanceMinusGate(params=params.get('crm'))
+        if (crpa_params := params.get('crpa')) and (crpb_params := params.get('crpb')):
+            crpa_gate = CrossResonanceGate(params=crpa_params)
+            crpa_gate.name = 'cra'
+            crpb_gate = CrossResonanceGate(params=crpb_params)
+            crpb_gate.name = 'crb'
+        else:
+            crpa_gate = crpb_gate = CrossResonanceMinusGate(params=params.get('crp'))
+
         circuit = QuantumCircuit(2)
         # [RCR+]-[X+] x 2
         for _ in range(2):
-            circuit.append(CrossResonancePlusGate(params.get('crp')), [0, 1])
+            circuit.append(crpa_gate, [0, 1])
             circuit.append(X12Gate(), [0])
-            circuit.append(CrossResonancePlusGate(params.get('crp')), [0, 1])
+            circuit.x(1)
+            circuit.x(1)
+            circuit.append(crpb_gate, [0, 1])
             circuit.x(0)
+            circuit.x(1)
+            circuit.x(1)
         # [RCR-]-[X+]
-        circuit.append(CrossResonanceMinusGate(params.get('crm')), [0, 1])
+        circuit.append(crma_gate, [0, 1])
         circuit.append(X12Gate(), [0])
-        circuit.append(CrossResonanceMinusGate(params.get('crm')), [0, 1])
+        circuit.x(1)
+        circuit.x(1)
+        circuit.append(crmb_gate, [0, 1])
         circuit.x(0)
+        # Skipping DD here because we have the Rx
         # [Rx]
         circuit.append(CXOffsetRxGate(params.get('rx')), [1])
         return circuit
