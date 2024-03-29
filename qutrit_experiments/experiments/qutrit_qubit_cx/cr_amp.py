@@ -55,6 +55,12 @@ class RepeatedCRAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
 
 
 class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
+    """Calibration of CR amplitude given the width.
+    
+    Rx angle difference between block 1 and block rcr_type will be set to cx_sign * pi/2.
+    Offset Rx angle is set to cancel the angle of block rcr_type, but this calibration will be
+    rendered meaningless once the rotary tone is introduced.
+    """
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
