@@ -89,6 +89,8 @@ class ExperimentsRunner:
         else:
             self._runtime_session = None
 
+        self._skip_missing_calibration = False
+
         self.data_taking_only = False
         self.code_test = False
         self.job_retry_interval = -1.
@@ -457,7 +459,10 @@ class ExperimentsRunner:
                         exp.update_calibrations(exp_data)
                         updated = True
                 except ExperimentEntryNotFound as exc:
-                    logger.warning('%s qubits %s %s', exp_type, exp.physical_qubits, exc.message)
+                    if self._skip_missing_calibration:
+                        logger.warning('%s (%s) %s', exp_type, exp.physical_qubits, exc.message)
+                    else:
+                        raise
 
                 param_name = exp._param_name
                 sched_name = exp._sched_name

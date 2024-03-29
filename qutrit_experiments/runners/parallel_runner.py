@@ -40,6 +40,7 @@ class ParallelRunner(ExperimentsRunner):
 
         self.num_analysis_procs = -1
         self.plot_all_qubits = False
+        self._skip_missing_calibration = True
 
     @property
     def qubits(self):
