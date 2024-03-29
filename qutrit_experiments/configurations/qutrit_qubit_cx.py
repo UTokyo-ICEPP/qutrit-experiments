@@ -48,8 +48,12 @@ def rcr_unitaries(runner):
 
     rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits)
     circuit = RCRGate.of_type(rcr_type).decomposition()
-    circuit.add_calibration(CrossResonanceGate.gate_name, runner.qubits,
-                            runner.calibrations.get_schedule('cr', runner.qubits))
+    sched_a = runner.calibrations.get_schedule('cr', runner.qubits)
+    sign_angle = runner.calibrations.get_parameter_value('counter_sign_angle', runner.qubits, 'cr')
+    sched_b = runner.calibrations.get_schedule('cr', runner.qubits,
+                                               assign_params={'counter_sign_angle': sign_angle + np.pi})
+    circuit.add_calibration('cra', runner.qubits, sched_a)
+    circuit.add_calibration('crb', runner.qubits, sched_b)
 
     return ExperimentConfig(
         QutritQubitTomography,
@@ -169,6 +173,7 @@ def rcr_rotary_amp(runner):
     from ..experiments.qutrit_qubit_cx.rotary import RepeatedCRRotaryAmplitudeCal
     duration = gs_effective_duration(runner.calibrations, runner.qubits, 'cr')
     cycles_per_amp = rabi_cycles_per_area(runner.backend, runner.qubits[1]) * duration
+    cycles_per_amp *= 2 # Factor two because RCR = CR * 2
     amplitudes = np.linspace(2.5, 3.5, 20) / cycles_per_amp
     return ExperimentConfig(
         RepeatedCRRotaryAmplitudeCal,
