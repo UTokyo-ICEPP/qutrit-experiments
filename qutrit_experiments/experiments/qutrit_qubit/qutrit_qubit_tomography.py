@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import jaxopt
 from matplotlib.figure import Figure
 import numpy as np
+import pandas as pd
 from uncertainties import correlated_values, unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.circuit import Gate
@@ -652,3 +653,19 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
     @classmethod
     def unitary_params(cls, fit_params: np.ndarray, xval: np.ndarray, npmod=np):
         raise NotImplementedError()
+
+
+def make_ut_dataframe(experiment_data):
+    """Helper function to construct a pandas DataFrame from unitary tomography results."""
+    res = experiment_data.analysis_results('prep_parameters').value
+    data = [({'control': f'{state} prep'}
+              | {op: f'{res[state][iop].n:.3f}±{res[state][iop].std_dev:.3f}'
+                  for iop, op in enumerate(['x', 'y', 'z'])})
+             for state in [1, 2]]
+    res = experiment_data.analysis_results('unitary_parameters').value
+    data += [({'control': f'{state}'}
+               | {op: f'{res[state][iop].n:.3f}±{res[state][iop].std_dev:.3f}'
+                   for iop, op in enumerate(['x', 'y', 'z'])})
+             for state in range(3)]
+    columns = ['control', 'x', 'y', 'z']
+    return pd.DataFrame(data=data, columns=columns)
