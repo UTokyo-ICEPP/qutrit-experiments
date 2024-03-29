@@ -56,7 +56,7 @@ class RepeatedCRAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
 
 class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
     """Calibration of CR amplitude given the width.
-    
+
     Rx angle difference between block 1 and block rcr_type will be set to cx_sign * pi/2.
     Offset Rx angle is set to cancel the angle of block rcr_type, but this calibration will be
     rendered meaningless once the rotary tone is introduced.
@@ -83,11 +83,11 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
             amplitudes = np.linspace(current - 0.2, current + 0.05, 6)
 
         rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
-        circuit = RCRGate.of_type(rcr_type).decomposition(params={'cr': [Parameter('amp')]})
+        gate = RCRGate.of_type(rcr_type)(params=[Parameter('amp')])
         super().__init__(
             calibrations,
             physical_qubits,
-            circuit,
+            gate,
             'amp',
             backend=backend,
             schedule_name=schedule_name,
@@ -101,16 +101,22 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
             calibration_qubit_index={(self._param_name[1], self._sched_name[1]): [1]}
         )
 
+        self._gate_name = gate.name
+        assign_keys = [
+            ('freq', self.physical_qubits[:1], 'x12'),
+            (self._param_name[0], self.physical_qubits, self._sched_name[0])
+        ]
+        freq = (calibrations.get_parameter_value('f12', physical_qubits[0])
+                - backend.qubit_properties(physical_qubits[0]).frequency)
         self._schedules = [
-            calibrations.get_schedule(schedule_name[0], physical_qubits,
-                                      assign_params={cal_parameter_name[0]: aval})
+            calibrations.get_schedule(self._gate_name, physical_qubits,
+                                      assign_params=dict(zip(assign_keys, [freq, aval])))
             for aval in amplitudes
         ]
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         iamp = circuit.metadata['composite_index'][0]
-        circuit.add_calibration(CrossResonanceGate.gate_name, self.physical_qubits,
-                                self._schedules[iamp],
+        circuit.add_calibration(self._gate_name, self.physical_qubits, self._schedules[iamp],
                                 params=[self.experiment_options.parameter_values[0][iamp]])
 
     def update_calibrations(self, experiment_data: ExperimentData):

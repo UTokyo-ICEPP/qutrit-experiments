@@ -11,8 +11,6 @@ from qiskit.circuit.parameterexpression import ParameterValueType
 
 QUTRIT_PULSE_GATES = []
 QUTRIT_VIRTUAL_GATES = []
-QUTRIT_COMPOSITE_GATES = []
-
 
 class GateType(Enum):
     PULSE = auto()
@@ -29,8 +27,6 @@ class QutritGate(Gate):
             QUTRIT_PULSE_GATES.append(cls)
         elif gate_type == GateType.VIRTUAL:
             QUTRIT_VIRTUAL_GATES.append(cls)
-        elif gate_type == GateType.COMPOSITE:
-            QUTRIT_COMPOSITE_GATES.append(cls)
         cls.qutrit = qutrit
 
     def __init__(self, params, name=None, num_qubits=None, label=None, duration=None, unit='dt'):
@@ -117,7 +113,7 @@ class CrossResonanceMinusGate(CrossResonanceGate, gate_name='crm', gate_type=Gat
     """CR- gate."""
 
 
-class RCRGate(QutritGate, gate_name='rcr', gate_type=GateType.COMPOSITE, qutrit=(True, False)):
+class RCRGate(QutritGate, gate_name='rcr', gate_type=GateType.PULSE, qutrit=(True, False)):
     """Repeated cross resonance gate."""
     TYPE_X = 2 # CRCR angle = 2 * (θ_0 + θ_1 - 2*θ_2)
     TYPE_X12 = 0 # CRCR angle = 2 * (θ_1 + θ_2 - 2*θ_0)
@@ -130,13 +126,6 @@ class RCRGate(QutritGate, gate_name='rcr', gate_type=GateType.COMPOSITE, qutrit=
             case cls.TYPE_X12:
                 return RCRTypeX12Gate
 
-    @classmethod
-    def decomposition(
-        cls,
-        params: Optional[dict[str, Any]] = None
-    ) -> QuantumCircuit:
-        raise NotImplementedError('RCRGate is abstract')
-
     def __init__(
         self,
         params: Optional[Sequence[ParameterValueType]] = None,
@@ -145,65 +134,15 @@ class RCRGate(QutritGate, gate_name='rcr', gate_type=GateType.COMPOSITE, qutrit=
         super().__init__(params=params, label=label)
 
 
-class RCRTypeXGate(RCRGate, gate_name='rcr2', gate_type=GateType.COMPOSITE, qutrit=(True, False)):
+class RCRTypeXGate(RCRGate, gate_name='rcr2', gate_type=GateType.PULSE, qutrit=(True, False)):
     """Repeated cross resonance gate."""
-    @classmethod
-    def decomposition(
-        cls,
-        params: Optional[dict[str, Any]] = None
-    ) -> QuantumCircuit:
-        params = params or {}
-        if (cra_params := params.get('cra')) and (crb_params := params.get('crb')):
-            cra_gate = CrossResonanceGate(params=cra_params)
-            cra_gate.name = 'cra'
-            crb_gate = CrossResonanceGate(params=crb_params)
-            crb_gate.name = 'crb'
-        else:
-            cra_gate = crb_gate = CrossResonanceGate(params=params.get('cr'))
-
-        circuit = QuantumCircuit(2)
-        circuit.barrier()
-        circuit.x(0)
-        circuit.x(1)
-        circuit.x(1)
-        circuit.append(cra_gate, [0, 1])
-        circuit.x(0)
-        circuit.x(1)
-        circuit.x(1)
-        circuit.append(crb_gate, [0, 1])
-        return circuit
 
 
-class RCRTypeX12Gate(RCRGate, gate_name='rcr0', gate_type=GateType.COMPOSITE, qutrit=(True, False)):
+class RCRTypeX12Gate(RCRGate, gate_name='rcr0', gate_type=GateType.PULSE, qutrit=(True, False)):
     """Repeated cross resonance gate."""
-    @classmethod
-    def decomposition(
-        cls,
-        params: Optional[dict[str, Any]] = None
-    ) -> QuantumCircuit:
-        params = params or {}
-        if (cra_params := params.get('cra')) and (crb_params := params.get('crb')):
-            cra_gate = CrossResonanceGate(params=cra_params)
-            cra_gate.name = 'cra'
-            crb_gate = CrossResonanceGate(params=crb_params)
-            crb_gate.name = 'crb'
-        else:
-            cra_gate = crb_gate = CrossResonanceGate(params=params.get('cr'))
-            
-        circuit = QuantumCircuit(2)
-        circuit.append(cra_gate, [0, 1])
-        circuit.append(X12Gate(), [0])
-        circuit.x(1)
-        circuit.x(1)
-        circuit.append(crb_gate, [0, 1])
-        circuit.append(X12Gate(), [0])
-        circuit.x(1)
-        circuit.x(1)
-        circuit.barrier()
-        return circuit
 
 
-class QutritQubitCXGate(QutritGate, gate_name='qutrit_qubit_cx', gate_type=GateType.COMPOSITE,
+class QutritQubitCXGate(QutritGate, gate_name='qutrit_qubit_cx', gate_type=GateType.PULSE,
                         qutrit=(True, False)):
     """CX gate with a control qutrit and target qubit."""
     TYPE_X = 2 # CRCR angle = 2 * (θ_0 + θ_1 - 2*θ_2)
@@ -217,13 +156,6 @@ class QutritQubitCXGate(QutritGate, gate_name='qutrit_qubit_cx', gate_type=GateT
             case cls.TYPE_X12:
                 return QutritQubitCXTypeX12Gate
 
-    @classmethod
-    def decomposition(
-        cls,
-        params: Optional[dict[str, Any]] = None
-    ) -> QuantumCircuit:
-        raise NotImplementedError('QutritQubitCXGate is abstract')
-
     def __init__(
         self,
         params: Optional[Sequence[ParameterValueType]] = None,
@@ -233,113 +165,13 @@ class QutritQubitCXGate(QutritGate, gate_name='qutrit_qubit_cx', gate_type=GateT
 
 
 class QutritQubitCXTypeXGate(QutritQubitCXGate, gate_name='qutrit_qubit_cx_rcr2',
-                             gate_type=GateType.COMPOSITE, qutrit=(True, False)):
+                             gate_type=GateType.PULSE, qutrit=(True, False)):
     """CX gate with a control qutrit and target qubit."""
-    @classmethod
-    def decomposition(
-        cls,
-        params: Optional[dict[str, Any]] = None
-    ) -> QuantumCircuit:
-        params = params or {}
-        if (crma_params := params.get('crma')) and (crmb_params := params.get('crmb')):
-            crma_gate = CrossResonanceGate(params=crma_params)
-            crma_gate.name = 'cra'
-            crmb_gate = CrossResonanceGate(params=crmb_params)
-            crmb_gate.name = 'crb'
-        else:
-            crma_gate = crmb_gate = CrossResonanceMinusGate(params=params.get('crm'))
-        if (crpa_params := params.get('crpa')) and (crpb_params := params.get('crpb')):
-            crpa_gate = CrossResonanceGate(params=crpa_params)
-            crpa_gate.name = 'cra'
-            crpb_gate = CrossResonanceGate(params=crpb_params)
-            crpb_gate.name = 'crb'
-        else:
-            crpa_gate = crpb_gate = CrossResonanceMinusGate(params=params.get('crp'))
-
-        circuit = QuantumCircuit(2)
-        # [Rx]
-        circuit.append(CXOffsetRxGate(params.get('rx')), [1])
-        # [X+]-[RCR-]
-        circuit.append(X12Gate(), [0])
-        # Skipping DD here because we have the Rx
-        circuit.append(crma_gate, [0, 1])
-        circuit.x(0)
-        circuit.x(1)
-        circuit.x(1)
-        circuit.append(crmb_gate, [0, 1])
-        # [X+]-[RCR+] x 2
-        for _ in range(2):
-            circuit.append(X12Gate(), [0])
-            circuit.x(1)
-            circuit.x(1)
-            circuit.append(crpa_gate, [0, 1])
-            circuit.x(0)
-            circuit.x(1)
-            circuit.x(1)
-            circuit.append(crpb_gate, [0, 1])
-        return circuit
 
 
 class QutritQubitCXTypeX12Gate(QutritQubitCXGate, gate_name='qutrit_qubit_cx_rcr0',
-                               gate_type=GateType.COMPOSITE, qutrit=(True, False)):
+                               gate_type=GateType.PULSE, qutrit=(True, False)):
     """CX gate with a control qutrit and target qubit."""
-    @classmethod
-    def decomposition(
-        cls,
-        params: Optional[dict[str, Any]] = None
-    ) -> QuantumCircuit:
-        params = params or {}
-        if (crma_params := params.get('crma')) and (crmb_params := params.get('crmb')):
-            crma_gate = CrossResonanceGate(params=crma_params)
-            crma_gate.name = 'cra'
-            crmb_gate = CrossResonanceGate(params=crmb_params)
-            crmb_gate.name = 'crb'
-        else:
-            crma_gate = crmb_gate = CrossResonanceMinusGate(params=params.get('crm'))
-        if (crpa_params := params.get('crpa')) and (crpb_params := params.get('crpb')):
-            crpa_gate = CrossResonanceGate(params=crpa_params)
-            crpa_gate.name = 'cra'
-            crpb_gate = CrossResonanceGate(params=crpb_params)
-            crpb_gate.name = 'crb'
-        else:
-            crpa_gate = crpb_gate = CrossResonanceMinusGate(params=params.get('crp'))
-
-        circuit = QuantumCircuit(2)
-        # [RCR+]-[X+] x 2
-        for _ in range(2):
-            circuit.append(crpa_gate, [0, 1])
-            circuit.append(X12Gate(), [0])
-            circuit.x(1)
-            circuit.x(1)
-            circuit.append(crpb_gate, [0, 1])
-            circuit.x(0)
-            circuit.x(1)
-            circuit.x(1)
-        # [RCR-]-[X+]
-        circuit.append(crma_gate, [0, 1])
-        circuit.append(X12Gate(), [0])
-        circuit.x(1)
-        circuit.x(1)
-        circuit.append(crmb_gate, [0, 1])
-        circuit.x(0)
-        # Skipping DD here because we have the Rx
-        # [Rx]
-        circuit.append(CXOffsetRxGate(params.get('rx')), [1])
-        return circuit
-
-
-class CXOffsetRxGate(Gate):
-    """Rx gate with a fixed angle to nullify the 0 and 2 block rotations of qutrit-qubit CX."""
-    def __init__(
-        self,
-        angle: Optional[ParameterValueType] = None,
-        label: Optional[str] = None
-    ):
-        if angle is None:
-            params = []
-        else:
-            params = [angle]
-        super().__init__('cx_offset_rx', 1, params=params, label=label)
 
 
 q = QuantumRegister(1, "q")
