@@ -36,8 +36,6 @@ from ..framework_overrides.parallel_experiment import ParallelExperiment
 from ..gates import QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES, QUTRIT_COMPOSITE_GATES
 from ..transpilation.qutrit_transpiler import (QutritTranspileOptions, make_instruction_durations,
                                                transpile_qutrit_circuits)
-# Temporary patch for qiskit-experiments 0.5.1
-from ..util.update_schedule_dependency import update_add_schedule
 
 def display(_): # pylint: disable=missing-function-docstring
     pass
@@ -69,10 +67,7 @@ class ExperimentsRunner:
         runtime_session: Optional[Session] = None
     ):
         self._backend = backend
-
         self._calibrations = calibrations
-        if calibrations is not None:
-            update_add_schedule(self._calibrations)
 
         self.qubits = qubits
 

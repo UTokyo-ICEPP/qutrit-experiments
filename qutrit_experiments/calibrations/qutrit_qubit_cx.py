@@ -10,8 +10,10 @@ from qiskit.circuit import Parameter
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 from qiskit_experiments.exceptions import CalibrationError
 
-from .util import get_default_ecr_schedule
 from ..pulse_library import ModulatedGaussianSquare
+# Temporary patch for qiskit-experiments 0.5.1
+from ..util.update_schedule_dependency import update_add_schedule
+from .util import get_default_ecr_schedule
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +25,11 @@ def make_qutrit_qubit_cx_calibrations(
     """Define parameters and schedules for qutrit-qubit CX gate."""
     if calibrations is None:
         calibrations = Calibrations.from_backend(backend)
+    if type(calibrations.add_schedule).__name__ == 'method':
+        update_add_schedule(calibrations)
 
-    add_qutrit_qubit_cr_and_rx(backend, calibrations)
+    add_qutrit_qubit_cr(backend, calibrations)
+    add_qutrit_qubit_cx(backend, calibrations)
 
     calibrations._register_parameter(Parameter('rcr_type'), ())
     calibrations._register_parameter(Parameter('qutrit_qubit_cx_sign'), ())
@@ -32,7 +37,7 @@ def make_qutrit_qubit_cx_calibrations(
     return calibrations
 
 
-def add_qutrit_qubit_cr_and_rx(
+def add_qutrit_qubit_cr(
     backend: Backend,
     calibrations: Calibrations
 ) -> None:
@@ -76,8 +81,6 @@ def add_qutrit_qubit_cr_and_rx(
         pulse.play(counter_pulse, pulse.DriveChannel(Parameter('ch1')), name='Counter')
     calibrations.add_schedule(sched, num_qubits=2)
 
-    inst_map = backend.defaults().instruction_schedule_map
-
     for qubits, control_channels in backend.control_channels.items():
         control_channel = control_channels[0]
         target_frequency = backend.qubit_properties(qubits[1]).frequency
@@ -118,37 +121,128 @@ def add_qutrit_qubit_cr_and_rx(
             calibrations.add_parameter_value(ParameterValue(value), pname, qubits=qubits,
                                              schedule='cr')
 
-        sx_inst = inst_map.get('sx', qubits[1]).instructions[0][1]
+
+def add_qutrit_qubit_cx(
+    backend: Backend,
+    calibrations: Calibrations
+) -> None:
+    """Add the RCR and CX schedules. Also import the X schedule from default inst_map."""
+    # X schedule
+    with pulse.build(name='x') as sched:
+        pulse.play(
+            pulse.Drag(duration=Parameter('duration'), amp=Parameter('amp'),
+                       sigma=Parameter('sigma'), beta=Parameter('beta'), angle=Parameter('angle'),
+                       name='X'),
+            pulse.DriveChannel(Parameter('ch0'))
+        )
+    calibrations.add_schedule(sched, num_qubits=1)
+
+    # Import the parameter values from inst_map
+    inst_map = backend.defaults().instruction_schedule_map
+    for qubit in range(backend.num_qubits):
+        params = inst_map.get('x', qubit).instructions[0][1].pulse.parameters
+        for pname, value in params.items():
+            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=[qubit],
+                                             schedule='x')
+
+    # X/X12 on qubit 0 with DD on qubit 1
+    def x_dd():
+        with pulse.align_left():
+            pulse.reference('x', 'q0')
+            pulse.reference('x', 'q1')
+            pulse.reference('x', 'q1')
+
+    def x12_dd():
+        with pulse.align_left():
+            pulse.reference('x12', 'q0')
+            pulse.reference('x', 'q1')
+            pulse.reference('x', 'q1')
+
+    control_channel = pulse.ControlChannel(Parameter('ch0.1'))
+    target_drive_channel = pulse.DriveChannel(Parameter('ch1'))
+
+    # RCR type X
+    with pulse.build(name='rcr2', default_alignment='sequential') as sched:
+        x_dd()
+        pulse.reference('cr', 'q0', 'q1')
+        x_dd()
+        with pulse.phase_offset(np.pi, target_drive_channel):
+            pulse.reference('cr', 'q0', 'q1')
+    calibrations.add_schedule(sched, num_qubits=2)
+
+    # RCR type X12
+    with pulse.build(name='rcr0', default_alignment='sequential') as sched:
+        pulse.reference('cr', 'q0', 'q1')
+        x12_dd()
+        with pulse.phase_offset(np.pi, target_drive_channel):
+            pulse.reference('cr', 'q0', 'q1')
+        x12_dd()
+    calibrations.add_schedule(sched, num_qubits=2)
+
+    # CRCR requires an offset Rx, which involves an Rz gate.
+    # Since the number of channels in an Rz instruction varies qubit by qubit, we have to
+    # instantiate a full schedule for each qubit.
+    angle = Parameter('angle')
+    for qubit in range(backend.num_qubits):
+        sx_inst = inst_map.get('sx', qubit).instructions[0][1]
         sx_pulse = sx_inst.pulse
-        pulse_parameters = {key: value for key, value in sx_pulse._params.items()
-                            if key not in ['amp', 'angle']}
         drive_channel = sx_inst.channel
-        rz_channels = [inst.channel for _, inst in inst_map.get('rz', qubits[1]).instructions]
-        angle = Parameter('angle')
-        with pulse.build(name='cx_offset_rx') as sched:
+        rz_channels = [inst.channel for _, inst in inst_map.get('rz', qubit).instructions]
+        with pulse.build(name='cx_offset_rx', default_alignment='sequential') as sched:
             pulse.play(
-                ScalableSymbolicPulse('sx1', sx_pulse.duration, sx_pulse.amp,
-                                      sx_pulse.angle - np.pi / 2., parameters=pulse_parameters,
-                                      name=f'{sx_pulse.name}_1',
-                                      limit_amplitude=sx_pulse._limit_amplitude,
-                                      envelope=sx_pulse._envelope,
-                                      constraints=sx_pulse._constraints,
-                                      valid_amp_conditions=sx_pulse._valid_amp_conditions),
+                pulse.Drag(duration=sx_pulse.duration, amp=sx_pulse.amp, sigma=sx_pulse.sigma,
+                           beta=sx_pulse.beta, angle=sx_pulse.angle - np.pi / 2.,
+                           name='SY'),
                 drive_channel
             )
             pulse.play(
-                ScalableSymbolicPulse('sx2', sx_pulse.duration, sx_pulse.amp,
-                                      sx_pulse.angle - (angle + 3. * np.pi / 2.),
-                                      parameters=pulse_parameters,
-                                      name=f'{sx_pulse.name}_2',
-                                      limit_amplitude=sx_pulse._limit_amplitude,
-                                      envelope=sx_pulse._envelope,
-                                      constraints=sx_pulse._constraints,
-                                      valid_amp_conditions=sx_pulse._valid_amp_conditions),
+                pulse.Drag(duration=sx_pulse.duration, amp=sx_pulse.amp, sigma=sx_pulse.sigma,
+                           beta=sx_pulse.beta,  angle=sx_pulse.angle - 3. * np.pi / 2. - angle,
+                           name='SΘ'),
                 drive_channel
             )
             for channel in rz_channels:
                 pulse.shift_phase(-angle, channel)
-        calibrations.add_schedule(sched, qubits[1])
-        calibrations.add_parameter_value(ParameterValue(0.), angle.name, qubits=qubits[1],
+        calibrations.add_schedule(sched, qubits=[qubit])
+
+        calibrations.add_parameter_value(ParameterValue(0.), angle.name, qubits=qubit,
                                          schedule='cx_offset_rx')
+
+    # CX type X
+    with pulse.build(name='qutrit_qubit_cx_rcr2', default_alignment='sequential') as sched:
+        # [X12+Rx][CR-][X+DD][CR-]
+        with pulse.align_left():
+            pulse.reference('x12', 'q0')
+            pulse.reference('cx_offset_rx', 'q1')
+        with pulse.phase_offset(np.pi, control_channel, target_drive_channel):
+            pulse.reference('cr', 'q0', 'q1')
+        x_dd()
+        with pulse.phase_offset(np.pi, control_channel):
+            pulse.reference('cr', 'q0', 'q1')
+        for _ in range(2):
+            # [X12+DD][CR+][X+DD][CR+]
+            x12_dd()
+            pulse.reference('cr', 'q0', 'q1')
+            x_dd()
+            with pulse.phase_offset(np.pi, target_drive_channel):
+                pulse.reference('cr', 'q0', 'q1')
+    calibrations.add_schedule(sched, num_qubits=2)
+
+    with pulse.build(name='qutrit_qubit_cx_rcr0', default_alignment='sequential') as sched:
+        for _ in range(2):
+            # [CR+][X12+DD][CR+][X+DD]
+            pulse.reference('cr', 'q0', 'q1')
+            x12_dd()
+            with pulse.phase_offset(np.pi, target_drive_channel):
+                pulse.reference('cr', 'q0', 'q1')
+            x_dd()
+        # [CR-][X12+DD][CR-][X+Rx]
+        with pulse.phase_offset(np.pi, control_channel, target_drive_channel):
+            pulse.reference('cr', 'q0', 'q1')
+        x12_dd()
+        with pulse.phase_offset(np.pi, control_channel):
+            pulse.reference('cr', 'q0', 'q1')
+        with pulse.align_left():
+            pulse.reference('x', 'q0')
+            pulse.reference('cx_offset_rx', 'q1')
+    calibrations.add_schedule(sched, num_qubits=2)

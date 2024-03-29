@@ -33,7 +33,8 @@ def update_schedule_dependency(schedule: ScheduleBlock, dag: 'PyDiGraph', key: S
 
     for reference in schedule.references:
         #ref_key = ScheduleKey(reference[0], key.qubits)
-        ref_key = reference_info(reference, key.qubits)
+        ref_schedule_name, ref_qubits = reference_info(reference, key.qubits)
+        ref_key = ScheduleKey(ref_schedule_name, ref_qubits)
         dag.add_edge(parent_idx, _get_node_index(ref_key, dag), None)
 
 

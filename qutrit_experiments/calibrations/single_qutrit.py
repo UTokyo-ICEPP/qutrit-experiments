@@ -9,8 +9,10 @@ from qiskit.pulse import ScheduleBlock
 from qiskit.circuit import Parameter
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 
-from .util import get_operational_qubits
 from ..pulse_library import ModulatedDrag
+# Temporary patch for qiskit-experiments 0.5.1
+from ..util.update_schedule_dependency import update_add_schedule
+from .util import get_operational_qubits
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,8 @@ def make_single_qutrit_gate_calibrations(
     """Define parameters and schedules for single-qutrit gates."""
     if calibrations is None:
         calibrations = Calibrations.from_backend(backend)
+    if type(calibrations.add_schedule).__name__ == 'method':
+        update_add_schedule(calibrations)
 
     set_f12_default(backend, calibrations)
     add_x12_sx12(backend, calibrations)
