@@ -4,16 +4,16 @@ import logging
 from typing import Optional
 import numpy as np
 from qiskit import pulse
-from qiskit.providers import Backend
-from qiskit.pulse import ScalableSymbolicPulse
 from qiskit.circuit import Parameter
+from qiskit.providers import Backend
+from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 from qiskit_experiments.exceptions import CalibrationError
 
 from ..pulse_library import ModulatedGaussianSquare
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule
-from .util import get_default_ecr_schedule
+from .util import get_default_ecr_schedule, get_qutrit_freq_shift
 
 logger = logging.getLogger(__name__)
 
@@ -246,3 +246,28 @@ def add_qutrit_qubit_cx(
             pulse.reference('x', 'q0')
             pulse.reference('cx_offset_rx', 'q1')
     calibrations.add_schedule(sched, num_qubits=2)
+
+
+def get_qutrit_qubit_composite_gate(
+    gate_name: str,
+    physical_qubits: tuple[int, int],
+    backend: Backend,
+    calibrations: Calibrations,
+    assign_params: Optional[dict[str, ParameterValueType]] = None,
+    qutrit_gates: Optional[list[str]] = None,
+    group: str = 'default'
+) -> ScheduleBlock:
+    physical_qubits = tuple(physical_qubits)
+    if qutrit_gates is None:
+        qutrit_gates = ['x12']
+
+    assign_params_dict = {}
+    for gate in qutrit_gates:
+        key = ('freq', physical_qubits[:1], gate)
+        assign_params_dict[key] = get_qutrit_freq_shift(physical_qubits[0], backend.target,
+                                                        calibrations)
+    if assign_params:
+        assign_params_dict.update(assign_params)
+
+    return calibrations.get_schedule(gate_name, physical_qubits, assign_params=assign_params_dict,
+                                     group=group)

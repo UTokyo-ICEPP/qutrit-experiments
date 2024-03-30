@@ -11,7 +11,8 @@ from qiskit_experiments.calibration_management import (BaseCalibrationExperiment
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import ExperimentData, Options
 
-from ...gates import CrossResonanceGate, RCRGate
+from ...calibrations import get_qutrit_qubit_composite_gate
+from ...gates import RCRGate
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
 
@@ -102,15 +103,10 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
         )
 
         self._gate_name = gate.name
-        assign_keys = [
-            ('freq', self.physical_qubits[:1], 'x12'),
-            (self._param_name[0], self.physical_qubits, self._sched_name[0])
-        ]
-        freq = (calibrations.get_parameter_value('f12', physical_qubits[0])
-                - backend.qubit_properties(physical_qubits[0]).frequency)
+        assign_key = (self._param_name[0], self.physical_qubits, self._sched_name[0])
         self._schedules = [
-            calibrations.get_schedule(self._gate_name, physical_qubits,
-                                      assign_params=dict(zip(assign_keys, [freq, aval])))
+            get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits, backend, calibrations,
+                                            assign_params={assign_key: aval})
             for aval in amplitudes
         ]
 

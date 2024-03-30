@@ -12,6 +12,7 @@ from qiskit_experiments.calibration_management import (BaseCalibrationExperiment
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 
+from ...calibrations import get_qutrit_qubit_composite_gate
 from ...gates import QutritQubitCXGate, RCRGate
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
@@ -114,21 +115,19 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomogra
 
         self._gate_name = gate.name
         assign_keys = (
-            ('freq', self.physical_qubits[:1], 'x12'),
             (self._param_name[0], self.physical_qubits, self._sched_name),
             (self._param_name[1], self.physical_qubits, self._sched_name)
         )
-        freq = (calibrations.get_parameter_value('f12', physical_qubits[0])
-                - backend.qubit_properties(physical_qubits[0]).frequency)
         self._schedules = []
         for aval in amplitudes:
             if aval >= 0.:
-                assign_values = (freq, aval, 0.)
+                assign_values = (aval, 0.)
             else:
-                assign_values = (freq, -aval, np.pi)
+                assign_values = (-aval, np.pi)
+            assign_params = dict(zip(assign_keys, assign_values))
             self._schedules.append(
-                calibrations.get_schedule(self._gate_name, physical_qubits,
-                                          assign_params=dict(zip(assign_keys, assign_values)))
+                get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits, backend,
+                                                calibrations, assign_params=assign_params)
             )
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
@@ -204,25 +203,23 @@ class CycledRepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, QutritQubitT
 
         self._gate_name = gate.name
         assign_keys = (
-            ('freq', self.physical_qubits[:1], 'x12'),
             (self._param_name[0], self.physical_qubits, self._sched_name[0]),
             (self._param_name[1], self.physical_qubits, self._sched_name[1])
         )
-        freq = (calibrations.get_parameter_value('f12', physical_qubits[0])
-                - backend.qubit_properties(physical_qubits[0]).frequency)
         if width is not None:
             assign_keys += (('width', self.physical_qubits, self._sched_name[0]),)
         self._schedules = []
         for aval in amplitudes:
             if aval >= 0.:
-                assign_values = (freq, aval, 0.)
+                assign_values = (aval, 0.)
             else:
-                assign_values = (freq, -aval, np.pi)
+                assign_values = (-aval, np.pi)
             if width is not None:
                 assign_values += (width,)
+            assign_params = dict(zip(assign_keys, assign_values))
             self._schedules.append(
-                calibrations.get_schedule(self._gate_name, physical_qubits,
-                                          assign_params=dict(zip(assign_keys, assign_values)))
+                get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits, backend,
+                                                calibrations, assign_params=assign_params)
             )
 
     def _attach_calibrations(self, circuit: QuantumCircuit):

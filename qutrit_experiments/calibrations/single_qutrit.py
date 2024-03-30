@@ -12,7 +12,7 @@ from qiskit_experiments.calibration_management import Calibrations, ParameterVal
 from ..pulse_library import ModulatedDrag
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule
-from .util import get_operational_qubits
+from .util import get_operational_qubits, get_qutrit_freq_shift
 
 logger = logging.getLogger(__name__)
 
@@ -153,9 +153,7 @@ def get_qutrit_pulse_gate(
     assign_params: Optional[dict[str, ParameterValueType]] = None,
     group: str = 'default'
 ) -> ScheduleBlock:
-    qubit_props = backend.qubit_properties(qubit)
-    freq = calibrations.get_parameter_value('f12', qubit) - qubit_props.frequency
-    assign_params_dict = {'freq': freq}
+    assign_params_dict = {'freq': get_qutrit_freq_shift(qubit, backend.target, calibrations)}
     if assign_params:
         assign_params_dict.update(assign_params)
 

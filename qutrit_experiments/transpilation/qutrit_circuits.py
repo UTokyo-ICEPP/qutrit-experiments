@@ -7,6 +7,7 @@ from qiskit.dagcircuit import DAGCircuit
 from qiskit.transpiler import AnalysisPass, Target, TransformationPass, TranspilerError
 from qiskit_experiments.calibration_management import Calibrations
 
+from ..calibrations import get_qutrit_freq_shift
 from ..constants import LO_SIGN
 from ..gates import (CrossResonanceGate, QutritGate, QutritQubitCXGate, RCRGate, RZ12Gate,
                      SetF12Gate, SX12Gate, X12Gate)
@@ -127,8 +128,7 @@ class AddQutritCalibrations(TransformationPass):
 
                     # Do we know the f12 for this qubit?
                     if (freq_diff := freq_diffs.get(qubit)) is None:
-                        freq_diff = (self.calibrations.get_parameter_value('f12', qubit)
-                                    - self.target.qubit_properties[qubit].frequency)
+                        freq_diff = get_qutrit_freq_shift(qubit, self.target, self.calibrations)
                         freq_diffs[qubit] = freq_diff
                         logger.debug('%s[%d] EF modulation frequency %f', node.op.name, qubit,
                                     freq_diff)
