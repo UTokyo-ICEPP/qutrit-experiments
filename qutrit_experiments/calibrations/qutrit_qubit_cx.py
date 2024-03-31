@@ -5,13 +5,12 @@ from typing import Optional
 import numpy as np
 from qiskit import pulse
 from qiskit.circuit import Parameter
-from qiskit.circuit.parameterexpression import ParameterValueType
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 from qiskit_experiments.exceptions import CalibrationError
 
-from ..constants import LO_SIGN
+from ..gates import ParameterValueType
 from ..pulse_library import ModulatedGaussianSquare
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule

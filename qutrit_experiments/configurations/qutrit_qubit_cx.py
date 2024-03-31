@@ -26,10 +26,15 @@ register_post(qubits_assignment_error_post, exp_type='qubits_assignment_error')
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def cr_unitaries(runner):
     from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
+    circuit = QuantumCircuit(2)
+    circuit.append(CrossResonanceGate(), [0, 1])
+    circuit.add_calibration(CrossResonanceGate.gate_name, runner.qubits,
+                            runner.calibrations.get_schedule(CrossResonanceGate.gate_name,
+                                                             runner.qubits))
     return ExperimentConfig(
         QutritQubitTomography,
         runner.qubits,
-        args={'circuit': CrossResonanceGate()},
+        args={'circuit': circuit},
         run_options={'shots': 8000}
     )
 
@@ -38,10 +43,15 @@ def cr_unitaries(runner):
 def rcr_unitaries(runner):
     from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
     rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits)
+    gate = RCRGate.of_type(rcr_type)
+    circuit = QuantumCircuit(2)
+    circuit.append(gate(), [0, 1])
+    circuit.add_calibration(gate.gate_name, runner.qubits,
+                            runner.calibrations.get_schedule(gate.gate_name, runner.qubits))
     return ExperimentConfig(
         QutritQubitTomography,
         runner.qubits,
-        args={'circuit': RCRGate.of_type(rcr_type)()},
+        args={'circuit': circuit},
         run_options={'shots': 8000}
     )
 
