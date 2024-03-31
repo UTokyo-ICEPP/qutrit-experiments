@@ -1,13 +1,17 @@
 """Qutrit gates."""
 
 from collections.abc import Sequence
-from enum import Enum, IntEnum, auto
-from typing import Any, Optional
+from enum import Enum, auto
+from typing import Optional, Union
 import numpy as np
 from qiskit import QuantumCircuit, QuantumRegister
 from qiskit.circuit import Gate, Parameter
 from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary as sel
-from qiskit.circuit.parameterexpression import ParameterValueType
+#from qiskit.circuit.parameterexpression import ParameterValueType
+# For some reason Pylance fails to recognize imported ParameterValueType as a valid type alias so
+# I'm redefining it here
+from qiskit.circuit.parameterexpression import ParameterExpression
+ParameterValueType = Union[ParameterExpression, float]
 
 
 class GateType(Enum):
@@ -18,18 +22,17 @@ class GateType(Enum):
 
 class QutritGate(Gate):
     """Generic qutrit gate."""
-    def __init_subclass__(cls, /, gate_name, gate_type, qutrit=(True,), **kwargs):
+    def __init_subclass__(cls, /, gate_name, gate_type, as_qutrit=(True,), **kwargs):
         super().__init_subclass__(**kwargs)
         cls.gate_name = gate_name
         cls.gate_type = gate_type
-        cls.qutrit = qutrit
+        cls.as_qutrit = as_qutrit
+        cls.num_qubits = len(as_qutrit)
 
-    def __init__(self, params, name=None, num_qubits=None, label=None, duration=None, unit='dt'):
+    def __init__(self, params, name=None, label=None, duration=None, unit='dt'):
         if name is None:
             name = self.gate_name
-        if num_qubits is None:
-            num_qubits = len(self.qutrit)
-        super().__init__(name, num_qubits, params, label=label, duration=duration, unit=unit)
+        super().__init__(name, self.num_qubits, params, label=label, duration=duration, unit=unit)
 
 
 class X12Gate(QutritGate, gate_name='x12', gate_type=GateType.PULSE):
@@ -132,6 +135,10 @@ class RCRGate(Gate):
         params: Optional[Sequence[ParameterValueType]] = None,
         label: Optional[str] = None
     ):
+        if params is None:
+            params = []
+        else:
+            params = list(params)
         super().__init__(self.gate_name, 2, params=params, label=label)
 
 
@@ -141,12 +148,12 @@ class RCRTypeXGate(RCRGate):
 
 
 class RCRTypeX12Gate(QutritGate, RCRGate, gate_name='rcr0', gate_type=GateType.PULSE,
-                     qutrit=(True, False)):
+                     as_qutrit=(True, False)):
     """Repeated cross resonance gate."""
 
 
 class QutritQubitCXGate(QutritGate, gate_name='qutrit_qubit_cx', gate_type=GateType.PULSE,
-                        qutrit=(True, False)):
+                        as_qutrit=(True, False)):
     """CX gate with a control qutrit and target qubit."""
     TYPE_X = 2 # CRCR angle = 2 * (θ_0 + θ_1 - 2*θ_2)
     TYPE_X12 = 0 # CRCR angle = 2 * (θ_1 + θ_2 - 2*θ_0)
@@ -164,16 +171,20 @@ class QutritQubitCXGate(QutritGate, gate_name='qutrit_qubit_cx', gate_type=GateT
         params: Optional[Sequence[ParameterValueType]] = None,
         label: Optional[str] = None
     ):
+        if params is None:
+            params = []
+        else:
+            params = list(params)
         super().__init__(params=params, label=label)
 
 
 class QutritQubitCXTypeXGate(QutritQubitCXGate, gate_name='qutrit_qubit_cx_rcr2',
-                             gate_type=GateType.PULSE, qutrit=(True, False)):
+                             gate_type=GateType.PULSE, as_qutrit=(True, False)):
     """CX gate with a control qutrit and target qubit."""
 
 
 class QutritQubitCXTypeX12Gate(QutritQubitCXGate, gate_name='qutrit_qubit_cx_rcr0',
-                               gate_type=GateType.PULSE, qutrit=(True, False)):
+                               gate_type=GateType.PULSE, as_qutrit=(True, False)):
     """CX gate with a control qutrit and target qubit."""
 
 
