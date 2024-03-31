@@ -44,10 +44,9 @@ def make_instruction_durations(
 
     instruction_durations = InstructionDurations(backend.instruction_durations, dt=backend.dt)
     for inst in BASIS_GATES:
-        num_qubits = inst().num_qubits
-        match (inst.gate_type, num_qubits):
+        durations = []
+        match (inst.gate_type, inst.num_qubits):
             case (GateType.PULSE, 1):
-                durations = []
                 for qubit in qubits:
                     try:
                         duration = calibrations.get_schedule(inst.gate_name, qubit).duration
@@ -55,7 +54,6 @@ def make_instruction_durations(
                         continue
                     durations.append((inst.gate_name, qubit, duration))
             case (GateType.PULSE, 2):
-                durations = []
                 for edge in backend.coupling_map.get_edges():
                     if edge[0] in qubits and edge[1] in qubits:
                         try:
@@ -64,12 +62,13 @@ def make_instruction_durations(
                             continue
                         durations.append((inst.gate_name, edge, duration))
             case (GateType.VIRTUAL, 1):
-                durations = [(inst.gate_name, qubit, 0) for qubit in qubits]
+                durations.extend((inst.gate_name, qubit, 0) for qubit in qubits)
             case (GateType.VIRTUAL, 2):
-                durations = []
                 for edge in backend.coupling_map.get_edges():
                     if edge[0] in qubits and edge[1] in qubits:
                         durations.append((inst.gate_name, edge, 0))
+            case _:
+                raise RuntimeError(f'Unhandled basis gate {inst}')
 
         instruction_durations.update(durations)
 

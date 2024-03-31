@@ -2,6 +2,8 @@
 from collections import defaultdict
 import logging
 import numpy as np
+from qiskit import pulse
+from qiskit.circuit import Parameter
 from qiskit.circuit.library import RZGate, SXGate, XGate
 from qiskit.dagcircuit import DAGCircuit
 from qiskit.transpiler import AnalysisPass, Target, TransformationPass, TranspilerError
@@ -9,8 +11,8 @@ from qiskit_experiments.calibration_management import Calibrations
 
 from ..calibrations import get_qutrit_freq_shift
 from ..constants import LO_SIGN
-from ..gates import (CrossResonanceGate, QutritGate, QutritQubitCXGate, RCRGate, RZ12Gate,
-                     SetF12Gate, SX12Gate, X12Gate)
+from ..gates import (QutritGate, QutritQubitCXGate, RCRTypeX12Gate, RZ12Gate, SetF12Gate, SX12Gate,
+                     X12Gate)
 from .util import insert_rz
 
 logger = logging.getLogger(__name__)
@@ -118,63 +120,77 @@ class AddQutritCalibrations(TransformationPass):
                 logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[0], offset)
 
             elif isinstance(node.op, QutritGate):
-                pre_angles = []
-                post_angles = []
-                for qubit, is_qutrit in zip(qubits, node.op.qutrit):
-                    if not is_qutrit:
-                        pre_angles.append(0.)
-                        post_angles.append(0.)
-                        continue
-
-                    # Do we know the f12 for this qubit?
-                    if (freq_diff := freq_diffs.get(qubit)) is None:
-                        freq_diff = get_qutrit_freq_shift(qubit, self.target, self.calibrations)
-                        freq_diffs[qubit] = freq_diff
+                for qubit, is_qutrit in zip(qubits, node.op.as_qutrit):
+                    # Do we know the f12 for this qutrit?
+                    if is_qutrit and qubit not in freq_diffs:
+                        freq_diffs[qubit] = get_qutrit_freq_shift(qubit, self.target,
+                                                                  self.calibrations)
                         logger.debug('%s[%d] EF modulation frequency %f', node.op.name, qubit,
-                                    freq_diff)
+                                     freq_diffs[qubit])
 
+                if isinstance(node.op, (X12Gate, SX12Gate)):
+                    qutrit = qubits[0]
                     # Phase of the EF frame relative to the GE frame
-                    ef_lo_phase = LO_SIGN * node_start_time[node] * twopi * freq_diff * self.target.dt
+                    ef_lo_phase = (LO_SIGN * node_start_time[node] * twopi * freq_diffs[qutrit]
+                                   * self.target.dt)
                     # Change of frame - Bloch rotation from 0 to the EF frame angle
                     # Because we share the same channel for GE and EF drives, GE angle must be offset
-                    pre_angle = ef_lo_phase + cumul_angle_ef[qubit] - cumul_angle_ge[qubit]
+                    pre_angle = ef_lo_phase + cumul_angle_ef[qutrit] - cumul_angle_ge[qutrit]
                     post_angle = -pre_angle
 
-                    if isinstance(node.op, (X12Gate, SX12Gate)):
+                    if True:
+                        # TODO incorporate this in the schedules
                         # Corrections for geometric & Stark phases
                         # X12 = P0(delta/2 - pi/2) U_xi(pi)
                         # SX12 = P0(delta/2 - pi/4) U_xi(pi/2)
                         # P0(phi) is equivalent to BlochRot[ge](-phi)
                         geom_phase = np.pi / 2. if isinstance(node.op, X12Gate) else np.pi / 4.
-                        delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubit)
+                        delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qutrit)
                         logger.debug('%s[%d] Geometric phase %f, AC Stark correction %f',
-                                    node.op.name, qubit, geom_phase, delta / 2.)
+                                    node.op.name, qutrit, geom_phase, delta / 2.)
                         offset = -(delta / 2. - geom_phase)
-                        cumul_angle_ge[qubit] += offset
-                        logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qubit, offset)
+                        cumul_angle_ge[qutrit] += offset
+                        logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qutrit, offset)
                         post_angle += offset
 
-                    pre_angles.append(pre_angle)
-                    post_angles.append(post_angle)
+                    calib_key = (qubits, tuple(node.op.params))
+                    if (cal := dag.calibrations.get(node.op.name, {}).get(calib_key)) is None:
+                        assign_params = {'freq': freq_diffs[qutrit]}
+                        cal = self.calibrations.get_schedule(node.op.name, qubits,
+                                                             assign_params=assign_params)
+                        dag.add_calibration(node.op.name, qubits, cal)
+                        logger.debug('%s%s Adding calibration', node.op.name, qubits)
 
-                calib_key = (qubits, tuple(node.op.params))
-                if (calibration := dag.calibrations.get(node.op.name, {}).get(calib_key)) is None:
-                    if isinstance(node.op, (X12Gate, SX12Gate)):
-                        assign_params = {'freq': freq_diff}
-                    elif isinstance(node.op, CrossResonanceGate):
-                        assign_params = None
-                    elif isinstance(node.op, (RCRGate, QutritQubitCXGate)):
-                        assign_params = {('freq', qubits[:1], 'x12'): freq_diff}
-                    else:
-                        raise TranspilerError(f'Missing calibration for {node.op.name}'
-                                              f' ({calib_key})')
-                    calibration = self.calibrations.get_schedule(node.op.name, qubits,
-                                                                 assign_params=assign_params)
-                    dag.add_calibration(node.op.name, qubits, calibration)
-                    logger.debug('%s%s Adding calibration', node.op.name, qubits)
+                    insert_rz(dag, node, pre_angles=[pre_angle], post_angles=[post_angle],
+                              node_start_time=node_start_time, op_duration=cal.duration)
 
-                insert_rz(dag, node, pre_angles=pre_angles, post_angles=post_angles,
-                          node_start_time=node_start_time, op_duration=calibration.duration)
+                elif isinstance(node.op, (RCRTypeX12Gate, QutritQubitCXGate)):
+                    calib_key = (qubits, tuple(node.op.params))
+                    if (cal := dag.calibrations.get(node.op.name, {}).get(calib_key)) is None:
+                        assign_params = {('freq', qubits[:1], 'x12'): freq_diffs[qubits[0]]}
+                        for param in self.calibrations.get_template(node.op.name).parameters:
+                            if param.name.startswith('ef_phase_'):
+                                assign_params[param.name] = Parameter(param.name)
+                        cal = self.calibrations.get_schedule(node.op.name, qubits,
+                                                             assign_params=assign_params)
 
+                    qutrit = qubits[0]
+                    start_time = node_start_time[node]
+                    phase_switch = cumul_angle_ef[qubit] - cumul_angle_ge[qubit]
+                    x12_index = 0
+                    assign_map = {}
+                    for inst_time, inst in cal.instructions:
+                        if not isinstance(inst, pulse.Play) or inst.pulse.name != 'Ξp':
+                            continue
+                        # See comments on X12Gate
+                        ef_lo_phase = (LO_SIGN * (start_time + inst_time) * twopi
+                                       * freq_diffs[qubit] * self.target.dt)
+                        parameter = cal.get_parameters(f'ef_phase_{x12_index}')[0]
+                        assign_map[parameter] = ef_lo_phase + phase_switch
+                        x12_index += 1
+
+                    node.op.params.append(start_time)
+                    calib_key = (qubits, tuple(node.op.params))
+                    dag.calibrations[calib_key] = cal.assign_parameters(assign_map, inplace=False)
 
         return dag
