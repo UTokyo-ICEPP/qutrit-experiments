@@ -9,8 +9,6 @@ from qiskit.circuit import Gate, Parameter
 from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary as sel
 from qiskit.circuit.parameterexpression import ParameterValueType
 
-QUTRIT_PULSE_GATES = []
-QUTRIT_VIRTUAL_GATES = []
 
 class GateType(Enum):
     PULSE = auto()
@@ -23,10 +21,7 @@ class QutritGate(Gate):
     def __init_subclass__(cls, /, gate_name, gate_type, qutrit=(True,), **kwargs):
         super().__init_subclass__(**kwargs)
         cls.gate_name = gate_name
-        if gate_type == GateType.PULSE:
-            QUTRIT_PULSE_GATES.append(cls)
-        elif gate_type == GateType.VIRTUAL:
-            QUTRIT_VIRTUAL_GATES.append(cls)
+        cls.gate_type = gate_type
         cls.qutrit = qutrit
 
     def __init__(self, params, name=None, num_qubits=None, label=None, duration=None, unit='dt'):
@@ -87,8 +82,11 @@ class U12Gate(QutritGate, gate_name='u12', gate_type=GateType.COMPOSITE):
         return U12Gate(-self.params[0], -self.params[2], -self.params[1])
 
 
-class CrossResonanceGate(QutritGate, gate_name='cr', gate_type=GateType.PULSE, qutrit=(True, False)):
+class CrossResonanceGate(Gate):
     """CR gate with a control qutrit and target qubit."""
+    gate_name = 'cr'
+    gate_type = GateType.PULSE
+
     def __init__(
         self,
         params: Optional[Sequence[ParameterValueType]] = None,
@@ -99,24 +97,27 @@ class CrossResonanceGate(QutritGate, gate_name='cr', gate_type=GateType.PULSE, q
             params = []
         else:
             params = list(params)
-        super().__init__(params, label=label)
+        super().__init__(self.gate_name, 2, params, label=label)
         self.block_unitaries = block_unitaries
 
 
-class CrossResonancePlusGate(CrossResonanceGate, gate_name='crp', gate_type=GateType.PULSE,
-                             qutrit=(True, False)):
+class CrossResonancePlusGate(CrossResonanceGate):
     """CR+ gate."""
+    gate_name = 'crp'
 
 
-class CrossResonanceMinusGate(CrossResonanceGate, gate_name='crm', gate_type=GateType.PULSE,
-                              qutrit=(True, False)):
+class CrossResonanceMinusGate(CrossResonanceGate):
     """CR- gate."""
+    gate_name = 'crm'
 
 
-class RCRGate(QutritGate, gate_name='rcr', gate_type=GateType.PULSE, qutrit=(True, False)):
+class RCRGate(Gate):
     """Repeated cross resonance gate."""
     TYPE_X = 2 # CRCR angle = 2 * (θ_0 + θ_1 - 2*θ_2)
     TYPE_X12 = 0 # CRCR angle = 2 * (θ_1 + θ_2 - 2*θ_0)
+
+    gate_name = 'rcr'
+    gate_type = GateType.PULSE
 
     @classmethod
     def of_type(cls, rcr_type: int) -> type['RCRGate']:
@@ -131,14 +132,16 @@ class RCRGate(QutritGate, gate_name='rcr', gate_type=GateType.PULSE, qutrit=(Tru
         params: Optional[Sequence[ParameterValueType]] = None,
         label: Optional[str] = None
     ):
-        super().__init__(params=params, label=label)
+        super().__init__(self.gate_name, 2, params=params, label=label)
 
 
-class RCRTypeXGate(RCRGate, gate_name='rcr2', gate_type=GateType.PULSE, qutrit=(True, False)):
+class RCRTypeXGate(RCRGate):
     """Repeated cross resonance gate."""
+    gate_name = 'rcr2'
 
 
-class RCRTypeX12Gate(RCRGate, gate_name='rcr0', gate_type=GateType.PULSE, qutrit=(True, False)):
+class RCRTypeX12Gate(QutritGate, RCRGate, gate_name='rcr0', gate_type=GateType.PULSE,
+                     qutrit=(True, False)):
     """Repeated cross resonance gate."""
 
 

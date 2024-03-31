@@ -10,10 +10,14 @@ from qiskit_experiments.calibration_management import Calibrations
 from qiskit_experiments.exceptions import CalibrationError
 
 from ..constants import LO_SIGN
-from ..gates import QUTRIT_PULSE_GATES, QUTRIT_VIRTUAL_GATES
+from ..gates import (GateType, QutritQubitCXTypeX12Gate, QutritQubitCXTypeXGate, RZ12Gate,
+                     SetF12Gate, SX12Gate, X12Gate)
 from .custom_pulses import ConvertCustomPulses
 from .qutrit_circuits import ContainsQutritInstruction, AddQutritCalibrations
 from .rz import CastRZToAngle, ConsolidateRZAngle, InvertRZSign
+
+BASIS_GATES = [QutritQubitCXTypeX12Gate, QutritQubitCXTypeXGate, RZ12Gate, SetF12Gate, SX12Gate,
+               X12Gate]
 
 
 @dataclass
@@ -39,17 +43,19 @@ def make_instruction_durations(
         qubits = set(range(backend.num_qubits)) - set(backend.properties().faulty_qubits())
 
     instruction_durations = InstructionDurations(backend.instruction_durations, dt=backend.dt)
-    for inst in QUTRIT_PULSE_GATES:
-        durations = []
-        match len(inst.qutrit):
-            case 1:
+    for inst in BASIS_GATES:
+        num_qubits = inst().num_qubits
+        match (inst.gate_type, num_qubits):
+            case (GateType.PULSE, 1):
+                durations = []
                 for qubit in qubits:
                     try:
                         duration = calibrations.get_schedule(inst.gate_name, qubit).duration
                     except CalibrationError:
                         continue
                     durations.append((inst.gate_name, qubit, duration))
-            case 2:
+            case (GateType.PULSE, 2):
+                durations = []
                 for edge in backend.coupling_map.get_edges():
                     if edge[0] in qubits and edge[1] in qubits:
                         try:
@@ -57,17 +63,14 @@ def make_instruction_durations(
                         except CalibrationError:
                             continue
                         durations.append((inst.gate_name, edge, duration))
-
-        instruction_durations.update(durations)
-    for inst in QUTRIT_VIRTUAL_GATES:
-        match len(inst.qutrit):
-            case 1:
+            case (GateType.VIRTUAL, 1):
                 durations = [(inst.gate_name, qubit, 0) for qubit in qubits]
-            case 2:
+            case (GateType.VIRTUAL, 2):
                 durations = []
                 for edge in backend.coupling_map.get_edges():
                     if edge[0] in qubits and edge[1] in qubits:
                         durations.append((inst.gate_name, edge, 0))
+
         instruction_durations.update(durations)
 
     return instruction_durations
