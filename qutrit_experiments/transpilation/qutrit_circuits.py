@@ -134,15 +134,15 @@ class AddQutritCalibrations(TransformationPass):
                     qutrit = qubits[0]
                     calib_key = (qubits, tuple(node.op.params))
                     if (cal := dag.calibrations.get(node.op.name, {}).get(calib_key)) is None:
-                        cal = get_qutrit_pulse_gate(node.op.name, qutrit, self.calibrations, 
+                        cal = get_qutrit_pulse_gate(node.op.name, qutrit, self.calibrations,
                                                     freq_shift=freq_diffs[qutrit])
                         dag.add_calibration(node.op.name, qubits, cal)
                         logger.debug('%s%s Adding calibration', node.op.name, qubits)
-        
+
                     # Phase of the EF frame relative to the GE frame
                     ef_lo_phase = (LO_SIGN * node_start_time[node] * twopi * freq_diffs[qutrit]
                                    * self.target.dt)
-                    
+
                     if (offset := corr_phase[node.op.name].get(qutrit)) is None:
                         sched = self.calibrations.get_schedule(f'{node.op.name}_phase_corr',
                                                                qubits[0])
@@ -172,7 +172,7 @@ class AddQutritCalibrations(TransformationPass):
                     for gate in ['x', 'x12']:
                         if qutrit not in corr_phase[gate]:
                             sched = self.calibrations.get_schedule(f'{gate}_phase_corr', qubits[0])
-                            corr_phase[gate][qutrit] = next(inst.phase 
+                            corr_phase[gate][qutrit] = next(inst.phase
                                                             for _, inst in sched.instructions
                                                             if isinstance(inst, pulse.ShiftPhase))
 
@@ -190,7 +190,7 @@ class AddQutritCalibrations(TransformationPass):
                         elif inst.name.startswith('Ξp'):
                             # See comments on X12Gate
                             ef_lo_phase = (LO_SIGN * (start_time + inst_time) * twopi
-                                        * freq_diffs[qutrit] * self.target.dt)
+                                           * freq_diffs[qutrit] * self.target.dt)
                             parameter = cal.get_parameters(f'ef_phase_{x12_index}')[0]
                             assign_map[parameter] = (ef_lo_phase + cumul_angle_ef[qutrit]
                                                      - cumul_angle_ge[qutrit]) % twopi
@@ -201,4 +201,27 @@ class AddQutritCalibrations(TransformationPass):
                     sched = cal.assign_parameters(assign_map, inplace=False)
                     dag.add_calibration(node.op.name, qubits, sched, node.op.params)
 
+                else:
+                    # Assuming a single-instruction schedule
+                    calib_key = (qubits, tuple(node.op.params))
+                    if (cal := dag.calibrations.get(node.op.name, {}).get(calib_key)) is None:
+                        raise TranspilerError(f'Calibration for %s %s missing',
+                                              node.op.name, calib_key)
+
+                    pre_angles = []
+                    for qubit, is_qutrit in zip(qubits, node.op.as_qutrit):
+                        if is_qutrit:
+                            # Phase of the EF frame relative to the GE frame
+                            ef_lo_phase = (LO_SIGN * node_start_time[node] * twopi * freq_diffs[qutrit]
+                                        * self.target.dt)
+                            # Change of frame - Bloch rotation from 0 to the EF frame angle
+                            # Because we share the same channel for GE and EF drives, GE angle must be offset
+                            pre_angles.append(ef_lo_phase + cumul_angle_ef[qutrit]
+                                               - cumul_angle_ge[qutrit])
+                        else:
+                            pre_angles.append(0.)
+
+                    post_angles = -np.array(pre_angles).tolist()
+                    insert_rz(dag, node, pre_angles=pre_angles, post_angles=post_angles,
+                              node_start_time=node_start_time, op_duration=cal.duration)
         return dag

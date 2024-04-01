@@ -35,7 +35,20 @@ class QutritGate(Gate):
         super().__init__(name, self.num_qubits, params, label=label, duration=duration, unit=unit)
 
 
-class GenericQutritGate(QutritGate, gate_name='generic', gate_type=GateType.COMPOSITE):
+class QutritPulseGate(QutritGate, gate_name='pulse', gate_type=GateType.PULSE):
+    """Per-instance defined qutrit gate."""
+    def __init__(
+        self,
+        name: str,
+        num_qubits: int,
+        params: list[ParameterValueType],
+        label: Optional[str] = None
+    ):
+        super().__init__(params, name=name, label=label)
+        self.num_qubits = num_qubits
+
+
+class QutritCompositeGate(QutritGate, gate_name='composite', gate_type=GateType.COMPOSITE):
     """Per-instance defined qutrit gate."""
     def __init__(
         self,
