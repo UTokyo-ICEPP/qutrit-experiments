@@ -50,7 +50,7 @@ def rcr_unitaries(runner):
     circuit.add_calibration(gate.gate_name, runner.qubits,
                             get_qutrit_qubit_composite_gate(RCRGate.of_type(rcr_type).gate_name,
                                                             runner.qubits, runner.calibrations,
-                                                            runner.backend.target))
+                                                            target=runner.backend.target))
     return ExperimentConfig(
         QutritQubitTomography,
         runner.qubits,

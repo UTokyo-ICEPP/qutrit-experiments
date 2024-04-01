@@ -174,7 +174,7 @@ class AddQutritCalibrations(TransformationPass):
 
                     qutrit = qubits[0]
                     start_time = node_start_time[node]
-                    phase_switch = cumul_angle_ef[qubit] - cumul_angle_ge[qubit]
+                    phase_switch = cumul_angle_ef[qutrit] - cumul_angle_ge[qutrit]
                     x12_index = 0
                     assign_map = {}
                     for inst_time, inst in cal.instructions:
@@ -182,13 +182,13 @@ class AddQutritCalibrations(TransformationPass):
                             continue
                         # See comments on X12Gate
                         ef_lo_phase = (LO_SIGN * (start_time + inst_time) * twopi
-                                       * freq_diffs[qubit] * self.target.dt)
+                                       * freq_diffs[qutrit] * self.target.dt)
                         parameter = cal.get_parameters(f'ef_phase_{x12_index}')[0]
-                        assign_map[parameter] = ef_lo_phase + phase_switch
+                        assign_map[parameter] = (ef_lo_phase + phase_switch) % twopi
                         x12_index += 1
 
                     node.op.params.append(start_time)
-                    calib_key = (qubits, tuple(node.op.params))
-                    dag.calibrations[calib_key] = cal.assign_parameters(assign_map, inplace=False)
+                    sched = cal.assign_parameters(assign_map, inplace=False)
+                    dag.add_calibration(node.op.name, qubits, sched, node.op.params)
 
         return dag
