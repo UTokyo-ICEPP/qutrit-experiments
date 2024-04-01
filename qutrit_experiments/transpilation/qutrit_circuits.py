@@ -114,7 +114,7 @@ class AddQutritCalibrations(TransformationPass):
                 # See the docstring of add_x12_sx12()
                 # P2(phi) is equivalent to BlochRot[ef](phi)
                 if (offset := corr_phase[node.op.name].get(qubits[0])) is None:
-                    sched = self.calibrations.get_schedule(f'{node.op.name}_phase_corr', qubits)
+                    sched = self.calibrations.get_schedule(f'{node.op.name}_phase_corr', qubits[0])
                     offset = next(inst.phase for _, inst in sched.instructions
                                   if isinstance(inst, pulse.ShiftPhase))
                     corr_phase[node.op.name][qubits[0]] = offset
@@ -144,7 +144,8 @@ class AddQutritCalibrations(TransformationPass):
                                    * self.target.dt)
                     
                     if (offset := corr_phase[node.op.name].get(qutrit)) is None:
-                        sched = self.calibrations.get_schedule(f'{node.op.name}_phase_corr', qubits)
+                        sched = self.calibrations.get_schedule(f'{node.op.name}_phase_corr',
+                                                               qubits[0])
                         offset = next(inst.phase for _, inst in sched.instructions
                                       if isinstance(inst, pulse.ShiftPhase))
                         corr_phase[node.op.name][qutrit] = offset
@@ -170,7 +171,7 @@ class AddQutritCalibrations(TransformationPass):
 
                     for gate in ['x', 'x12']:
                         if qutrit not in corr_phase[gate]:
-                            sched = self.calibrations.get_schedule(f'{gate}_phase_corr', qubits)
+                            sched = self.calibrations.get_schedule(f'{gate}_phase_corr', qubits[0])
                             corr_phase[gate][qutrit] = next(inst.phase 
                                                             for _, inst in sched.instructions
                                                             if isinstance(inst, pulse.ShiftPhase))
@@ -199,6 +200,5 @@ class AddQutritCalibrations(TransformationPass):
                     node.op.params.append(start_time)
                     sched = cal.assign_parameters(assign_map, inplace=False)
                     dag.add_calibration(node.op.name, qubits, sched, node.op.params)
-                    cumul_angle_ge[qutrit] += offset * x12_index
 
         return dag
