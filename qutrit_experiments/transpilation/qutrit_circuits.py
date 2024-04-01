@@ -9,7 +9,7 @@ from qiskit.dagcircuit import DAGCircuit
 from qiskit.transpiler import AnalysisPass, Target, TransformationPass, TranspilerError
 from qiskit_experiments.calibration_management import Calibrations
 
-from ..calibrations import get_qutrit_freq_shift, get_qutrit_qubit_composite_gate
+from ..calibrations import get_qutrit_freq_shift, get_qutrit_pulse_gate, get_qutrit_qubit_composite_gate
 from ..constants import LO_SIGN
 from ..gates import (QutritGate, QutritQubitCXGate, RCRTypeX12Gate, RZ12Gate, SetF12Gate, SX12Gate,
                      X12Gate)
@@ -133,9 +133,8 @@ class AddQutritCalibrations(TransformationPass):
                     qutrit = qubits[0]
                     calib_key = (qubits, tuple(node.op.params))
                     if (cal := dag.calibrations.get(node.op.name, {}).get(calib_key)) is None:
-                        assign_params = {'freq': freq_diffs[qutrit]}
-                        cal = self.calibrations.get_schedule(node.op.name, qubits,
-                                                             assign_params=assign_params)
+                        cal = get_qutrit_pulse_gate(node.op.name, qutrit, self.calibrations, 
+                                                    freq_shift=freq_diffs[qutrit])
                         dag.add_calibration(node.op.name, qubits, cal)
                         logger.debug('%s%s Adding calibration', node.op.name, qubits)
         
