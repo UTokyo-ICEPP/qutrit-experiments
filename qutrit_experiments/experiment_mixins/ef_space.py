@@ -5,7 +5,7 @@ from qiskit.circuit import CircuitInstruction, Measure, Gate
 from qiskit.circuit.library import RZGate, SXGate, XGate, UGate, U3Gate
 from qiskit_experiments.framework import Options
 
-from ..gates import QutritGate, RZ12Gate, SX12Gate, X12Gate, U12Gate
+from ..gates import GenericQutritGate, RZ12Gate, SX12Gate, X12Gate, U12Gate
 
 
 class EFSpaceExperiment:
@@ -38,7 +38,8 @@ class EFSpaceExperiment:
                 elif isinstance(op, (UGate, U3Gate)):
                     inst.operation = U12Gate(*op.params)
                 elif type(op) is Gate and op.num_qubits == 1: # pylint: disable=unidiomatic-typecheck
-                    inst.operation = QutritGate(name=op.name, num_qubits=1, params=list(op.params))
+                    inst.operation = GenericQutritGate(name=op.name, num_qubits=1,
+                                                       params=list(op.params))
 
             qubits = (circuit.qregs[0][0],)
 

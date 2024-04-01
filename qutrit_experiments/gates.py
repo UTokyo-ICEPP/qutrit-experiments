@@ -35,6 +35,19 @@ class QutritGate(Gate):
         super().__init__(name, self.num_qubits, params, label=label, duration=duration, unit=unit)
 
 
+class GenericQutritGate(QutritGate, gate_name='generic', gate_type=GateType.COMPOSITE):
+    """Per-instance defined qutrit gate."""
+    def __init__(
+        self,
+        name: str,
+        num_qubits: int,
+        params: list[ParameterValueType],
+        label: Optional[str] = None
+    ):
+        super().__init__(params, name=name, label=label)
+        self.num_qubits = num_qubits
+
+
 class X12Gate(QutritGate, gate_name='x12', gate_type=GateType.PULSE):
     """The single-qubit X gate on EF subspace."""
     def __init__(self, label: Optional[str] = None):
