@@ -74,7 +74,8 @@ class EFRoughDragCal(BaseCalibrationExperiment, EFRoughDrag):
         cal_parameter_name: Optional[str] = "beta",
         auto_update: bool = True
     ):
-        sched = get_qutrit_pulse_gate(schedule_name, physical_qubits[0], backend, calibrations,
+        sched = get_qutrit_pulse_gate(schedule_name, physical_qubits[0], calibrations,
+                                      target=backend.target,
                                       assign_params={cal_parameter_name: Parameter("beta")})
 
         super().__init__(

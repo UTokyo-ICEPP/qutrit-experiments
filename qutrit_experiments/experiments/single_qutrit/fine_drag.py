@@ -179,7 +179,8 @@ class EFFineXDragCal(EFFineDragCal):
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         super()._attach_calibrations(circuit)
-        schedule = get_qutrit_pulse_gate('x12', self.physical_qubits[0], self._backend, self._cals)
+        schedule = get_qutrit_pulse_gate('x12', self.physical_qubits[0], self._cals,
+                                         target=self._backend.target)
         circuit.add_calibration('x12', [self.physical_qubits[0]], schedule)
 
 
@@ -218,5 +219,6 @@ class EFFineSXDragCal(EFFineDragCal):
         return circuit
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
-        schedule = get_qutrit_pulse_gate('sx12', self.physical_qubits[0], self._backend, self._cals)
+        schedule = get_qutrit_pulse_gate('sx12', self.physical_qubits[0], self._cals,
+                                         target=self._backend.target)
         circuit.add_calibration('sx12', [self.physical_qubits[0]], schedule)

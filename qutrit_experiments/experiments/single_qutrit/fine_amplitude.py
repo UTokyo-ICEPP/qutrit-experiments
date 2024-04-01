@@ -62,7 +62,8 @@ class EFFineAmplitudeCal(FineAmplitudeCal, EFFineAmplitude):
     """Calibration experiment for EFFineAmplitude."""
     def _attach_calibrations(self, circuit: QuantumCircuit):
         for gate in ['x12', 'sx12']:
-            sched = get_qutrit_pulse_gate(gate, self.physical_qubits[0], self._backend, self._cals)
+            sched = get_qutrit_pulse_gate(gate, self.physical_qubits[0], self._cals,
+                                          target=self._backend.target)
             circuit.add_calibration(gate, self.physical_qubits, sched)
 
 

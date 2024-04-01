@@ -7,6 +7,7 @@ from qiskit import pulse
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
 from qiskit.circuit import Parameter
+from qiskit.transpiler import Target
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 
 from ..constants import LO_SIGN
@@ -147,12 +148,15 @@ def set_xstark_sxstark_default(
 def get_qutrit_pulse_gate(
     gate_name: str,
     qubit: int,
-    backend: Backend,
     calibrations: Calibrations,
+    freq_shift: Optional[float] = None,
+    target: Optional[Target] = None,
     assign_params: Optional[dict[str, ParameterValueType]] = None,
     group: str = 'default'
 ) -> ScheduleBlock:
-    assign_params_dict = {'freq': get_qutrit_freq_shift(qubit, backend.target, calibrations)}
+    if not freq_shift:
+        freq_shift = get_qutrit_freq_shift(qubit, target, calibrations)
+    assign_params_dict = {'freq': freq_shift}
     if assign_params:
         assign_params_dict.update(assign_params)
 

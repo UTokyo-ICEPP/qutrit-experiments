@@ -29,7 +29,8 @@ class EFRoughXSXAmplitudeCal(RoughAmplitudeCal, EFRabi):
         backend: Optional[Backend] = None,
     ):
         qubit = physical_qubits[0]
-        schedule = get_qutrit_pulse_gate(schedule_name[0], qubit, backend, calibrations,
+        schedule = get_qutrit_pulse_gate(schedule_name[0], qubit, calibrations,
+                                         target=backend.target,
                                          assign_params={cal_parameter_name[0]: Parameter("amp")})
 
         self._validate_channels(schedule, [qubit])

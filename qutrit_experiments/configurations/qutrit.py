@@ -82,7 +82,8 @@ def qutrit_rough_amplitude(runner, qubit):
 def qutrit_discriminator(runner, qubit):
     """0-2 discriminator determination using results from a Rabi experiment."""
     from ..experiments.single_qutrit.rabi import EFRabi
-    schedule = get_qutrit_pulse_gate('x12', qubit, runner.backend, runner.calibrations,
+    schedule = get_qutrit_pulse_gate('x12', qubit, runner.calibrations,
+                                     target=runner.backend.target,
                                      assign_params={'amp': Parameter("amp")})
     return ExperimentConfig(
         EFRabi,
