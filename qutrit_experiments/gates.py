@@ -130,6 +130,11 @@ class RCRGate(Gate):
             case cls.TYPE_X12:
                 return RCRTypeX12Gate
 
+
+class RCRTypeXGate(RCRGate):
+    """Repeated cross resonance gate."""
+    gate_name = 'rcr2'
+
     def __init__(
         self,
         params: Optional[Sequence[ParameterValueType]] = None,
@@ -142,14 +147,19 @@ class RCRGate(Gate):
         super().__init__(self.gate_name, 2, params=params, label=label)
 
 
-class RCRTypeXGate(RCRGate):
-    """Repeated cross resonance gate."""
-    gate_name = 'rcr2'
-
-
 class RCRTypeX12Gate(QutritGate, RCRGate, gate_name='rcr0', gate_type=GateType.PULSE,
                      as_qutrit=(True, False)):
     """Repeated cross resonance gate."""
+    def __init__(
+        self,
+        params: Optional[Sequence[ParameterValueType]] = None,
+        label: Optional[str] = None
+    ):
+        if params is None:
+            params = []
+        else:
+            params = list(params)
+        super().__init__(params=params, label=label)
 
 
 class QutritQubitCXGate(QutritGate, gate_name='qutrit_qubit_cx', gate_type=GateType.PULSE,
