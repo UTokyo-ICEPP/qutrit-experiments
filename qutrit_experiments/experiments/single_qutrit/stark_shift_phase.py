@@ -111,7 +111,8 @@ class BasePhaseRotation(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
 
 class UpdateStarkDelta(BaseCalibrationExperiment):
     """Mixin to calibrationize standard-gate BasePhaseRotation experiments."""
-    _cal_parameter_name = ''
+    _cal_parameter_name = 'delta'
+    _schedule_name = ''
 
     def __init__(
         self,
@@ -125,6 +126,8 @@ class UpdateStarkDelta(BaseCalibrationExperiment):
     ):
         if not cal_parameter_name:
             cal_parameter_name = self._cal_parameter_name
+        if not schedule_name:
+            schedule_name = self._schedule_name
 
         super().__init__(
             calibrations,
@@ -190,7 +193,7 @@ class X12QubitPhaseRotation(BasePhaseRotation):
 
 class X12StarkShiftPhaseCal(UpdateStarkDelta, X12QubitPhaseRotation):
     """Calibration experiment for X12QubitPhaseRotation."""
-    _cal_parameter_name = 'x12stark'
+    _shedule_name = 'x12_phase_corr'
 
     def _extract_delta(self, experiment_data: ExperimentData) -> float:
         """See the docstring of X12QubitPhaseRotation."""
@@ -224,7 +227,7 @@ class SX12QubitPhaseRotation(BasePhaseRotation):
 
 class SX12StarkShiftPhaseCal(UpdateStarkDelta, SX12QubitPhaseRotation):
     """Calibration experiment for SX12QubitPhaseRotation."""
-    _cal_parameter_name = 'sx12stark'
+    _schedule_name = 'sx12_phase_corr'
 
     def _extract_delta(self, experiment_data: ExperimentData) -> float:
         """See the docstring of SX12QubitPhaseRotation."""
@@ -266,7 +269,7 @@ class XQutritPhaseRotation(BasePhaseRotation):
 
 class XStarkShiftPhaseCal(UpdateStarkDelta, XQutritPhaseRotation):
     """Calibration experiment for XQutritPhaseRotation."""
-    _cal_parameter_name = 'xstark'
+    _schedule_name = 'x_phase_corr'
 
     def _extract_delta(self, experiment_data: ExperimentData) -> float:
         """See the docstring of XQutritPhaseRotation."""
@@ -309,7 +312,7 @@ class SXQutritPhaseRotation(BasePhaseRotation):
 
 class SXStarkShiftPhaseCal(UpdateStarkDelta, SXQutritPhaseRotation):
     """Calibration experiment for SXQutritPhaseRotation."""
-    _cal_parameter_name = 'sxstark'
+    _schedule_name = 'sx_phase_corr'
 
     def _extract_delta(self, experiment_data: ExperimentData) -> float:
         """See the docstring of XQutritPhaseRotation."""
@@ -388,6 +391,8 @@ class RotaryQutritPhaseRotation(BasePhaseRotation):
 
 class RotaryStarkShiftPhaseCal(UpdateStarkDelta, RotaryQutritPhaseRotation):
     """Calibration experiment for RotaryQutritPhaseRotation."""
+    _schedule_name = 'rzx45m_rotary'
+
     def __init__(
         self,
         physical_qubits: Sequence[int],
