@@ -500,21 +500,24 @@ class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxO
             (self._param_name[0], self.physical_qubits, self._sched_name[0]),
             (self._param_name[1], self.physical_qubits[1:], self._sched_name[1])
         )
-        self._angle_param = Parameter('angle')
         self._schedules = []
         for aval in cr_amps:
-            assign_params = dict(zip(assign_keys, [aval, self._angle_param]))
-            self._schedules.append(
-                get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits, calibrations,
-                                                target=backend.target, assign_params=assign_params)
-            )
+            self._schedules.append([])
+            for nval in self.component_experiment(0).experiment_options.angles:
+                assign_params = dict(zip(assign_keys, [aval, nval]))
+                self._schedules[-1].append(
+                    get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits, calibrations,
+                                                    target=backend.target,
+                                                    assign_params=assign_params)
+                )
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
-        iamp = circuit.metadata['composite_index'][0]
-        angle_val = circuit.metadata['composite_metadata'][0]['xval']
-        sched = self._schedules[iamp].assign_parameters({self._angle_param: angle_val},
-                                                        inplace=False)
-        circuit.add_calibration(self._gate_name, self.physical_qubits, sched, params=[angle_val])
+        iamp = circuit.metadata['composite_index'][0] // 2 # Two experiments per amp value
+        angles = self.component_experiment(0).experiment_options.angles
+        xval = circuit.metadata['composite_metadata'][0]['xval']
+        iangle = np.nonzero(np.isclose(angles, xval))[0][0]
+        circuit.add_calibration(self._gate_name, self.physical_qubits,
+                                self._schedules[iamp][iangle], params=[xval])
 
     def update_calibrations(self, experiment_data: ExperimentData):
         qubit_lists = [self.physical_qubits, [self.physical_qubits[1]]]
