@@ -114,9 +114,10 @@ class AddQutritCalibrations(TransformationPass):
                 # See the docstring of add_x12_sx12()
                 # P2(phi) is equivalent to BlochRot[ef](phi)
                 if (offset := corr_phase[node.op.name].get(qubits[0])) is None:
-                    offset = self.calibrations.get_parameter_value(f'{node.op.name}_corr_phase',
-                                                                   qubits)
-                    corr_phase[node.op.name][qubits[0]] = offset
+                    sched = self.calibrations.get_schedule(f'{node.op.name}_phase_corr', qubits)
+                    offset = next(inst.phase for _, inst in sched.instructions
+                                  if isinstance(inst, pulse.ShiftPhase))
+                    corr_phase[node.op.name][qutrit] = offset
                 cumul_angle_ef[qubits[0]] += offset
                 logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[0], offset)
 
@@ -141,19 +142,22 @@ class AddQutritCalibrations(TransformationPass):
                     # Phase of the EF frame relative to the GE frame
                     ef_lo_phase = (LO_SIGN * node_start_time[node] * twopi * freq_diffs[qutrit]
                                    * self.target.dt)
-                    # Change of frame - Bloch rotation from 0 to the EF frame angle
-                    # Because we share the same channel for GE and EF drives, GE angle must be offset
-                    pre_angle = ef_lo_phase + cumul_angle_ef[qutrit] - cumul_angle_ge[qutrit]
-
-                    insert_rz(dag, node, pre_angles=[pre_angle], post_angles=[-pre_angle],
-                              node_start_time=node_start_time, op_duration=cal.duration)
-
+                    
                     if (offset := corr_phase[node.op.name].get(qutrit)) is None:
-                        offset = next(-inst.phase for _, inst in cal.instructions
+                        sched = self.calibrations.get_schedule(f'{node.op.name}_phase_corr', qubits)
+                        offset = next(inst.phase for _, inst in sched.instructions
                                       if isinstance(inst, pulse.ShiftPhase))
                         corr_phase[node.op.name][qutrit] = offset
                     cumul_angle_ge[qutrit] += offset
                     logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qutrit, offset)
+
+                    # Change of frame - Bloch rotation from 0 to the EF frame angle
+                    # Because we share the same channel for GE and EF drives, GE angle must be offset
+                    pre_angle = ef_lo_phase + cumul_angle_ef[qutrit] - cumul_angle_ge[qutrit]
+                    post_angle = -pre_angle + offset
+
+                    insert_rz(dag, node, pre_angles=[pre_angle], post_angles=[post_angle],
+                              node_start_time=node_start_time, op_duration=cal.duration)
 
                 elif isinstance(node.op, (RCRTypeX12Gate, QutritQubitCXGate)):
                     qutrit = qubits[0]
@@ -164,25 +168,33 @@ class AddQutritCalibrations(TransformationPass):
                                                               freq_shift=freq_diffs[qutrit])
                         dag.add_calibration(node.op.name, qubits, cal, node.op.params)
 
-                    if (offset := corr_phase['x12'].get(qutrit)) is None:
-                        x12 = self.calibrations.get_schedule('x12', qubits)
-                        offset = next(-inst.phase for _, inst in x12.instructions
-                                      if isinstance(inst, pulse.ShiftPhase))
-                        corr_phase[node.op.name][qutrit] = offset
-                    
+                    for gate in ['x', 'x12']:
+                        if qutrit not in corr_phase[gate]:
+                            sched = self.calibrations.get_schedule(f'{gate}_phase_corr', qubits)
+                            corr_phase[gate][qutrit] = next(inst.phase 
+                                                            for _, inst in sched.instructions
+                                                            if isinstance(inst, pulse.ShiftPhase))
+
+                    x_inst = self.target.get_calibration('x', (qutrit,))
+                    drive_channel = next(inst.channel for _, inst in x_inst.instructions
+                                         if isinstance(inst, pulse.Play))
                     start_time = node_start_time[node]
-                    phase_switch = cumul_angle_ef[qutrit] - cumul_angle_ge[qutrit]
                     x12_index = 0
                     assign_map = {}
                     for inst_time, inst in cal.instructions:
-                        if not isinstance(inst, pulse.Play) or inst.pulse.name != 'Ξp':
+                        if not (isinstance(inst, pulse.Play) and inst.channel == drive_channel):
                             continue
-                        # See comments on X12Gate
-                        ef_lo_phase = (LO_SIGN * (start_time + inst_time) * twopi
-                                       * freq_diffs[qutrit] * self.target.dt)
-                        parameter = cal.get_parameters(f'ef_phase_{x12_index}')[0]
-                        assign_map[parameter] = (ef_lo_phase + phase_switch) % twopi
-                        x12_index += 1
+                        if inst.name.startswith('Xp'):
+                            cumul_angle_ef[qutrit] += corr_phase['x'][qutrit]
+                        elif inst.name.startswith('Ξp'):
+                            # See comments on X12Gate
+                            ef_lo_phase = (LO_SIGN * (start_time + inst_time) * twopi
+                                        * freq_diffs[qutrit] * self.target.dt)
+                            parameter = cal.get_parameters(f'ef_phase_{x12_index}')[0]
+                            assign_map[parameter] = (ef_lo_phase + cumul_angle_ef[qutrit]
+                                                     - cumul_angle_ge[qutrit]) % twopi
+                            x12_index += 1
+                            cumul_angle_ge[qutrit] += corr_phase['x12'][qutrit]
 
                     node.op.params.append(start_time)
                     sched = cal.assign_parameters(assign_map, inplace=False)

@@ -164,6 +164,7 @@ def add_qutrit_qubit_cx(
                 pulse.reference('x12', 'q0')
                 pulse.reference('x', 'q1')
                 pulse.reference('x', 'q1')
+            pulse.reference('x12_phase_corr', 'q0')
 
     # RCR type X
     with pulse.build(name='rcr2', default_alignment='sequential') as sched:
@@ -223,6 +224,7 @@ def add_qutrit_qubit_cx(
         with pulse.align_left():
             with pulse.phase_offset(Parameter('ef_phase_0'), control_drive_channel):
                 pulse.reference('x12', 'q0')
+            pulse.reference('x12_phase_corr', 'q0')
             pulse.reference('cx_offset_rx', 'q1')
         with pulse.phase_offset(np.pi, control_channel, target_drive_channel):
             pulse.reference('cr', 'q0', 'q1')
@@ -259,6 +261,7 @@ def add_qutrit_qubit_cx(
             pulse.reference('cr', 'q0', 'q1')
         with pulse.align_left():
             pulse.reference('x', 'q0')
+            pulse.reference('x_phase_corr', 'q0')
             pulse.reference('cx_offset_rx', 'q1')
     calibrations.add_schedule(sched, num_qubits=2)
 
