@@ -162,7 +162,7 @@ def rcr_rotary_amp(runner):
     duration = gs_effective_duration(runner.calibrations, runner.qubits, 'cr')
     cycles_per_amp = rabi_cycles_per_area(runner.backend, runner.qubits[1]) * duration
     cycles_per_amp *= 2 # Factor two because RCR = CR * 2
-    amplitudes = np.linspace(2.5, 3.5, 20) / cycles_per_amp
+    amplitudes = np.linspace(0.5, 2.5, 20) / cycles_per_amp
     return ExperimentConfig(
         RepeatedCRRotaryAmplitudeCal,
         runner.qubits,
