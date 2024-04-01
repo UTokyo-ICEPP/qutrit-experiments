@@ -193,7 +193,7 @@ class X12QubitPhaseRotation(BasePhaseRotation):
 
 class X12StarkShiftPhaseCal(UpdateStarkDelta, X12QubitPhaseRotation):
     """Calibration experiment for X12QubitPhaseRotation."""
-    _shedule_name = 'x12_phase_corr'
+    _schedule_name = 'x12_phase_corr'
 
     def _extract_delta(self, experiment_data: ExperimentData) -> float:
         """See the docstring of X12QubitPhaseRotation."""

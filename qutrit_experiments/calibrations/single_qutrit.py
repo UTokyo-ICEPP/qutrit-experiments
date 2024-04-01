@@ -131,17 +131,19 @@ def add_x12_sx12(
             # qubit dependent)
             rz_channels = [inst.channel for _, inst in inst_map.get('rz', qubit).instructions]
 
+            delta = Parameter('delta')
             with pulse.build(name=f'{gate_name}_phase_corr') as sched:
                 for channel in rz_channels:
-                    pulse.shift_phase(LO_SIGN * (geom_phase - Parameter('delta') / 2.), channel)
+                    pulse.shift_phase(LO_SIGN * (geom_phase - delta / 2.), channel)
             calibrations.add_schedule(sched, qubits=[qubit])
 
             calibrations.add_parameter_value(ParameterValue(0.), 'delta', qubits=[qubit],
                                              schedule=sched.name)
 
+            delta = Parameter('delta')
             with pulse.build(name=f'{qubit_gate_name}_phase_corr') as sched:
                 for channel in rz_channels:
-                    pulse.shift_phase(LO_SIGN * (Parameter('delta') / 2. - geom_phase), channel)
+                    pulse.shift_phase(LO_SIGN * (delta / 2. - geom_phase), channel)
             calibrations.add_schedule(sched, qubits=[qubit])
 
             calibrations.add_parameter_value(ParameterValue(0.), 'delta', qubits=[qubit],

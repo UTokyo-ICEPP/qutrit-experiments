@@ -117,7 +117,7 @@ class AddQutritCalibrations(TransformationPass):
                     sched = self.calibrations.get_schedule(f'{node.op.name}_phase_corr', qubits)
                     offset = next(inst.phase for _, inst in sched.instructions
                                   if isinstance(inst, pulse.ShiftPhase))
-                    corr_phase[node.op.name][qutrit] = offset
+                    corr_phase[node.op.name][qubits[0]] = offset
                 cumul_angle_ef[qubits[0]] += offset
                 logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[0], offset)
 

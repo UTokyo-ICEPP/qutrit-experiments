@@ -14,7 +14,7 @@ from qiskit_experiments.library import FineDrag
 
 from ...calibrations import get_qutrit_pulse_gate
 from ...experiment_mixins import EFSpaceExperiment
-from ...gates import QutritGate, RZ12Gate, SX12Gate
+from ...gates import QutritGate, RZ12Gate, SX12Gate, X12Gate
 from ...transpilation import map_to_physical_qubits
 from ...util.dummy_data import from_one_probs
 
@@ -82,6 +82,7 @@ class EFFineDragCal(BaseCalibrationExperiment, EFFineDrag):
         self,
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
+        gate: QutritGate,
         schedule_name: str,
         backend: Optional[Backend] = None,
         cal_parameter_name: Optional[str] = "beta",
@@ -90,7 +91,7 @@ class EFFineDragCal(BaseCalibrationExperiment, EFFineDrag):
         super().__init__(
             calibrations,
             physical_qubits,
-            QutritGate(name=schedule_name, num_qubits=1, params=[]),
+            gate,
             schedule_name=schedule_name,
             backend=backend,
             cal_parameter_name=cal_parameter_name,
@@ -171,7 +172,8 @@ class EFFineXDragCal(EFFineDragCal):
         super().__init__(
             physical_qubits,
             calibrations,
-            schedule_name="x12",
+            X12Gate(),
+            'x12',
             backend=backend,
             cal_parameter_name=cal_parameter_name,
             auto_update=auto_update,
@@ -206,7 +208,8 @@ class EFFineSXDragCal(EFFineDragCal):
         super().__init__(
             physical_qubits,
             calibrations,
-            schedule_name="sx12",
+            SX12Gate(),
+            'sx12',
             backend=backend,
             cal_parameter_name=cal_parameter_name,
             auto_update=auto_update,
