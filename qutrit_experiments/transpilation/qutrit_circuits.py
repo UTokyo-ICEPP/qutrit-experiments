@@ -68,6 +68,8 @@ class AddQutritCalibrations(TransformationPass):
         freq_diffs = {}
         cumul_angle_ge = defaultdict(float) # Angle in the g-e (|0>-|1>) sphere
         cumul_angle_ef = defaultdict(float) # Angle in the e-f (|1>-|2>) sphere
+        # Geometric + Stark phase correction caches
+        corr_phase = {'x': {}, 'sx': {}, 'x12': {}, 'sx12': {}}
 
         for node in list(dag.topological_op_nodes()):
             if node not in node_start_time:
@@ -111,11 +113,10 @@ class AddQutritCalibrations(TransformationPass):
                 # SX = P2(delta/2 - pi/4) U_x(pi/2)
                 # See the docstring of add_x12_sx12()
                 # P2(phi) is equivalent to BlochRot[ef](phi)
-                geom_phase = np.pi / 2. if isinstance(node.op, XGate) else np.pi / 4.
-                delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qubits)
-                logger.debug('%s[%d] Geometric phase %f, AC Stark correction %f',
-                             node.op.name, qubits[0], geom_phase, delta / 2.)
-                offset = delta / 2. - geom_phase
+                if (offset := corr_phase[node.op.name].get(qubits[0])) is None:
+                    offset = self.calibrations.get_parameter_value(f'{node.op.name}_corr_phase',
+                                                                   qubits)
+                    corr_phase[node.op.name][qubits[0]] = offset
                 cumul_angle_ef[qubits[0]] += offset
                 logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[0], offset)
 
@@ -130,29 +131,6 @@ class AddQutritCalibrations(TransformationPass):
 
                 if isinstance(node.op, (X12Gate, SX12Gate)):
                     qutrit = qubits[0]
-                    # Phase of the EF frame relative to the GE frame
-                    ef_lo_phase = (LO_SIGN * node_start_time[node] * twopi * freq_diffs[qutrit]
-                                   * self.target.dt)
-                    # Change of frame - Bloch rotation from 0 to the EF frame angle
-                    # Because we share the same channel for GE and EF drives, GE angle must be offset
-                    pre_angle = ef_lo_phase + cumul_angle_ef[qutrit] - cumul_angle_ge[qutrit]
-                    post_angle = -pre_angle
-
-                    if True:
-                        # TODO incorporate this in the schedules
-                        # Corrections for geometric & Stark phases
-                        # X12 = P0(delta/2 - pi/2) U_xi(pi)
-                        # SX12 = P0(delta/2 - pi/4) U_xi(pi/2)
-                        # P0(phi) is equivalent to BlochRot[ge](-phi)
-                        geom_phase = np.pi / 2. if isinstance(node.op, X12Gate) else np.pi / 4.
-                        delta = self.calibrations.get_parameter_value(f'{node.op.name}stark', qutrit)
-                        logger.debug('%s[%d] Geometric phase %f, AC Stark correction %f',
-                                    node.op.name, qutrit, geom_phase, delta / 2.)
-                        offset = -(delta / 2. - geom_phase)
-                        cumul_angle_ge[qutrit] += offset
-                        logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qutrit, offset)
-                        post_angle += offset
-
                     calib_key = (qubits, tuple(node.op.params))
                     if (cal := dag.calibrations.get(node.op.name, {}).get(calib_key)) is None:
                         assign_params = {'freq': freq_diffs[qutrit]}
@@ -160,19 +138,39 @@ class AddQutritCalibrations(TransformationPass):
                                                              assign_params=assign_params)
                         dag.add_calibration(node.op.name, qubits, cal)
                         logger.debug('%s%s Adding calibration', node.op.name, qubits)
+        
+                    # Phase of the EF frame relative to the GE frame
+                    ef_lo_phase = (LO_SIGN * node_start_time[node] * twopi * freq_diffs[qutrit]
+                                   * self.target.dt)
+                    # Change of frame - Bloch rotation from 0 to the EF frame angle
+                    # Because we share the same channel for GE and EF drives, GE angle must be offset
+                    pre_angle = ef_lo_phase + cumul_angle_ef[qutrit] - cumul_angle_ge[qutrit]
 
-                    insert_rz(dag, node, pre_angles=[pre_angle], post_angles=[post_angle],
+                    insert_rz(dag, node, pre_angles=[pre_angle], post_angles=[-pre_angle],
                               node_start_time=node_start_time, op_duration=cal.duration)
 
+                    if (offset := corr_phase[node.op.name].get(qutrit)) is None:
+                        offset = next(-inst.phase for _, inst in cal.instructions
+                                      if isinstance(inst, pulse.ShiftPhase))
+                        corr_phase[node.op.name][qutrit] = offset
+                    cumul_angle_ge[qutrit] += offset
+                    logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qutrit, offset)
+
                 elif isinstance(node.op, (RCRTypeX12Gate, QutritQubitCXGate)):
+                    qutrit = qubits[0]
                     calib_key = (qubits, tuple(node.op.params))
                     if (cal := dag.calibrations.get(node.op.name, {}).get(calib_key)) is None:
                         cal = get_qutrit_qubit_composite_gate(node.op.name, qubits,
                                                               self.calibrations,
-                                                              freq_shift=freq_diffs[qubits[0]])
+                                                              freq_shift=freq_diffs[qutrit])
                         dag.add_calibration(node.op.name, qubits, cal, node.op.params)
 
-                    qutrit = qubits[0]
+                    if (offset := corr_phase['x12'].get(qutrit)) is None:
+                        x12 = self.calibrations.get_schedule('x12', qubits)
+                        offset = next(-inst.phase for _, inst in x12.instructions
+                                      if isinstance(inst, pulse.ShiftPhase))
+                        corr_phase[node.op.name][qutrit] = offset
+                    
                     start_time = node_start_time[node]
                     phase_switch = cumul_angle_ef[qutrit] - cumul_angle_ge[qutrit]
                     x12_index = 0
@@ -190,5 +188,6 @@ class AddQutritCalibrations(TransformationPass):
                     node.op.params.append(start_time)
                     sched = cal.assign_parameters(assign_map, inplace=False)
                     dag.add_calibration(node.op.name, qubits, sched, node.op.params)
+                    cumul_angle_ge[qutrit] += offset * x12_index
 
         return dag

@@ -2,12 +2,14 @@
 
 import logging
 from typing import Optional
+import numpy as np
 from qiskit import pulse
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
 from qiskit.circuit import Parameter
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 
+from ..constants import LO_SIGN
 from ..gates import ParameterValueType
 from ..pulse_library import ModulatedDrag
 # Temporary patch for qiskit-experiments 0.5.1
@@ -91,26 +93,29 @@ def add_x12_sx12(
         SX = P2(\delta_{SX}/2 - \pi/4) U_{x}(\pi/2; \delta_{SX}) \\
         \Xi = P0(\delta_{\Xi}/2 - \pi/2) U_{\xi}(\pi; \delta_{\Xi}) \\
         S\Xi = P0(\delta_{S\Xi}/2 - \pi/4) U_{\xi}(\pi/2; \delta_{S\Xi}).
-
-    The phase shifts will be taken care of during transpilation.
     """
-    drive_channel = pulse.DriveChannel(Parameter('ch0'))
-
-    # Schedules
-    for gate_name, pulse_name in [('x12', 'Ξp'), ('sx12', 'Ξ90p')]:
-        with pulse.build(name=gate_name) as sched:
-            pulse.play(ModulatedDrag(Parameter('duration'), Parameter('amp'),
-                                     Parameter('sigma'), Parameter('beta'),
-                                     Parameter('freq') * backend.dt,
-                                     angle=Parameter('angle'), name=pulse_name),
-                       drive_channel)
-        calibrations.add_schedule(sched, num_qubits=1)
-
-    # Parameter default values
     inst_map = backend.defaults().instruction_schedule_map
     operational_qubits = get_operational_qubits(backend)
-    for gate_name, qubit_gate_name in [('x12', 'x'), ('sx12', 'sx')]:
+
+    for gate_name, pulse_name, qubit_gate_name, geom_phase in [
+        ('x12', 'Ξp', 'x', np.pi / 2.),
+        ('sx12', 'Ξ90p', 'sx', np.pi / 4.)
+    ]:
         for qubit in operational_qubits:
+            # Schedule (defined for each qubit because the number of Rz channels is qubit dependent)
+            rz_channels = [inst.channel for _, inst in inst_map.get('rz', qubit).instructions]
+            with pulse.build(name=gate_name) as sched:
+                pulse.play(ModulatedDrag(Parameter('duration'), Parameter('amp'),
+                                        Parameter('sigma'), Parameter('beta'),
+                                        Parameter('freq') * backend.dt,
+                                        angle=Parameter('angle'), name=pulse_name),
+                           backend.drive_channel(qubit))
+                for channel in rz_channels:
+                    pulse.shift_phase(LO_SIGN * (geom_phase - Parameter('delta') / 2.), channel)
+                
+            calibrations.add_schedule(sched, qubits=[qubit])
+
+            # Parameter default values
             qubit_sched = inst_map.get(qubit_gate_name, qubit)
             qubit_pulse = next(inst.pulse for _, inst in qubit_sched.instructions
                                if isinstance(inst, pulse.Play))
@@ -122,14 +127,8 @@ def add_x12_sx12(
                 calibrations.add_parameter_value(ParameterValue(0.), param_name, qubits=[qubit],
                                                  schedule=gate_name)
 
-    # Stark delta parameters
-    for name in ['x12stark', 'sx12stark']:
-        if name not in set(p.name for p in calibrations.parameters.keys()):
-            calibrations._register_parameter(Parameter(name), ())
-
-        for qubit in operational_qubits:
-            calibrations.add_parameter_value(ParameterValue(0.), name, qubits=[qubit])
-
+            calibrations.add_parameter_value(ParameterValue(0.), 'delta', qubits=[qubit])
+    
 
 def set_xstark_sxstark_default(
     backend: Backend,
