@@ -12,7 +12,7 @@ from qiskit_experiments.exceptions import CalibrationError
 from ..constants import LO_SIGN
 from ..gates import (GateType, QutritQubitCXTypeX12Gate, QutritQubitCXTypeXGate, RZ12Gate,
                      SetF12Gate, SX12Gate, X12Gate)
-from .custom_pulses import ConvertCustomPulses
+from .custom_pulses import ConvertCustomPulses, RemoveUnusedCalibrations
 from .qutrit_circuits import ContainsQutritInstruction, AddQutritCalibrations
 from .rz import CastRZToAngle, ConsolidateRZAngle, InvertRZSign
 
@@ -24,7 +24,7 @@ BASIS_GATES = [QutritQubitCXTypeX12Gate, QutritQubitCXTypeXGate, RZ12Gate, SetF1
 class QutritTranspileOptions:
     """Options for qutrit transpilation."""
     use_waveform: bool = False
-    remove_custom_pulses: bool = True
+    remove_unused_calibrations: bool = True
     rz_casted_gates: list[str] = None
     consolidate_rz: bool = True
 
@@ -106,7 +106,9 @@ def transpile_qutrit_circuits(
                                 options.rz_casted_gates))
     if options.consolidate_rz:
         pm.append(ConsolidateRZAngle())
+    if options.remove_unused_calibrations:
+        pm.append(RemoveUnusedCalibrations())
     if options.use_waveform:
-        pm.append(ConvertCustomPulses(options.remove_custom_pulses))
+        pm.append(ConvertCustomPulses())
 
     return pm.run(circuits)

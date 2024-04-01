@@ -5,34 +5,29 @@ from qiskit.transpiler import TransformationPass
 
 from ..util.transforms import symbolic_pulse_to_waveform
 
-class ConvertCustomPulses(TransformationPass):
-    """Check for calibrations containing custom pulses and remove them if not used."""
-    def __init__(self, remove_unused: bool):
-        super().__init__()
-        self.remove_unused = remove_unused
 
+class RemoveUnusedCalibrations(TransformationPass):
+    """Remove calibrations with no corresponding gates."""
     def run(self, dag: DAGCircuit) -> DAGCircuit:
-        # Calibrations used in the circuit
-        calib_keys = defaultdict(set)
+        current = dag.calibrations
+        used = {}
         for node in dag.topological_op_nodes():
+            if (instances := current.get(node.op.name)) is None:
+                continue
             qubits = tuple(dag.find_bit(q).index for q in node.qargs)
-            calib_keys[node.op.name].add((qubits, tuple(node.op.params)))
+            key = (qubits, tuple(node.op.params))
+            if (sched := instances.get(key)) is not None:
+                used.setdefault(node.op.name, {})[key] = sched
 
-        unused_gates = []
-        for gate_name, instance_map in dag.calibrations.items():
-            used_keys = calib_keys[gate_name]
-            for instance_key, sched in list(instance_map.items()):
-                if self.remove_unused and instance_key not in used_keys:
-                    instance_map.pop(instance_key)
-                else:
-                    symbolic_pulse_to_waveform(sched)
+        dag.calibrations = used
+        return dag
 
-            if len(instance_map) == 0:
-                unused_gates.append(gate_name)
 
-        if unused_gates:
-            calibs = dag.calibrations
-            dag.calibrations = {key: value
-                                for key, value in calibs.items() if key not in unused_gates}
+class ConvertCustomPulses(TransformationPass):
+    """Convert non-standard pulses to waveforms."""
+    def run(self, dag: DAGCircuit) -> DAGCircuit:
+        for instance_map in dag.calibrations.values():
+            for sched in instance_map.values():
+                symbolic_pulse_to_waveform(sched)
 
         return dag
