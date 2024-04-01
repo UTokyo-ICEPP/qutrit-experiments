@@ -184,7 +184,7 @@ def add_qutrit_qubit_cx(
     calibrations.add_schedule(sched, num_qubits=2)
 
     for qubits in backend.control_channels.keys():
-        for irep in range(3):
+        for irep in range(2):
             calibrations.add_parameter_value(ParameterValue(0.), f'ef_phase_{irep}', qubits=qubits,
                                              schedule=sched.name)
 

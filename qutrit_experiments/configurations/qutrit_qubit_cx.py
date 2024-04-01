@@ -6,6 +6,7 @@ import numpy as np
 from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
 
+from ..calibrations import get_qutrit_qubit_composite_gate
 from ..experiment_config import ExperimentConfig, register_exp, register_post
 from ..gates import CrossResonanceGate, QutritQubitCXGate, RCRGate
 from ..util.pulse_area import gs_effective_duration, rabi_cycles_per_area
@@ -47,7 +48,9 @@ def rcr_unitaries(runner):
     circuit = QuantumCircuit(2)
     circuit.append(gate(), [0, 1])
     circuit.add_calibration(gate.gate_name, runner.qubits,
-                            runner.calibrations.get_schedule(gate.gate_name, runner.qubits))
+                            get_qutrit_qubit_composite_gate(RCRGate.of_type(rcr_type).gate_name,
+                                                            runner.qubits, runner.calibrations,
+                                                            runner.backend.target))
     return ExperimentConfig(
         QutritQubitTomography,
         runner.qubits,

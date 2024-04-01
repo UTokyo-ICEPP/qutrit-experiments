@@ -105,8 +105,8 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
         self._gate_name = gate.name
         assign_key = (self._param_name[0], self.physical_qubits, self._sched_name[0])
         self._schedules = [
-            get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits, backend.target,
-                                            calibrations, assign_params={assign_key: aval})
+            get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits, calibrations,
+                                            target=backend.target, assign_params={assign_key: aval})
             for aval in amplitudes
         ]
 

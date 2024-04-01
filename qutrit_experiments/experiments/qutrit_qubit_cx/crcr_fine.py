@@ -175,7 +175,7 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
         self._dxda = dxda
         self._gate_name = QutritQubitCXGate.of_type(rcr_type).gate_name
         self._schedule = get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits,
-                                                         backend.target, calibrations)
+                                                         calibrations, target=backend.target)
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         if circuit.metadata['composite_metadata'][0]['series'] == 1:
@@ -255,7 +255,7 @@ class CycledRepeatedCRFineRxAngleCal(BaseCalibrationExperiment, CycledRepeatedCR
 
         self._gate_name = QutritQubitCXGate.of_type(rcr_type).gate_name
         self._schedule = get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits,
-                                                         backend.target, calibrations)
+                                                         calibrations, target=backend.target)
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         if circuit.metadata['series'] == 1:
@@ -505,8 +505,8 @@ class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxO
         for aval in cr_amps:
             assign_params = dict(zip(assign_keys, [aval, self._angle_param]))
             self._schedules.append(
-                get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits, backend.target,
-                                                calibrations, assign_params=assign_params)
+                get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits, calibrations,
+                                                target=backend.target, assign_params=assign_params)
             )
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
