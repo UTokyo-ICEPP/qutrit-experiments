@@ -32,9 +32,11 @@ def update_schedule_dependency(schedule: ScheduleBlock, dag: 'PyDiGraph', key: S
         parent_idx = dag.add_node(key)
 
     for reference in schedule.references:
+        # BEGIN EDIT yiiyama
         #ref_key = ScheduleKey(reference[0], key.qubits)
         ref_schedule_name, ref_qubits = reference_info(reference, key.qubits)
         ref_key = ScheduleKey(ref_schedule_name, ref_qubits)
+        # END EDIT yiiyama
         dag.add_edge(parent_idx, _get_node_index(ref_key, dag), None)
 
 
@@ -108,7 +110,32 @@ def update_add_schedule(self):
 
         # Check that subroutines are present.
         for reference in schedule.references:
-            self.get_template(*reference_info(reference, qubits))
+            # BEGIN EDIT yiiyama
+            #self.get_template(*reference_info(reference, qubits))
+            ref_name, ref_qubits = reference_info(reference, qubits)
+            if len(qubits) == 0:
+                # ref_qubits is a tuple of "logical" qubits
+                # First check if the reference is an unbound schedule
+                if (nq := self._schedules_qubits.get(ScheduleKey(ref_name, ()))) is not None:
+                    if nq != len(ref_qubits):
+                        raise CalibrationError(f'Reference with {len(ref_qubits)} made to template'
+                                               f' {ref_name} on {nq} qubits')
+                else:
+                    # If not found, look for at least one bound schedule with the right num_qubits
+                    has_schedule = False
+                    for key, nq in self._schedules_qubits.items():
+                        if key.schedule == ref_name:
+                            has_schedule = True
+                            if len(key.qubits) == len(ref_qubits):
+                                break
+                    else:
+                        msg = f'Could not find schedule {ref_name}'
+                        if has_schedule:
+                            msg += f' with {len(ref_qubits)} qubits'
+                        raise CalibrationError(msg)
+            else:
+                self.get_template(ref_name, ref_qubits)
+            # END EDIT yiiyama
 
         # Clean the parameter to schedule mapping. This is needed if we overwrite a schedule.
         self._clean_parameter_map(schedule.name, qubits)

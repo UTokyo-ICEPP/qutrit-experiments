@@ -1,5 +1,6 @@
 """Functions to generate the Calibrations object for qutrit experiments."""
 
+from collections.abc import Sequence
 import logging
 from typing import Optional
 import numpy as np
@@ -22,7 +23,8 @@ logger = logging.getLogger(__name__)
 
 def make_single_qutrit_gate_calibrations(
     backend: Backend,
-    calibrations: Optional[Calibrations] = None
+    calibrations: Optional[Calibrations] = None,
+    qubits: Optional[Sequence[int]] = None
 ) -> Calibrations:
     """Define parameters and schedules for single-qutrit gates."""
     if calibrations is None:
@@ -30,21 +32,22 @@ def make_single_qutrit_gate_calibrations(
     if type(calibrations.add_schedule).__name__ == 'method':
         update_add_schedule(calibrations)
 
-    set_f12_default(backend, calibrations)
-    add_x12_sx12(backend, calibrations)
+    set_f12_default(backend, calibrations, qubits=qubits)
+    add_x12_sx12(backend, calibrations, qubits=qubits)
 
     return calibrations
 
 
 def set_f12_default(
     backend: Backend,
-    calibrations: Calibrations
+    calibrations: Calibrations,
+    qubits: Optional[Sequence[int]] = None
 ) -> None:
     """Give default values to f12."""
     if 'f12' not in set(p.name for p in calibrations.parameters.keys()):
         calibrations._register_parameter(Parameter('f12'), ())
 
-    operational_qubits = get_operational_qubits(backend)
+    operational_qubits = get_operational_qubits(backend, qubits=qubits)
     for qubit in operational_qubits:
         qubit_props = backend.qubit_properties(qubit)
         freq_12_est = qubit_props.frequency
@@ -61,7 +64,8 @@ def set_f12_default(
 
 def add_x12_sx12(
     backend: Backend,
-    calibrations: Calibrations
+    calibrations: Calibrations,
+    qubits: Optional[Sequence[int]] = None
 ) -> None:
     r"""X and SX pulses are assumed to effect unitaries of form
 
@@ -103,12 +107,12 @@ def add_x12_sx12(
                                      Parameter('sigma'), Parameter('beta'),
                                      Parameter('freq') * backend.dt,
                                      angle=Parameter('angle'), name=pulse_name),
-                       drive_channel)
+                       drive_channel, name=pulse_name)
         calibrations.add_schedule(sched, num_qubits=1)
 
     # Parameter default values and phase corrections
     inst_map = backend.defaults().instruction_schedule_map
-    operational_qubits = get_operational_qubits(backend)
+    operational_qubits = get_operational_qubits(backend, qubits=qubits)
 
     for gate_name, pulse_name, qubit_gate_name, geom_phase in [
         ('x12', 'Ξp', 'x', np.pi / 2.),
@@ -148,7 +152,7 @@ def add_x12_sx12(
 
             calibrations.add_parameter_value(ParameterValue(0.), 'delta', qubits=[qubit],
                                              schedule=sched.name)
-            
+
 
 def get_qutrit_pulse_gate(
     gate_name: str,

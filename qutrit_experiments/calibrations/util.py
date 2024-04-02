@@ -1,18 +1,25 @@
 """Common utility functions for calibration definitions."""
 
+from collections.abc import Sequence
+from typing import Optional
 from qiskit.providers import Backend
 from qiskit.pulse import PulseError, Schedule
 from qiskit.transpiler import Target
 from qiskit_experiments.calibration_management import Calibrations
 
 
-def get_operational_qubits(backend: Backend) -> set[int]:
+def get_operational_qubits(
+    backend: Backend,
+    qubits: Optional[Sequence[int]] = None
+) -> set[int]:
     try:
         faulty_qubits = set(backend.properties().faulty_qubits())
     except AttributeError:
         # Simulator
         faulty_qubits = set()
-    return set(range(backend.num_qubits)) - faulty_qubits
+    if not qubits:
+        qubits = range(backend.num_qubits)
+    return set(qubits) - faulty_qubits
 
 
 def get_default_ecr_schedule(backend: Backend, qubits: tuple[int, int]) -> Schedule:
