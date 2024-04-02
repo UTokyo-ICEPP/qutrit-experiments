@@ -146,7 +146,7 @@ class RCRGate(Gate):
     TYPE_X12 = 0 # CRCR angle = 2 * (θ_1 + θ_2 - 2*θ_0)
 
     gate_name = 'rcr'
-    gate_type = GateType.PULSE
+    gate_type = GateType.COMPOSITE
 
     @classmethod
     def of_type(cls, rcr_type: int) -> type['RCRGate']:
@@ -173,7 +173,7 @@ class RCRTypeXGate(RCRGate):
         super().__init__(self.gate_name, 2, params=params, label=label)
 
 
-class RCRTypeX12Gate(QutritGate, RCRGate, gate_name='rcr0', gate_type=GateType.PULSE,
+class RCRTypeX12Gate(QutritGate, RCRGate, gate_name='rcr0', gate_type=GateType.COMPOSITE,
                      as_qutrit=(True, False)):
     """Repeated cross resonance gate."""
     def __init__(
@@ -188,7 +188,7 @@ class RCRTypeX12Gate(QutritGate, RCRGate, gate_name='rcr0', gate_type=GateType.P
         super().__init__(params=params, label=label)
 
 
-class QutritQubitCXGate(QutritGate, gate_name='qutrit_qubit_cx', gate_type=GateType.PULSE,
+class QutritQubitCXGate(QutritGate, gate_name='qutrit_qubit_cx', gate_type=GateType.COMPOSITE,
                         as_qutrit=(True, False)):
     """CX gate with a control qutrit and target qubit."""
     TYPE_X = 2 # CRCR angle = 2 * (θ_0 + θ_1 - 2*θ_2)
@@ -215,12 +215,12 @@ class QutritQubitCXGate(QutritGate, gate_name='qutrit_qubit_cx', gate_type=GateT
 
 
 class QutritQubitCXTypeXGate(QutritQubitCXGate, gate_name='qutrit_qubit_cx_rcr2',
-                             gate_type=GateType.PULSE, as_qutrit=(True, False)):
+                             gate_type=GateType.COMPOSITE, as_qutrit=(True, False)):
     """CX gate with a control qutrit and target qubit."""
 
 
 class QutritQubitCXTypeX12Gate(QutritQubitCXGate, gate_name='qutrit_qubit_cx_rcr0',
-                               gate_type=GateType.PULSE, as_qutrit=(True, False)):
+                               gate_type=GateType.COMPOSITE, as_qutrit=(True, False)):
     """CX gate with a control qutrit and target qubit."""
 
 

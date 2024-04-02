@@ -46,14 +46,14 @@ def make_instruction_durations(
     for inst in BASIS_GATES:
         durations = []
         match (inst.gate_type, inst.num_qubits):
-            case (GateType.PULSE, 1):
+            case (GateType.PULSE, 1) | (GateType.COMPOSITE, 1):
                 for qubit in qubits:
                     try:
                         duration = calibrations.get_schedule(inst.gate_name, qubit).duration
                     except CalibrationError:
                         continue
                     durations.append((inst.gate_name, qubit, duration))
-            case (GateType.PULSE, 2):
+            case (GateType.PULSE, 2) | (GateType.COMPOSITE, 2):
                 for edge in backend.coupling_map.get_edges():
                     if edge[0] in qubits and edge[1] in qubits:
                         try:
@@ -90,7 +90,7 @@ def transpile_qutrit_circuits(
         options = QutritTranspileOptions()
 
     def contains_qutrit_gate(property_set):
-        return property_set['contains_qutrit_gate']
+        return len(property_set['qutrits']) != 0
 
     pm = PassManager()
     pm.append(ContainsQutritInstruction())
