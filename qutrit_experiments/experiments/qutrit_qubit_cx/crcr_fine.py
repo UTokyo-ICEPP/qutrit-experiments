@@ -508,7 +508,7 @@ class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxO
                                                          assign_params={cr_assign_key: aval})
             self._schedules.append([])
             for xval in self.component_experiment(0).experiment_options.angles:
-                rx_sched = calibrations.get_schedule(self._sched_name[1], physical_qubits,
+                rx_sched = calibrations.get_schedule(self._sched_name[1], physical_qubits[1:],
                                                      assign_params={rx_assign_key: xval})
                 self._schedules[-1].append(crcr_sched.append(rx_sched, inplace=False))
 

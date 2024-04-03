@@ -264,18 +264,18 @@ def add_qutrit_qubit_cx(
 
     # Since the last shift_phase is a part of Rz, which must be applied to variable number of
     # channels, we instantiate a full schedule for each qubit.
-    for _, qubit in backend.control_channels.keys():
-        if qubit not in operational_qubits:
+    for control, target in backend.control_channels.keys():
+        if len(set((control, target)) & operational_qubits) != 2:
             continue
-        sx_inst = inst_map.get('sx', qubit).instructions[0][1]
+        sx_inst = inst_map.get('sx', target).instructions[0][1]
         sx_pulse = sx_inst.pulse
         drive_channel = sx_inst.channel
-        rz_channels = [inst.channel for _, inst in inst_map.get('rz', qubit).instructions]
+        rz_channels = [inst.channel for _, inst in inst_map.get('rz', target).instructions]
         rz_channels.remove(drive_channel)
         qubit_sched = sched.append(pulse.ShiftPhase(LO_SIGN * angle, rz_channels[0]), inplace=False)
         for channel in rz_channels[1:]:
             qubit_sched.append(pulse.ShiftPhase(LO_SIGN * angle, channel))
-        calibrations.add_schedule(qubit_sched, qubits=[qubit])
+        calibrations.add_schedule(qubit_sched, qubits=[target])
 
         param_defaults = [
             ('duration', sx_pulse.duration),
@@ -285,9 +285,9 @@ def add_qutrit_qubit_cx(
             ('base_angle', sx_pulse.angle)
         ]
         for pname, value in param_defaults:
-            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=qubit,
+            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=target,
                                              schedule='cx_offset_rx')
-        calibrations.add_parameter_value(ParameterValue(0.), angle.name, qubits=qubit,
+        calibrations.add_parameter_value(ParameterValue(0.), angle.name, qubits=target,
                                          schedule='cx_offset_rx')
 
     # CX type X
