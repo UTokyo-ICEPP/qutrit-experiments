@@ -86,7 +86,6 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomogra
         cal_parameter_name: list[str] = ['counter_amp', 'counter_sign_angle'],
         schedule_name: str = 'cr',
         amplitudes: Optional[Sequence[float]] = None,
-        width: Optional[float] = None,
         measure_preparations: bool = True,
         auto_update: bool = True
     ):
@@ -97,6 +96,8 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomogra
         amp = Parameter('amp')
         sign_angle = Parameter('sign_angle')
         gate = RCRGate.of_type(rcr_type)(params=[amp, sign_angle])
+
+        control_states = tuple(i for i in range(3) if i != rcr_type)
 
         super().__init__(
             calibrations,
@@ -110,6 +111,7 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomogra
             auto_update=auto_update,
             angle_param_name=sign_angle.name,
             measure_preparations=measure_preparations,
+            control_states=control_states,
             analysis_cls=MinimumYZRotaryAmplitudeAnalysis
         )
 

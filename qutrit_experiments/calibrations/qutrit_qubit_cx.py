@@ -275,6 +275,7 @@ def add_qutrit_qubit_cx(
                 pulse.reference('cr', 'q0', 'q1')
     calibrations.add_schedule(sched, num_qubits=2)
 
+    # CX type X12
     with pulse.build(name='qutrit_qubit_cx_rcr0', default_alignment='sequential') as sched:
         for _ in range(2):
             # [CR+][X12+DD][CR+][X+DD]
