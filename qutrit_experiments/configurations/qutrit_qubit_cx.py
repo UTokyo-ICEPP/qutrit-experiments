@@ -124,9 +124,13 @@ def cr_counter_stark_amp(runner):
 def rcr_rough_cr_amp(runner):
     """CR angle calibration to eliminate the y component of RCR non-participating state."""
     from ..experiments.qutrit_qubit_cx.cr_amp import CRRoughAmplitudeCal
+    def cal_criterion(data):
+        return data.analysis_results('pi_amp', block=False).value.n < 0.95
+
     return ExperimentConfig(
         CRRoughAmplitudeCal,
-        runner.qubits
+        runner.qubits,
+        calibration_criterion=cal_criterion
     )
 
 @register_post

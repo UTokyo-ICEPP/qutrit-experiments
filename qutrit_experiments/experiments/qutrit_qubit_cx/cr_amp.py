@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from threading import Lock
 from typing import Optional, Union
+from matplotlib.figure import Figure
 import numpy as np
 from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
@@ -9,7 +10,7 @@ from qiskit.providers import Backend
 from qiskit_experiments.calibration_management import (BaseCalibrationExperiment, Calibrations,
                                                        ParameterValue)
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
-from qiskit_experiments.framework import ExperimentData, Options
+from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 
 from ...calibrations import get_qutrit_qubit_composite_gate
 from ...gates import RCRGate
@@ -29,6 +30,7 @@ class RepeatedCRAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
     def _default_options(cls) -> Options:
         options = super()._default_options()
         options.simul_fit = True
+        options.cx_sign = 0
         return options
 
     _compile_lock = Lock()
@@ -53,6 +55,26 @@ class RepeatedCRAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
 
     def _postprocess_params(self, upopt: np.ndarray, norm: float):
         upopt[[0, 2, 4]] /= norm
+
+    def _run_additional_analysis(
+        self,
+        experiment_data: ExperimentData,
+        analysis_results: list[AnalysisResultData],
+        figures: list[Figure]
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
+        analysis_results, figures = super()._run_additional_analysis(experiment_data,
+                                                                     analysis_results, figures)
+
+        fit_params = next(res.value for res in analysis_results if res.name == 'simul_fit_params')
+        nonpart_state = experiment_data.metadata['control_states'][0]
+        slope = (fit_params[1][0] - fit_params[nonpart_state][0])
+        intercept = (fit_params[1][1] - fit_params[nonpart_state][1])
+        target_angle = np.pi / 2. * self.options.cx_sign
+        pi_amp = (target_angle - intercept) / slope
+        analysis_results.append(
+            AnalysisResultData(name='pi_amp', value=pi_amp)
+        )
+        return analysis_results, figures
 
 
 class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
@@ -118,6 +140,10 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
             for aval in amplitudes
         ]
 
+        self.analysis.set_options(
+            cx_sign=calibrations.get_parameter_value('qutrit_qubit_cx_sign', physical_qubits)
+        )
+
     def _attach_calibrations(self, circuit: QuantumCircuit):
         iamp = circuit.metadata['composite_index'][0]
         circuit.add_calibration(self._gate_name, self.physical_qubits, self._schedules[iamp],
@@ -134,19 +160,18 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
             rx_angle_param_name = self._sched_name[1]
             rx_angle_sched_name = self._sched_name[1]
 
-        fit_params = experiment_data.analysis_results('simul_fit_params', block=False).value
-        nonpart_state = experiment_data.metadata['control_states'][0]
-        slope = (fit_params[1][0] - fit_params[nonpart_state][0]).n
-        intercept = (fit_params[1][1] - fit_params[nonpart_state][1]).n
-        cx_sign = self._cals.get_parameter_value('qutrit_qubit_cx_sign', self.physical_qubits)
-        target_angle = np.pi / 2. * cx_sign
-        new_amp = (target_angle - intercept) / slope
+        new_amp = experiment_data.analysis_results('pi_amp', block=False).value.n
+        if new_amp > 0.95:
+            return
+
         BaseUpdater.add_parameter_value(
             self._cals, experiment_data, new_amp, cr_amp_param_name,
             schedule=cr_amp_sched_name, group=self.experiment_options.group
         )
 
         if rx_angle_param_name:
+            fit_params = experiment_data.analysis_results('simul_fit_params', block=False).value
+            nonpart_state = experiment_data.metadata['control_states'][0]
             theta_0 = fit_params[nonpart_state][0].n * new_amp + fit_params[nonpart_state][1].n
             param_value = ParameterValue(
                 value=-theta_0,
