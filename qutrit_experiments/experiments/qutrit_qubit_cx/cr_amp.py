@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from threading import Lock
-from typing import Optional
+from typing import Optional, Union
 import numpy as np
 from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
@@ -59,8 +59,9 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
     """Calibration of CR amplitude given the width.
 
     Rx angle difference between block 1 and block rcr_type will be set to cx_sign * pi/2.
-    Offset Rx angle is set to cancel the angle of block rcr_type, but this calibration will be
-    rendered meaningless once the rotary tone is introduced.
+    If two cal_parameter_names are given, the second one will be for the offset Rx angle, which
+    will be set to cancel the angle of block rcr_type, but this calibration will be rendered
+    meaningless once the rotary tone is introduced.
     """
     @classmethod
     def _default_experiment_options(cls) -> Options:
@@ -73,14 +74,20 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['cr_amp', 'angle'],
-        schedule_name: list[str] = ['cr', 'cx_offset_rx'],
+        cal_parameter_name: Union[str, list[str]] = 'cr_amp',
+        schedule_name: Union[str, list[str]] = 'cr',
         auto_update: bool = True,
         amplitudes: Optional[Sequence[float]] = None
     ):
+        if isinstance(cal_parameter_name, str):
+            cr_amp_param_name = cal_parameter_name
+            cr_amp_sched_name = schedule_name
+        else:
+            cr_amp_param_name = cal_parameter_name[0]
+            cr_amp_sched_name = schedule_name[0]
         if amplitudes is None:
-            current = calibrations.get_parameter_value(cal_parameter_name[0], physical_qubits,
-                                                       schedule_name[0])
+            current = calibrations.get_parameter_value(cr_amp_param_name, physical_qubits,
+                                                       cr_amp_sched_name)
             amplitudes = np.linspace(current - 0.2, current + 0.05, 6)
 
         rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
@@ -98,12 +105,13 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
             control_states=(rcr_type, 1),
             analysis_cls=RepeatedCRAmplitudeAnalysis
         )
-        self.set_experiment_options(
-            calibration_qubit_index={(self._param_name[1], self._sched_name[1]): [1]}
-        )
+        if not isinstance(cal_parameter_name, str):
+            self.set_experiment_options(
+                calibration_qubit_index={(self._param_name[1], self._sched_name[1]): [1]}
+            )
 
         self._gate_name = gate.name
-        assign_key = (self._param_name[0], self.physical_qubits, self._sched_name[0])
+        assign_key = (cr_amp_param_name, self.physical_qubits, cr_amp_sched_name)
         self._schedules = [
             get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits, calibrations,
                                             target=backend.target, assign_params={assign_key: aval})
@@ -116,6 +124,16 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
                                 params=[self.experiment_options.parameter_values[0][iamp]])
 
     def update_calibrations(self, experiment_data: ExperimentData):
+        if isinstance(self._param_name, str):
+            cr_amp_param_name = self._param_name
+            cr_amp_sched_name = self._sched_name
+            rx_angle_param_name = rx_angle_sched_name = None
+        else:
+            cr_amp_param_name = self._param_name[0]
+            cr_amp_sched_name = self._sched_name[0]
+            rx_angle_param_name = self._sched_name[1]
+            rx_angle_sched_name = self._sched_name[1]
+
         fit_params = experiment_data.analysis_results('simul_fit_params', block=False).value
         nonpart_state = experiment_data.metadata['control_states'][0]
         slope = (fit_params[1][0] - fit_params[nonpart_state][0]).n
@@ -124,16 +142,17 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
         target_angle = np.pi / 2. * cx_sign
         new_amp = (target_angle - intercept) / slope
         BaseUpdater.add_parameter_value(
-            self._cals, experiment_data, new_amp, self._param_name[0], schedule=self._sched_name[0],
-            group=self.experiment_options.group
+            self._cals, experiment_data, new_amp, cr_amp_param_name[0],
+            schedule=cr_amp_sched_name[0], group=self.experiment_options.group
         )
 
-        theta_0 = fit_params[nonpart_state][0].n * new_amp + fit_params[nonpart_state][1].n
-        param_value = ParameterValue(
-            value=-theta_0,
-            date_time=BaseUpdater._time_stamp(experiment_data),
-            group=self.experiment_options.group,
-            exp_id=experiment_data.experiment_id,
-        )
-        self._cals.add_parameter_value(param_value, self._param_name[1], self.physical_qubits[1],
-                                       schedule=self._sched_name[1])
+        if rx_angle_param_name:
+            theta_0 = fit_params[nonpart_state][0].n * new_amp + fit_params[nonpart_state][1].n
+            param_value = ParameterValue(
+                value=-theta_0,
+                date_time=BaseUpdater._time_stamp(experiment_data),
+                group=self.experiment_options.group,
+                exp_id=experiment_data.experiment_id,
+            )
+            self._cals.add_parameter_value(param_value, rx_angle_param_name, self.physical_qubits[1],
+                                           schedule=rx_angle_sched_name[1])
