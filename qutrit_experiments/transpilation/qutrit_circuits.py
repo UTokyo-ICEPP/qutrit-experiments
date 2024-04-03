@@ -263,8 +263,7 @@ class AddQutritCalibrations(TransformationPass):
                     # Make a new ScheduleBlock with placeholder parameters for EF phase shifts
                     logger.debug('%s[%s] inserting EF phase shift placeholders', node.op.name,
                                  qubits)
-                    ef_phase_params = defaultdict(list)
-                    cal = insert_ef_phase_shifts(cal, ef_phase_params)
+                    cal, ef_phase_params = insert_ef_phase_shifts(cal)
 
                     # Assign phase shift values to the placeholders
                     start_time = node_start_time[node]

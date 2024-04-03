@@ -267,8 +267,8 @@ def add_qutrit_qubit_cx(
             drive_channel,
             name='SΘp'
         )
-        # Add the rz name so the qutrit transpiler knows to adjust the EF phase accordingly
-        pulse.shift_phase(LO_SIGN * angle, drive_channel, name='rz')
+        # Don't add the rz label; target is operated as a qubit
+        pulse.shift_phase(LO_SIGN * angle, drive_channel)
     calibrations.add_schedule(rx_sched, num_qubits=1)
 
     # Geometric phase correction (template)
