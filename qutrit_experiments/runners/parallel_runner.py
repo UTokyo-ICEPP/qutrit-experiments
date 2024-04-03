@@ -186,9 +186,9 @@ class ParallelRunner(ExperimentsRunner):
             if not force_resubmit and self.saved_data_exists(config.exp_type):
                 exp_data = self.load_data(config.exp_type)
                 qubit_grouping = [sorted(par_data.metadata['physical_qubits'])
-                                for par_data in exp_data.child_data()]
+                                  for par_data in exp_data.child_data()]
                 logger.debug('Loaded experiment data for %s with qubit grouping %s', config.exp_type,
-                            qubit_grouping)
+                             qubit_grouping)
             batch_config = self.make_batch_config(config, qubit_grouping=qubit_grouping)
         else:
             batch_config = config
@@ -197,9 +197,8 @@ class ParallelRunner(ExperimentsRunner):
             experiment = self.make_experiment(batch_config)
 
         exp_data = super().run_experiment(batch_config, experiment,
-                                          block_for_results=block_for_results,
-                                          analyze=analyze, calibrate=calibrate, print_level=0,
-                                          exp_data=exp_data,
+                                          block_for_results=block_for_results, analyze=analyze,
+                                          calibrate=calibrate, print_level=0, exp_data=exp_data,
                                           force_resubmit=force_resubmit)
 
         if not analyze or experiment.analysis is None:

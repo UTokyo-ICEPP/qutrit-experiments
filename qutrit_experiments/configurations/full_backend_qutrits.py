@@ -43,8 +43,7 @@ def register_backend_qutrit_postexp(function):
             try:
                 function(runner, qutrit_data)
             except Exception as ex:
-                logger.error('Postexperiment error at qubit %d', qubit)
-                raise ex
+                logger.error('Postexperiment error at qubit %d: %s', qubit, type(ex))
 
     register_post(postexp, exp_type=function.__name__[:-5])
 
