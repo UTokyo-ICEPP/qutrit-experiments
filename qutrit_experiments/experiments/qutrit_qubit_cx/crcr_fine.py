@@ -496,20 +496,21 @@ class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxO
         )
 
         self._gate_name = QutritQubitCXGate.of_type(rcr_type).gate_name
-        assign_keys = (
-            (self._param_name[0], self.physical_qubits, self._sched_name[0]),
-            (self._param_name[1], self.physical_qubits[1:], self._sched_name[1])
-        )
+        cr_assign_key = (self._param_name[0], self.physical_qubits, self._sched_name[0])
+        rx_assign_key = (self._param_name[1], self.physical_qubits[1:], self._sched_name[1])
         self._schedules = []
         for aval in cr_amps:
+            # Calibrations.get_schedule() cannot address nested references in assign_params
+            # Since qutrit_qubit_cx references crcr which references cr, we have to compose the
+            # CX schedule by ourselves
+            crcr_sched = get_qutrit_qubit_composite_gate(f'crcr{rcr_type}', physical_qubits,
+                                                         calibrations, target=backend.target,
+                                                         assign_params={cr_assign_key: aval})
             self._schedules.append([])
-            for nval in self.component_experiment(0).experiment_options.angles:
-                assign_params = dict(zip(assign_keys, [aval, nval]))
-                self._schedules[-1].append(
-                    get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits, calibrations,
-                                                    target=backend.target,
-                                                    assign_params=assign_params)
-                )
+            for xval in self.component_experiment(0).experiment_options.angles:
+                rx_sched = calibrations.get_schedule(self._sched_name[1], physical_qubits,
+                                                     assign_params={rx_assign_key: xval})
+                self._schedules[-1].append(crcr_sched.append(rx_sched, inplace=False))
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         iamp = circuit.metadata['composite_index'][0] // 2 # Two experiments per amp value

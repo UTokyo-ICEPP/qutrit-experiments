@@ -167,7 +167,6 @@ def add_qutrit_qubit_cx(
                                              schedule='x')
 
     control_channel = pulse.ControlChannel(Parameter('ch0.1'))
-    control_drive_channel = pulse.DriveChannel(Parameter('ch0'))
     target_drive_channel = pulse.DriveChannel(Parameter('ch1'))
 
     # X/X12 on qubit 0 with DD on qubit 1
@@ -201,7 +200,43 @@ def add_qutrit_qubit_cx(
         x12_dd()
     calibrations.add_schedule(sched, num_qubits=2)
 
-    # Offset Rx for CRCR (template)
+    # CRCR type X
+    with pulse.build(name='crcr2', default_alignment='sequential') as sched:
+        # [X12+DD][CR-][X+DD][CR-]
+        with pulse.phase_offset(np.pi, control_channel):
+            x12_dd()
+            with pulse.phase_offset(np.pi, target_drive_channel):
+                pulse.reference('cr', 'q0', 'q1')
+            x_dd()
+            pulse.reference('cr', 'q0', 'q1')
+        for _ in range(2):
+            # [X12+DD][CR+][X+DD][CR+]
+            x12_dd()
+            pulse.reference('cr', 'q0', 'q1')
+            x_dd()
+            with pulse.phase_offset(np.pi, target_drive_channel):
+                pulse.reference('cr', 'q0', 'q1')
+    calibrations.add_schedule(sched, num_qubits=2)
+
+    # CRCR type X12
+    with pulse.build(name='crcr0', default_alignment='sequential') as sched:
+        for _ in range(2):
+            # [CR+][X12+DD][CR+][X+DD]
+            pulse.reference('cr', 'q0', 'q1')
+            x12_dd()
+            with pulse.phase_offset(np.pi, target_drive_channel):
+                pulse.reference('cr', 'q0', 'q1')
+            x_dd()
+        # [CR-][X12+DD][CR-][X+DD]
+        with pulse.phase_offset(np.pi, control_channel):
+            with pulse.phase_offset(np.pi, target_drive_channel):
+                pulse.reference('cr', 'q0', 'q1')
+            x12_dd()
+            pulse.reference('cr', 'q0', 'q1')
+            x_dd()
+    calibrations.add_schedule(sched, num_qubits=2)
+
+    # Offset Rx for CX (template)
     duration = Parameter('duration')
     amp = Parameter('amp')
     sigma = Parameter('sigma')
@@ -212,15 +247,15 @@ def add_qutrit_qubit_cx(
     with pulse.build(name='cx_offset_rx', default_alignment='sequential') as sched:
         pulse.play(
             pulse.Drag(duration=duration, amp=amp, sigma=sigma,
-                        beta=beta, angle=base_angle - np.pi / 2.,
-                        name='SYp'),
+                       beta=beta, angle=base_angle + LO_SIGN * np.pi / 2.,
+                       name='SYp'),
             drive_channel,
             name='SYp'
         )
         pulse.play(
             pulse.Drag(duration=duration, amp=amp, sigma=sigma,
-                        beta=beta,  angle=base_angle - 3. * np.pi / 2. - angle,
-                        name='SΘp'),
+                       beta=beta, angle=base_angle + LO_SIGN * (angle + 1.5 * np.pi),
+                       name='SΘp'),
             drive_channel,
             name='SΘp'
         )
@@ -257,42 +292,14 @@ def add_qutrit_qubit_cx(
 
     # CX type X
     with pulse.build(name='qutrit_qubit_cx_rcr2', default_alignment='sequential') as sched:
-        # [X12+Rx][CR-][X+DD][CR-]
-        with pulse.align_left():
-            pulse.reference('x12', 'q0')
-            pulse.reference('cx_offset_rx', 'q1')
-        with pulse.phase_offset(np.pi, control_channel, target_drive_channel):
-            pulse.reference('cr', 'q0', 'q1')
-        x_dd()
-        with pulse.phase_offset(np.pi, control_channel):
-            pulse.reference('cr', 'q0', 'q1')
-        for _ in range(2):
-            # [X12+DD][CR+][X+DD][CR+]
-            x12_dd()
-            pulse.reference('cr', 'q0', 'q1')
-            x_dd()
-            with pulse.phase_offset(np.pi, target_drive_channel):
-                pulse.reference('cr', 'q0', 'q1')
+        pulse.reference('crcr2', 'q0', 'q1')
+        pulse.reference('cx_offset_rx', 'q1')
     calibrations.add_schedule(sched, num_qubits=2)
 
     # CX type X12
     with pulse.build(name='qutrit_qubit_cx_rcr0', default_alignment='sequential') as sched:
-        for _ in range(2):
-            # [CR+][X12+DD][CR+][X+DD]
-            pulse.reference('cr', 'q0', 'q1')
-            x12_dd()
-            with pulse.phase_offset(np.pi, target_drive_channel):
-                pulse.reference('cr', 'q0', 'q1')
-            x_dd()
-        # [CR-][X12+DD][CR-][X+Rx]
-        with pulse.phase_offset(np.pi, control_channel, target_drive_channel):
-            pulse.reference('cr', 'q0', 'q1')
-        x12_dd()
-        with pulse.phase_offset(np.pi, control_channel):
-            pulse.reference('cr', 'q0', 'q1')
-        with pulse.align_left():
-            pulse.reference('x', 'q0')
-            pulse.reference('cx_offset_rx', 'q1')
+        pulse.reference('crcr0', 'q0', 'q1')
+        pulse.reference('cx_offset_rx', 'q1')
     calibrations.add_schedule(sched, num_qubits=2)
 
 
