@@ -142,8 +142,8 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
         target_angle = np.pi / 2. * cx_sign
         new_amp = (target_angle - intercept) / slope
         BaseUpdater.add_parameter_value(
-            self._cals, experiment_data, new_amp, cr_amp_param_name[0],
-            schedule=cr_amp_sched_name[0], group=self.experiment_options.group
+            self._cals, experiment_data, new_amp, cr_amp_param_name,
+            schedule=cr_amp_sched_name, group=self.experiment_options.group
         )
 
         if rx_angle_param_name:
@@ -155,4 +155,4 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
                 exp_id=experiment_data.experiment_id,
             )
             self._cals.add_parameter_value(param_value, rx_angle_param_name, self.physical_qubits[1],
-                                           schedule=rx_angle_sched_name[1])
+                                           schedule=rx_angle_sched_name)
