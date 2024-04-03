@@ -34,10 +34,10 @@ def make_qutrit_qubit_cx_calibrations(
         update_add_schedule(calibrations)
 
     add_qutrit_qubit_cr(backend, calibrations, qubits=qubits)
+    add_qutrit_qubit_rcr(backend, calibrations, qubits=qubits)
     add_qutrit_qubit_cx(backend, calibrations, qubits=qubits)
 
     calibrations._register_parameter(Parameter('rcr_type'), ())
-    calibrations._register_parameter(Parameter('qutrit_qubit_cx_sign'), ())
 
     return calibrations
 
@@ -134,14 +134,13 @@ def add_qutrit_qubit_cr(
                                              schedule='cr')
 
 
-def add_qutrit_qubit_cx(
+def add_qutrit_qubit_rcr(
     backend: Backend,
     calibrations: Calibrations,
     qubits: Optional[Sequence[int]] = None
 ) -> None:
     """Add the RCR and CX schedules. Also import the X schedule from default inst_map."""
     inst_map = backend.defaults().instruction_schedule_map
-
     operational_qubits = get_operational_qubits(backend, qubits=qubits)
 
     # X schedule
@@ -236,6 +235,15 @@ def add_qutrit_qubit_cx(
             x_dd()
     calibrations.add_schedule(sched, num_qubits=2)
 
+
+def add_qutrit_qubit_cx(
+    backend: Backend,
+    calibrations: Calibrations,
+    qubits: Optional[Sequence[int]] = None
+) -> None:
+    inst_map = backend.defaults().instruction_schedule_map
+    operational_qubits = get_operational_qubits(backend, qubits=qubits)
+
     # Offset Rx for CX (template)
     duration = Parameter('duration')
     amp = Parameter('amp')
@@ -244,7 +252,7 @@ def add_qutrit_qubit_cx(
     base_angle = Parameter('base_angle')
     angle = Parameter('angle')
     drive_channel = pulse.DriveChannel(Parameter('ch0'))
-    with pulse.build(name='cx_offset_rx', default_alignment='sequential') as sched:
+    with pulse.build(name='cx_offset_rx', default_alignment='sequential') as rx_sched:
         pulse.play(
             pulse.Drag(duration=duration, amp=amp, sigma=sigma,
                        beta=beta, angle=base_angle + LO_SIGN * np.pi / 2.,
@@ -259,10 +267,24 @@ def add_qutrit_qubit_cx(
             drive_channel,
             name='SΘp'
         )
-        pulse.shift_phase(LO_SIGN * angle, drive_channel)
-    calibrations.add_schedule(sched, num_qubits=1)
+        # Add the rz name so the qutrit transpiler knows to adjust the EF phase accordingly
+        pulse.shift_phase(LO_SIGN * angle, drive_channel, name='rz')
+    calibrations.add_schedule(rx_sched, num_qubits=1)
 
-    # Since the last shift_phase is a part of Rz, which must be applied to variable number of
+    # Geometric phase correction (template)
+    cx_sign = Parameter('cx_sign')
+    with pulse.build(name='cx_geometric_phase') as geom_sched:
+        #pulse.shift_phase(LO_SIGN * cx_sign * np.pi / 3., drive_channel, name='rz') # Rz(pi/3)
+        #pulse.shift_phase(LO_SIGN * cx_sign * np.pi / 6., drive_channel, name='rz12') # Rz12(-pi/3)
+        # The transpiler creates -LO_SIGN * cx_sign * pi/2 EF phase from above two lines. This
+        # implementation, although with a clearer physics picture, is kind of stupid, so we instead
+        # consolidate the lines to a single pi/2 GE phase shift + -pi/2 EF phase shift, where the
+        # second line below will be removed from the schedule by the transpiler.
+        pulse.shift_phase(LO_SIGN * cx_sign * np.pi / 2., drive_channel)
+        pulse.shift_phase(-LO_SIGN * cx_sign * np.pi / 2., drive_channel, name='ef_phase')
+    calibrations.add_schedule(geom_sched, num_qubits=1)
+
+    # Since the last shift_phases are parts of Rz, which must be applied to variable number of
     # channels, we instantiate a full schedule for each qubit.
     for control, target in backend.control_channels.keys():
         if len(set((control, target)) & operational_qubits) != 2:
@@ -272,9 +294,12 @@ def add_qutrit_qubit_cx(
         drive_channel = sx_inst.channel
         rz_channels = [inst.channel for _, inst in inst_map.get('rz', target).instructions]
         rz_channels.remove(drive_channel)
-        qubit_sched = sched.append(pulse.ShiftPhase(LO_SIGN * angle, rz_channels[0]), inplace=False)
+
+        # Offset Rx
+        phase = LO_SIGN * angle
+        qubit_sched = rx_sched.append(pulse.ShiftPhase(phase, rz_channels[0]), inplace=False)
         for channel in rz_channels[1:]:
-            qubit_sched.append(pulse.ShiftPhase(LO_SIGN * angle, channel))
+            qubit_sched.append(pulse.ShiftPhase(phase, channel))
         calibrations.add_schedule(qubit_sched, qubits=[target])
 
         param_defaults = [
@@ -286,12 +311,38 @@ def add_qutrit_qubit_cx(
         ]
         for pname, value in param_defaults:
             calibrations.add_parameter_value(ParameterValue(value), pname, qubits=target,
-                                             schedule='cx_offset_rx')
+                                             schedule=rx_sched.name)
         calibrations.add_parameter_value(ParameterValue(0.), angle.name, qubits=target,
-                                         schedule='cx_offset_rx')
+                                         schedule=rx_sched.name)
+
+        # Geometric phase
+        phase = LO_SIGN * cx_sign * np.pi / 2.
+        qubit_sched = geom_sched.append(pulse.ShiftPhase(phase, rz_channels[0]), inplace=False)
+        for channel in rz_channels[1:]:
+            qubit_sched.append(pulse.ShiftPhase(phase, channel))
+        calibrations.add_schedule(qubit_sched, qubits=[control])
+
+        calibrations.add_parameter_value(ParameterValue(0), cx_sign.name, qubits=control,
+                                         schedule=geom_sched.name)
 
     # Calibrations.get_schedule cannot assign parameters to nested references so we repeat the
     # CRCR implementations here instead of referencing them
+    control_channel = pulse.ControlChannel(Parameter('ch0.1'))
+    target_drive_channel = pulse.DriveChannel(Parameter('ch1'))
+
+    # X/X12 on qubit 0 with DD on qubit 1
+    def x_dd():
+        with pulse.align_left():
+            pulse.reference('x', 'q0')
+            pulse.reference('x', 'q1')
+            pulse.reference('x', 'q1')
+
+    def x12_dd():
+        with pulse.align_left():
+            pulse.reference('x12', 'q0')
+            pulse.reference('x', 'q1')
+            pulse.reference('x', 'q1')
+
     # CX type X
     with pulse.build(name='qutrit_qubit_cx_rcr2', default_alignment='sequential') as sched:
         # [X12+DD][CR-][X+DD][CR-]
@@ -309,6 +360,7 @@ def add_qutrit_qubit_cx(
             with pulse.phase_offset(np.pi, target_drive_channel):
                 pulse.reference('cr', 'q0', 'q1')
         pulse.reference('cx_offset_rx', 'q1')
+        pulse.reference('cx_geometric_phase', 'q0')
     calibrations.add_schedule(sched, num_qubits=2)
 
     # CX type X12
@@ -328,6 +380,7 @@ def add_qutrit_qubit_cx(
             pulse.reference('cr', 'q0', 'q1')
             x_dd()
         pulse.reference('cx_offset_rx', 'q1')
+        pulse.reference('cx_geometric_phase', 'q0')
     calibrations.add_schedule(sched, num_qubits=2)
 
 

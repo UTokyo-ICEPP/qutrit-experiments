@@ -157,11 +157,13 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
     ):
         physical_qubits = tuple(physical_qubits)
         rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
+        cx_sign = calibrations.get_parameter_value('cx_sign', physical_qubits,
+                                                   schedule='cx_geometric_phase')
         super().__init__(
             calibrations,
             physical_qubits,
             rcr_type,
-            calibrations.get_parameter_value('qutrit_qubit_cx_sign', physical_qubits),
+            cx_sign,
             backend=backend,
             schedule_name=schedule_name,
             cal_parameter_name=cal_parameter_name,
@@ -236,6 +238,8 @@ class CycledRepeatedCRFineRxAngleCal(BaseCalibrationExperiment, CycledRepeatedCR
         auto_update: bool = True
     ):
         rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
+        cx_sign = calibrations.get_parameter_value('cx_sign', physical_qubits,
+                                                   schedule='cx_geometric_phase')
         super().__init__(
             calibrations,
             physical_qubits,
@@ -245,7 +249,7 @@ class CycledRepeatedCRFineRxAngleCal(BaseCalibrationExperiment, CycledRepeatedCR
             schedule_name=schedule_name,
             cal_parameter_name=cal_parameter_name,
             auto_update=auto_update,
-            cx_sign=calibrations.get_parameter_value('qutrit_qubit_cx_sign', physical_qubits),
+            cx_sign=cx_sign,
             repetitions=repetitions
         )
         self.current_cal_group = current_cal_group

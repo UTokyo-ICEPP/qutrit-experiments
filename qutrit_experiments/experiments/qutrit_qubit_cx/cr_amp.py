@@ -141,7 +141,8 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
         ]
 
         self.analysis.set_options(
-            cx_sign=calibrations.get_parameter_value('qutrit_qubit_cx_sign', physical_qubits)
+            cx_sign=calibrations.get_parameter_value('cx_sign', physical_qubits,
+                                                     schedule='cx_geometric_phase')
         )
 
     def _attach_calibrations(self, circuit: QuantumCircuit):

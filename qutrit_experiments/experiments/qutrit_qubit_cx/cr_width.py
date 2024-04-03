@@ -106,8 +106,8 @@ class CRRoughWidthCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['width', 'rcr_type', 'qutrit_qubit_cx_sign'],
-        schedule_name: str = ['cr', None, None],
+        cal_parameter_name: list[str] = ['width', 'rcr_type', 'cx_sign'],
+        schedule_name: str = ['cr', None, 'cx_geometric_phase'],
         auto_update: bool = True,
         widths: Optional[Sequence[float]] = None
     ):

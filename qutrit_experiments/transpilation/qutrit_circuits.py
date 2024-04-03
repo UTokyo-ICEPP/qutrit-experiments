@@ -90,30 +90,53 @@ class AddQutritCalibrations(TransformationPass):
                 corr_phase[gate][qubit] = corr
             return corr
 
-        def insert_ef_phase_shifts(original, ef_phase_shifts):
+        def insert_ef_phase_shifts(original, ef_phase_params=None, ef_phase_shifts=None):
+            if ef_phase_params is None:
+                ef_phase_params = defaultdict(list)
+            if ef_phase_shifts is None:
+                ef_phase_shifts = defaultdict(float)
+
             copy = ScheduleBlock.initialize_from(original)
             for block in original.blocks:
                 if isinstance(block, ScheduleBlock):
                     if block.name in ['x12', 'sx12']:
                         drive_channel = block.blocks[0].channel
                         qutrit = channel_qutrit_map[drive_channel]
-                        idx = len(ef_phase_shifts[qutrit])
-                        ef_phase = Parameter(f'ef_phase_q{qutrit}_{idx}')
-                        ef_phase_shifts[qutrit].append(ef_phase)
+                        idx = len(ef_phase_params[qutrit])
+                        param = Parameter(f'ef_phase_q{qutrit}_{idx}')
+                        ef_phase_params[qutrit].append(param)
+                        shift = ef_phase_shifts[qutrit]
                         offset, channels = get_corr_phase(block.name, qutrit)
                         logger.debug('  Inserting placeholder %d for qubit %d', idx, qutrit)
-                        copy.append(pulse.ShiftPhase(ef_phase, drive_channel))
+                        copy.append(pulse.ShiftPhase(param + shift, drive_channel))
                         copy.append(block)
-                        copy.append(pulse.ShiftPhase(-ef_phase + offset, drive_channel))
+                        copy.append(pulse.ShiftPhase(-(param + shift) + offset, drive_channel))
                         for channel in channels:
                             if channel != drive_channel:
                                 logger.debug('    Offset %.2f to channel %s', offset, channel)
                                 copy.append(pulse.ShiftPhase(offset, channel))
                     else:
-                        copy.append(insert_ef_phase_shifts(block, ef_phase_shifts))
+                        copy.append(
+                            insert_ef_phase_shifts(block, ef_phase_params, ef_phase_shifts)[0]
+                        )
+                elif isinstance(block, pulse.ShiftPhase) and block.name.startswith('rz'):
+                    logger.debug('  Appending phase shift labeled as %s', block.name)
+                    copy.append(block)
+                    drive_channel = block.channel
+                    qutrit = channel_qutrit_map[drive_channel]
+                    if block.name == 'rz':
+                        ef_phase_shifts[qutrit] -= block.phase / 2.
+                    elif block.name == 'rz12':
+                        # block.phase is the ge phase
+                        ef_phase_shifts[qutrit] -= block.phase * 2.
+                elif isinstance(block, pulse.ShiftPhase) and block.name == 'ef_phase':
+                    # Skip the instruction in copy
+                    drive_channel = block.channel
+                    qutrit = channel_qutrit_map[drive_channel]
+                    ef_phase_shifts[qutrit] += block.phase
                 else:
                     copy.append(block)
-            return copy
+            return copy, ef_phase_params
 
         for node in list(dag.topological_op_nodes()):
             if node not in node_start_time:
@@ -241,8 +264,8 @@ class AddQutritCalibrations(TransformationPass):
                     # Make a new ScheduleBlock with placeholder parameters for EF phase shifts
                     logger.debug('%s[%s] inserting EF phase shift placeholders', node.op.name,
                                  qubits)
-                    ef_phase_shifts = defaultdict(list)
-                    cal = insert_ef_phase_shifts(cal, ef_phase_shifts)
+                    ef_phase_params = defaultdict(list)
+                    cal = insert_ef_phase_shifts(cal, ef_phase_params)
 
                     # Assign phase shift values to the placeholders
                     start_time = node_start_time[node]
@@ -261,7 +284,7 @@ class AddQutritCalibrations(TransformationPass):
                             # See comments on X12Gate
                             ef_lo_phase = (LO_SIGN * (start_time + inst_time) * twopi
                                            * freq_diffs[qutrit] * self.target.dt)
-                            parameter = ef_phase_shifts[qutrit].pop(0)
+                            parameter = ef_phase_params[qutrit].pop(0)
                             assign_map[parameter] = (ef_lo_phase + cumul_angle_ef[qutrit]
                                                      - cumul_angle_ge[qutrit]) % twopi
                             logger.debug('  Assigning %.2f to %s', assign_map[parameter], parameter)
@@ -270,7 +293,7 @@ class AddQutritCalibrations(TransformationPass):
                             else:
                                 cumul_angle_ge[qutrit] += get_corr_phase('sx12', qutrit)[0]
 
-                    assert set(len(l) for l in ef_phase_shifts.values()) == {0}
+                    assert set(len(l) for l in ef_phase_params.values()) == {0}
 
                     node.op.params.append(start_time)
                     cal.assign_parameters(assign_map, inplace=True)
