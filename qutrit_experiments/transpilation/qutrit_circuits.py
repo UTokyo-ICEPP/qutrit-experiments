@@ -119,21 +119,20 @@ class AddQutritCalibrations(TransformationPass):
                         copy.append(
                             insert_ef_phase_shifts(block, ef_phase_params, ef_phase_shifts)[0]
                         )
-                elif isinstance(block, pulse.ShiftPhase) and block.name.startswith('rz'):
-                    logger.debug('  Appending phase shift labeled as %s', block.name)
-                    copy.append(block)
+                elif isinstance(block, pulse.ShiftPhase) and block.name is not None:
+                    logger.debug('  Found phase shift labeled as %s', block.name)
                     drive_channel = block.channel
                     qutrit = channel_qutrit_map[drive_channel]
                     if block.name == 'rz':
+                        copy.append(block)
                         ef_phase_shifts[qutrit] -= block.phase / 2.
                     elif block.name == 'rz12':
+                        copy.append(block)
                         # block.phase is the ge phase
                         ef_phase_shifts[qutrit] -= block.phase * 2.
-                elif isinstance(block, pulse.ShiftPhase) and block.name == 'ef_phase':
-                    # Skip the instruction in copy
-                    drive_channel = block.channel
-                    qutrit = channel_qutrit_map[drive_channel]
-                    ef_phase_shifts[qutrit] += block.phase
+                    elif block.name == 'ef_phase':
+                        # Skip the instruction in copy
+                        ef_phase_shifts[qutrit] += block.phase
                 else:
                     copy.append(block)
             return copy, ef_phase_params
