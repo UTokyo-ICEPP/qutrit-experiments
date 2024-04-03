@@ -6,9 +6,9 @@ import numpy as np
 from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
 
-from ..calibrations import get_qutrit_qubit_composite_gate
+from ..calibrations import get_qutrit_pulse_gate, get_qutrit_qubit_composite_gate
 from ..experiment_config import ExperimentConfig, register_exp, register_post
-from ..gates import CrossResonanceGate, QutritQubitCXGate, RCRGate
+from ..gates import CRCRGate, CrossResonanceGate, GateType, QutritGate, QutritQubitCXGate, RCRGate
 from ..util.pulse_area import gs_effective_duration, rabi_cycles_per_area
 from .common import add_readout_mitigation, qubits_assignment_error, qubits_assignment_error_post
 
@@ -23,52 +23,53 @@ def qubits_assignment_error_func(runner):
 
 register_post(qubits_assignment_error_post, exp_type='qubits_assignment_error')
 
-@register_exp
-@add_readout_mitigation(logical_qubits=[1], expval=True)
-def cr_unitaries(runner):
+def unitaries(runner, gate):
     from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
+
+    if isinstance(gate, QutritGate):
+        if gate.gate_type == GateType.COMPOSITE:
+            sched = get_qutrit_qubit_composite_gate(gate.name, runner.qubits, runner.calibrations,
+                                                    target=runner.backend.target)
+        elif gate.gate_type == GateType.PULSE:
+            qutrit = np.array(runner.qubits)[list(gate.as_qutrit)][0]
+            sched = get_qutrit_pulse_gate(gate.name, qutrit, runner.calibrations,
+                                          target=runner.backend.target)
+    else:
+        sched = runner.calibrations.get_schedule(gate.name, runner.qubits)
+
     circuit = QuantumCircuit(2)
-    circuit.append(CrossResonanceGate(), [0, 1])
-    circuit.add_calibration(CrossResonanceGate.gate_name, runner.qubits,
-                            runner.calibrations.get_schedule(CrossResonanceGate.gate_name,
-                                                             runner.qubits))
+    circuit.append(gate, [0, 1])
+    circuit.add_calibration(gate.name, runner.qubits, sched)
+
     return ExperimentConfig(
         QutritQubitTomography,
         runner.qubits,
         args={'circuit': circuit},
         run_options={'shots': 8000}
     )
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1], expval=True)
+def cr_unitaries(runner):
+    return unitaries(runner, CrossResonanceGate())
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def rcr_unitaries(runner):
-    from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
     rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits)
-    gate = RCRGate.of_type(rcr_type)
-    circuit = QuantumCircuit(2)
-    circuit.append(gate(), [0, 1])
-    circuit.add_calibration(gate.gate_name, runner.qubits,
-                            get_qutrit_qubit_composite_gate(RCRGate.of_type(rcr_type).gate_name,
-                                                            runner.qubits, runner.calibrations,
-                                                            target=runner.backend.target))
-    return ExperimentConfig(
-        QutritQubitTomography,
-        runner.qubits,
-        args={'circuit': circuit},
-        run_options={'shots': 8000}
-    )
+    return unitaries(runner, RCRGate.of_type(rcr_type)())
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def crcr_unitaries(runner):
-    from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
     rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits)
-    return ExperimentConfig(
-        QutritQubitTomography,
-        runner.qubits,
-        args={'circuit': QutritQubitCXGate.of_type(rcr_type)()},
-        run_options={'shots': 8000}
-    )
+    return unitaries(runner, CRCRGate.of_type(rcr_type)())
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1], expval=True)
+def cx_unitaries(runner):
+    rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits)
+    return unitaries(runner, QutritQubitCXGate.of_type(rcr_type)())
 
 @register_exp
 def cr_initial_amp(runner):

@@ -290,15 +290,43 @@ def add_qutrit_qubit_cx(
         calibrations.add_parameter_value(ParameterValue(0.), angle.name, qubits=target,
                                          schedule='cx_offset_rx')
 
+    # Calibrations.get_schedule cannot assign parameters to nested references so we repeat the
+    # CRCR implementations here instead of referencing them
     # CX type X
     with pulse.build(name='qutrit_qubit_cx_rcr2', default_alignment='sequential') as sched:
-        pulse.reference('crcr2', 'q0', 'q1')
+        # [X12+DD][CR-][X+DD][CR-]
+        with pulse.phase_offset(np.pi, control_channel):
+            x12_dd()
+            with pulse.phase_offset(np.pi, target_drive_channel):
+                pulse.reference('cr', 'q0', 'q1')
+            x_dd()
+            pulse.reference('cr', 'q0', 'q1')
+        for _ in range(2):
+            # [X12+DD][CR+][X+DD][CR+]
+            x12_dd()
+            pulse.reference('cr', 'q0', 'q1')
+            x_dd()
+            with pulse.phase_offset(np.pi, target_drive_channel):
+                pulse.reference('cr', 'q0', 'q1')
         pulse.reference('cx_offset_rx', 'q1')
     calibrations.add_schedule(sched, num_qubits=2)
 
     # CX type X12
     with pulse.build(name='qutrit_qubit_cx_rcr0', default_alignment='sequential') as sched:
-        pulse.reference('crcr0', 'q0', 'q1')
+        for _ in range(2):
+            # [CR+][X12+DD][CR+][X+DD]
+            pulse.reference('cr', 'q0', 'q1')
+            x12_dd()
+            with pulse.phase_offset(np.pi, target_drive_channel):
+                pulse.reference('cr', 'q0', 'q1')
+            x_dd()
+        # [CR-][X12+DD][CR-][X+DD]
+        with pulse.phase_offset(np.pi, control_channel):
+            with pulse.phase_offset(np.pi, target_drive_channel):
+                pulse.reference('cr', 'q0', 'q1')
+            x12_dd()
+            pulse.reference('cr', 'q0', 'q1')
+            x_dd()
         pulse.reference('cx_offset_rx', 'q1')
     calibrations.add_schedule(sched, num_qubits=2)
 
@@ -321,10 +349,6 @@ def get_qutrit_qubit_composite_gate(
             if not freq_shift:
                 freq_shift = get_qutrit_freq_shift(physical_qubits[0], target, calibrations)
             assign_params_dict[key] = freq_shift
-
-    for param in template.parameters:
-        if param.name.startswith('ef_phase_'):
-            assign_params_dict[param.name] = Parameter(param.name)
 
     if assign_params:
         assign_params_dict.update(assign_params)

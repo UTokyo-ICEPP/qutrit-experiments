@@ -188,18 +188,48 @@ class RCRTypeX12Gate(QutritGate, RCRGate, gate_name='rcr0', gate_type=GateType.C
         super().__init__(params=params, label=label)
 
 
+class CRCRGate(QutritGate, gate_name='crcr', gate_type=GateType.COMPOSITE, as_qutrit=(True, False)):
+    """Cycled RCR gate.
+    
+    CRCR angles:
+    TYPE_X(2) -> 2 * (θ_0 + θ_1 - 2*θ_2)
+    TYPE_X12(0) -> 2 * (θ_1 + θ_2 - 2*θ_0)
+    """
+    def __init__(
+        self,
+        params: Optional[Sequence[ParameterValueType]] = None,
+        label: Optional[str] = None
+    ):
+        super().__init__(params=params, label=label)
+
+    @classmethod
+    def of_type(cls, rcr_type: int) -> type['CRCRGate']:
+        match rcr_type:
+            case RCRGate.TYPE_X:
+                return CRCRTypeXGate
+            case RCRGate.TYPE_X12:
+                return CRCRTypeX12Gate
+            
+
+class CRCRTypeXGate(CRCRGate, gate_name='crcr2', gate_type=GateType.COMPOSITE,
+                    as_qutrit=(True, False)):
+    """Cycled RCR gate."""
+
+
+class CRCRTypeX12Gate(CRCRGate, gate_name='crcr0', gate_type=GateType.COMPOSITE,
+                      as_qutrit=(True, False)):
+    """Cycled RCR gate."""
+
+
 class QutritQubitCXGate(QutritGate, gate_name='qutrit_qubit_cx', gate_type=GateType.COMPOSITE,
                         as_qutrit=(True, False)):
     """CX gate with a control qutrit and target qubit."""
-    TYPE_X = 2 # CRCR angle = 2 * (θ_0 + θ_1 - 2*θ_2)
-    TYPE_X12 = 0 # CRCR angle = 2 * (θ_1 + θ_2 - 2*θ_0)
-
     @classmethod
     def of_type(cls, rcr_type: int) -> type['QutritQubitCXGate']:
         match rcr_type:
-            case cls.TYPE_X:
+            case RCRGate.TYPE_X:
                 return QutritQubitCXTypeXGate
-            case cls.TYPE_X12:
+            case RCRGate.TYPE_X12:
                 return QutritQubitCXTypeX12Gate
 
     def __init__(
