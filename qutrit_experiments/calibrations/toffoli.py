@@ -22,6 +22,61 @@ from .util import get_default_ecr_schedule, get_operational_qubits, get_qutrit_f
 
 logger = logging.getLogger(__name__)
 
+def make_toffoli_calibrations(
+    backend: Backend,
+    calibrations: Optional[Calibrations] = None,
+    qubits: Optional[Sequence[int]] = None
+) -> Calibrations:
+    """Define parameters and schedules for qutrit-qubit CX gate."""
+    if calibrations is None:
+        calibrations = Calibrations.from_backend(backend)
+    if type(calibrations.add_schedule).__name__ == 'method':
+        update_add_schedule(calibrations)
+
+    add_dd(backend, calibrations, qubits=(qubits[0], qubits[2]))
+    add_qutrit_qubit_cx_with_dd(backend, calibrations, qubits=qubits)
+
+    return calibrations
+
+
+def add_dd(
+    backend: Backend,
+    calibrations: Calibrations,
+    qubits: tuple[int, int]
+) -> None:
+    """Add templates for DD sequences (X-delay-X)."""
+    inst_map = backend.defaults().instruction_schedule_map
+
+    duration = Parameter('duration')
+    pulse_duration = Parameter('pulse_duration')
+    dd_pulse = DoubleDrag(
+        duration=duration,
+        pulse_duration=pulse_duration,
+        amp=Parameter('amp'),
+        sigma=Parameter('sigma'),
+        beta=Parameter('beta'),
+        interval=(duration - 2 * pulse_duration) / 2
+    )
+    with pulse.build(name='dd') as sched:
+        pulse.play(dd_pulse, pulse.DriveChannel(Parameter('ch0')))
+    calibrations.add_schedule(sched, num_qubits=1)
+
+    for qubit in qubits:
+        x_sched = calibrations.get_schedule('x', qubits[:1])
+        x_pulse = x_sched.instructions[0][1].pulse
+        x_duration = x_sched.duration
+        pvalues = [
+            ('duration', x_duration * 2),
+            ('pulse_duration', x_pulse.duration),
+            ('amp', x_pulse.amp),
+            ('sigma', x_pulse.sigma),
+            ('beta', x_pulse.beta)
+        ]
+        for pname, value in pvalues:
+            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=[qubit],
+                                             schedule=sched.name)
+
+
 def add_qutrit_qubit_cx_with_dd(
     backend: Backend,
     calibrations: Calibrations,
@@ -31,13 +86,11 @@ def add_qutrit_qubit_cx_with_dd(
     calibrations for the non-DD CX is settled."""
     inst_map = backend.defaults().instruction_schedule_map
 
-    q_c1, q_c2, q_t = qubits
-
     # Import the X parameter values from inst_map
-    if ParameterKey('duration', (q_c1,), 'x') not in calibrations._params:
-        params = inst_map.get('x', q_c1).instructions[0][1].pulse.parameters
+    if ParameterKey('duration', (qubits[0],), 'x') not in calibrations._params:
+        params = inst_map.get('x', qubits[0]).instructions[0][1].pulse.parameters
         for pname, value in params.items():
-            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=[q_c1],
+            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=[qubits[0]],
                                              schedule='x')
 
     # X/X12 on qubit 1 with DD on qubit 2
@@ -59,38 +112,16 @@ def add_qutrit_qubit_cx_with_dd(
 
     cr_duration = calibrations.get_schedule('cr', qubits[1:]).duration
     c1_x_sched = calibrations.get_schedule('x', qubits[:1])
-    c1_x_pulse = c1_x_sched.instructions[0][1].pulse
     x_duration = c1_x_sched.duration
 
-    c1_drive_channel = pulse.DriveChannel(Parameter('ch0'))
     control_channel = pulse.ControlChannel(Parameter('ch1.2'))
     target_drive_channel = pulse.DriveChannel(Parameter('ch2'))
 
     if cr_duration >= 2 * x_duration:
-        duration = Parameter('duration')
-        pulse_duration = Parameter('pulse_duration')
-        dd_pulse = DoubleDrag(
-            duration=duration,
-            pulse_duration=pulse_duration,
-            amp=Parameter('amp'),
-            sigma=Parameter('sigma'),
-            beta=Parameter('beta'),
-            interval=(duration - 2 * pulse_duration) / 2
-        )
-        with pulse.build(name='c1_cr_dd') as sched:
-            pulse.play(dd_pulse, c1_drive_channel)
-        calibrations.add_schedule(sched, num_qubits=1)
-
-        pvalues = [
-            ('duration', cr_duration),
-            ('pulse_duration', c1_x_pulse.duration),
-            ('amp', c1_x_pulse.amp),
-            ('sigma', c1_x_pulse.sigma),
-            ('beta', c1_x_pulse.beta)
-        ]
-        for pname, value in pvalues:
-            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=[q_c1],
-                                             schedule=sched.name)
+        c1_cr_dd = calibrations.get_schedule('dd', qubits[0],
+                                             assign_params={'duration': cr_duration})
+        c1_cr_dd.name = 'c1_cr_dd'
+        calibrations.add_schedule(c1_cr_dd, qubits=qubits[0])
 
         def cr_dd():
             with pulse.align_left():
