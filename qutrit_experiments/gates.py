@@ -22,119 +22,103 @@ class GateType(Enum):
 
 class QutritGate(Gate):
     """Qutrit gate base class."""
-    gate_name = None
     gate_type = None
-    as_qutrit = None
-    num_qubits = None
 
-    def __init_subclass__(cls, /, gate_name, gate_type, as_qutrit=None, **kwargs):
-        super().__init_subclass__(**kwargs)
-        cls.gate_name = gate_name
-        cls.gate_type = gate_type
-        # Get as_qutrit from the direct parent if None
-        cls.as_qutrit = as_qutrit or cls.mro()[1].as_qutrit
-        if cls.as_qutrit is not None:
-            cls.num_qubits = len(cls.as_qutrit)
-
-    def __init__(self, params, name=None, label=None, duration=None, unit='dt'):
-        if name is None:
-            name = self.gate_name
-        super().__init__(name, self.num_qubits, params, label=label, duration=duration, unit=unit)
-
-
-class QutritPulseGateBase(QutritGate, gate_name='', gate_type=GateType.PULSE):
-    """Pulse gate base class."""
-    def __init_subclass__(cls, /, gate_name, as_qutrit=None, **kwargs):
-        super().__init_subclass__(gate_name=gate_name, gate_type=GateType.PULSE,
-                                  as_qutrit=as_qutrit, **kwargs)
-
-
-class QutritVirtualGateBase(QutritGate, gate_name='', gate_type=GateType.VIRTUAL):
-    """Pulse gate base class."""
-    def __init_subclass__(cls, /, gate_name, as_qutrit=None, **kwargs):
-        super().__init_subclass__(gate_name=gate_name, gate_type=GateType.VIRTUAL,
-                                  as_qutrit=as_qutrit, **kwargs)
-
-
-class QutritCompositeGateBase(QutritGate, gate_name='', gate_type=GateType.COMPOSITE):
-    """Pulse gate base class."""
-    def __init_subclass__(cls, /, gate_name, as_qutrit=None, **kwargs):
-        super().__init_subclass__(gate_name=gate_name, gate_type=GateType.COMPOSITE,
-                                  as_qutrit=as_qutrit, **kwargs)
-
-
-class QutritPulseGate(QutritPulseGateBase, gate_name='pulse'):
-    """Per-instance defined qutrit gate."""
     def __init__(
         self,
         name: str,
-        num_qubits: int,
+        as_qutrit: tuple[bool, ...],
         params: list[ParameterValueType],
-        label: Optional[str] = None
+        label: Optional[str] = None,
+        duration: Optional[int] = None,
+        unit: str = 'dt'
     ):
-        super().__init__(params, name=name, label=label)
-        self.num_qubits = num_qubits
+        super().__init__(name, len(as_qutrit), params, label=label, duration=duration, unit=unit)
+        self.as_qutrit = as_qutrit
 
 
-class QutritCompositeGate(QutritCompositeGateBase, gate_name='composite'):
-    """Per-instance defined qutrit gate."""
-    def __init__(
-        self,
-        name: str,
-        num_qubits: int,
-        params: list[ParameterValueType],
-        label: Optional[str] = None
-    ):
-        super().__init__(params, name=name, label=label)
-        self.num_qubits = num_qubits
+class QutritPulseGate(QutritGate):
+    """Pulse gate base class."""
+    gate_type = GateType.PULSE
 
 
-class OneQutritPulseGateBase(QutritPulseGateBase, gate_name='', as_qutrit=(True,)):
+class QutritVirtualGate(QutritGate):
+    """Pulse gate base class."""
+    gate_type = GateType.VIRTUAL
+
+
+class QutritCompositeGate(QutritGate):
+    """Pulse gate base class."""
+    gate_type = GateType.COMPOSITE
+
+
+class StaticProperties:
+    """Mixin for qutrit gates with properties defined at class level. Copies of the properties will
+    be set on instances through __init__()."""
+    def __init__(self, params, *args, label=None, duration=None, unit='dt', **kwargs):
+        if params is None:
+            params = []
+        else:
+            params = list(params)
+        super().__init__(self.__class__.gate_name, self.__class__.as_qutrit, params, *args,
+                         label=label, duration=duration, unit=unit, **kwargs)
+
+
+class OneQutritPulseGate(StaticProperties, QutritPulseGate):
     """Single qutrit pulse gate base class."""
+    as_qutrit = (True,)
 
 
-class OneQutritVirtualGateBase(QutritVirtualGateBase, gate_name='', as_qutrit=(True,)):
+class OneQutritVirtualGate(StaticProperties, QutritVirtualGate):
     """Single qutrit virtual gate base class."""
+    as_qutrit = (True,)
 
 
-class OneQutritCompositeGateBase(QutritCompositeGateBase, gate_name='', as_qutrit=(True,)):
+class OneQutritCompositeGate(StaticProperties, QutritCompositeGate):
     """Single qutrit composite gate base class."""
+    as_qutrit = (True,)
 
 
-class QutritQubitCompositeGateBase(QutritCompositeGateBase, gate_name='', as_qutrit=(True, False)):
+class QutritQubitCompositeGate(StaticProperties, QutritCompositeGate):
     """Qutrit-qubit composite gate base class."""
+    as_qutrit = (True, False)
 
 
-class X12Gate(OneQutritPulseGateBase, gate_name='x12'):
+class X12Gate(OneQutritPulseGate):
     """The single-qubit X gate on EF subspace."""
+    gate_name = 'x12'
     def __init__(self, label: Optional[str] = None):
         """Create new X12 gate."""
         super().__init__([], label=label)
 
 
-class SX12Gate(OneQutritPulseGateBase, gate_name='sx12'):
+class SX12Gate(OneQutritPulseGate):
     """The single-qubit Sqrt(X) gate on EF subspace."""
+    gate_name = 'sx12'
     def __init__(self, label: Optional[str] = None):
         """Create new SX12 gate."""
         super().__init__([], label=label)
 
 
-class RZ12Gate(OneQutritVirtualGateBase, gate_name='rz12'):
+class RZ12Gate(OneQutritVirtualGate):
     """The RZ gate on EF subspace."""
+    gate_name = 'rz12'
     def __init__(self, phi: ParameterValueType, label: Optional[str] = None):
         """Create new RZ12 gate."""
         super().__init__([phi], label=label)
 
 
-class SetF12Gate(OneQutritVirtualGateBase, gate_name='set_f12'):
+class SetF12Gate(OneQutritVirtualGate):
     """Set the qutrit frequency to a specific value."""
+    gate_name = 'set_f12'
     def __init__(self, freq: ParameterValueType, label: Optional[str] = None):
         """Create new SetF12 gate."""
         super().__init__([freq], label=label)
 
 
-class U12Gate(OneQutritCompositeGateBase, gate_name='u12'):
+class U12Gate(OneQutritCompositeGate):
     """U gate composed of SX12 and RZ12."""
+    gate_name = 'u12'
     def __init__(
         self,
         theta: ParameterValueType,
@@ -152,14 +136,16 @@ class U12Gate(OneQutritCompositeGateBase, gate_name='u12'):
         return U12Gate(-self.params[0], -self.params[2], -self.params[1])
 
 
-class XplusGate(OneQutritCompositeGateBase, gate_name='xplus'):
+class XplusGate(OneQutritCompositeGate):
     """X+ gate."""
+    gate_name = 'xplus'
     def __init__(self, label: Optional[str] = None):
         super().__init__([], label=label)
 
 
-class XminusGate(OneQutritCompositeGateBase, gate_name='xminus'):
+class XminusGate(OneQutritCompositeGate):
     """X- gate."""
+    gate_name = 'xminus'
     def __init__(self, label: Optional[str] = None):
         super().__init__([], label=label)
 
@@ -226,33 +212,32 @@ class RCRTypeXGate(RCRGate):
         super().__init__(self.gate_name, 2, params=params, label=label)
 
 
-class RCRTypeX12Gate(QutritQubitCompositeGateBase, RCRGate, gate_name='rcr0'):
+class RCRTypeX12Gate(QutritQubitCompositeGate, RCRGate):
     """Repeated cross resonance gate."""
+    gate_name = 'rcr0'
+
     def __init__(
         self,
         params: Optional[Sequence[ParameterValueType]] = None,
         label: Optional[str] = None
     ):
-        if params is None:
-            params = []
-        else:
-            params = list(params)
-        super().__init__(params=params, label=label)
+        super().__init__(params, label=label)
 
 
-class CRCRGate(QutritQubitCompositeGateBase, gate_name='crcr'):
+class CRCRGate(QutritQubitCompositeGate):
     """Cycled RCR gate.
 
     CRCR angles:
     TYPE_X(2) -> 2 * (θ_0 + θ_1 - 2*θ_2)
     TYPE_X12(0) -> 2 * (θ_1 + θ_2 - 2*θ_0)
     """
+    gate_name = 'crcr'
     def __init__(
         self,
         params: Optional[Sequence[ParameterValueType]] = None,
         label: Optional[str] = None
     ):
-        super().__init__(params=params, label=label)
+        super().__init__(params, label=label)
 
     @classmethod
     def of_type(cls, rcr_type: int) -> type['CRCRGate']:
@@ -263,16 +248,20 @@ class CRCRGate(QutritQubitCompositeGateBase, gate_name='crcr'):
                 return CRCRTypeX12Gate
 
 
-class CRCRTypeXGate(CRCRGate, gate_name='crcr2'):
+class CRCRTypeXGate(CRCRGate):
     """Cycled RCR gate."""
+    gate_name = 'crcr2'
 
 
-class CRCRTypeX12Gate(CRCRGate, gate_name='crcr0'):
+class CRCRTypeX12Gate(CRCRGate):
     """Cycled RCR gate."""
+    gate_name = 'crcr0'
 
 
-class QutritQubitCXGate(QutritQubitCompositeGateBase, gate_name='qutrit_qubit_cx'):
+class QutritQubitCXGate(QutritQubitCompositeGate):
     """CX gate with a control qutrit and target qubit."""
+    gate_name = 'qutrit_qubit_cx'
+
     @classmethod
     def of_type(cls, rcr_type: int) -> type['QutritQubitCXGate']:
         match rcr_type:
@@ -286,19 +275,46 @@ class QutritQubitCXGate(QutritQubitCompositeGateBase, gate_name='qutrit_qubit_cx
         params: Optional[Sequence[ParameterValueType]] = None,
         label: Optional[str] = None
     ):
+        super().__init__(params, label=label)
+
+
+class QutritQubitCXTypeXGate(QutritQubitCXGate):
+    """CX gate with a control qutrit and target qubit."""
+    gate_name = 'qutrit_qubit_cx_rcr2'
+
+
+class QutritQubitCXTypeX12Gate(QutritQubitCXGate):
+    """CX gate with a control qutrit and target qubit."""
+    gate_name = 'qutrit_qubit_cx_rcr0'
+
+
+class QutritMCXGate(QutritCompositeGate):
+    """Multi-controlled gate using qutrits."""
+    def __init__(
+        self,
+        name: str,
+        num_controls: int,
+        params: Optional[Sequence[ParameterValueType]] = None,
+        label: Optional[str] = None
+    ):
         if params is None:
             params = []
         else:
             params = list(params)
-        super().__init__(params=params, label=label)
+        as_qutrit = (False,) + (True,) * (num_controls - 1) + (False,)
+        super().__init__(name, as_qutrit, params, label=label)
 
 
-class QutritQubitCXTypeXGate(QutritQubitCXGate, gate_name='qutrit_qubit_cx_rcr2'):
-    """CX gate with a control qutrit and target qubit."""
+class QutritToffoliGate(QutritMCXGate):
+    """Toffoli gate using qutrits."""
+    gate_name = 'qutrit_toffoli'
 
-
-class QutritQubitCXTypeX12Gate(QutritQubitCXGate, gate_name='qutrit_qubit_cx_rcr0'):
-    """CX gate with a control qutrit and target qubit."""
+    def __init__(
+        self,
+        params: Optional[Sequence[ParameterValueType]] = None,
+        label: Optional[str] = None
+    ):
+        super().__init__(self.gate_name, 2, params=params, label=label)
 
 
 q = QuantumRegister(1, "q")
