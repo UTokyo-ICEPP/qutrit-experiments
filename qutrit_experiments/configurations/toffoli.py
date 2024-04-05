@@ -9,6 +9,7 @@ from ..gates import QutritQubitCXGate, X12Gate, XminusGate, XplusGate
 from ..transpilation.layout_and_translation import generate_translation_passmanager
 from ..transpilation.qutrit_transpiler import BASIS_GATES, make_instruction_durations
 from ..transpilation.rz import ConsolidateRZAngle
+from ..util.qutrit_toffoli import qutrit_toffoli_circuit
 from .common import add_readout_mitigation
 
 
@@ -89,38 +90,13 @@ def toffoli_qpt_bare(runner):
 @add_readout_mitigation
 def toffoli_qpt_bc(runner):
     from ..experiments.process_tomography import CircuitTomography
-    qubits = tuple(runner.qubits)
-
-    cx_circuit = QuantumCircuit(2)
-    cx_circuit.cx(0, 1)
-    if 'cx' not in runner.backend.target:
-        # Assuming ECR acts on c1->c2 (no layout applied; translator assumes q0 is the control)
-        pm = generate_translation_passmanager(runner.backend.operation_names)
-        pm.append(ConsolidateRZAngle())
-        cx_circuit = pm.run(cx_circuit)
-
-    rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits[1:])
-
-    circuit = QuantumCircuit(3)
-    circuit.append(X12Gate(label='qutrit_circuit_start'), [1])
-    circuit.x(1)
-    circuit.delay(Parameter('qutrit_refocusing_delay'))
-    circuit.append(X12Gate(), [1])
-    circuit.x(1)
-    circuit.compose(cx_circuit, [0, 1], inplace=True)
-    circuit.append(QutritQubitCXGate.of_type(rcr_type)(), [1, 2])
-    circuit.compose(cx_circuit, [0, 1], inplace=True)
-    circuit.append(X12Gate(), [1])
-    circuit.x(1)
-
-    instruction_durations = make_instruction_durations(runner.backend, runner.calibrations,
-                                                       qubits=qubits)
-
+    circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits)
     target_circuit = QuantumCircuit(3)
     target_circuit.ccx(0, 1, 2)
 
     return ExperimentConfig(
         CircuitTomography,
         runner.qubits,
-        args={'circuit': circuit, 'target_circuit': target_circuit}
+        args={'circuit': circuit, 'target_circuit': target_circuit},
+        run_options={'shots': 4000}
     )
