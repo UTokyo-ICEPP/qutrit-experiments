@@ -24,17 +24,12 @@ logger = logging.getLogger(__name__)
 
 def make_toffoli_calibrations(
     backend: Backend,
-    calibrations: Optional[Calibrations] = None,
-    qubits: Optional[Sequence[int]] = None
+    calibrations: Calibrations,
+    qubits: tuple[int, int, int]
 ) -> Calibrations:
     """Define parameters and schedules for qutrit-qubit CX gate."""
-    if calibrations is None:
-        calibrations = Calibrations.from_backend(backend)
-    if type(calibrations.add_schedule).__name__ == 'method':
-        update_add_schedule(calibrations)
-
     add_dd(backend, calibrations, qubits=(qubits[0], qubits[2]))
-    add_qutrit_qubit_cx_with_dd(backend, calibrations, qubits=qubits)
+    add_qutrit_qubit_cx_with_dd(backend, calibrations, qubits)
 
     return calibrations
 
@@ -62,7 +57,7 @@ def add_dd(
     calibrations.add_schedule(sched, num_qubits=1)
 
     for qubit in qubits:
-        x_sched = calibrations.get_schedule('x', qubits[:1])
+        x_sched = inst_map.get('x', qubit)
         x_pulse = x_sched.instructions[0][1].pulse
         x_duration = x_sched.duration
         pvalues = [
@@ -120,8 +115,10 @@ def add_qutrit_qubit_cx_with_dd(
     if cr_duration >= 2 * x_duration:
         c1_cr_dd = calibrations.get_schedule('dd', qubits[0],
                                              assign_params={'duration': cr_duration})
-        c1_cr_dd.name = 'c1_cr_dd'
-        calibrations.add_schedule(c1_cr_dd, qubits=qubits[0])
+        sched = ScheduleBlock.initialize_from(c1_cr_dd, name='c1_cr_dd')
+        for block in c1_cr_dd.blocks:
+            sched.append(block)
+        calibrations.add_schedule(sched, qubits=qubits[0])
 
         def cr_dd():
             with pulse.align_left():
@@ -170,7 +167,7 @@ def add_qutrit_qubit_cx_with_dd(
                 x12_dd()
                 cr_dd()
                 x_dd()
-            pulse.reference('cx_geometric_phase', 'q0')
+            pulse.reference('cx_geometric_phase', 'q1')
             with pulse.align_left():
                 pulse.reference('cx_offset_rx', 'q2')
                 pulse.reference('x', 'q0')

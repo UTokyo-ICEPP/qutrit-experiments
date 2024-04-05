@@ -153,21 +153,3 @@ def add_x12_sx12(
             calibrations.add_parameter_value(ParameterValue(0.), 'delta', qubits=[qubit],
                                              schedule=sched.name)
 
-
-def get_qutrit_pulse_gate(
-    gate_name: str,
-    qubit: int,
-    calibrations: Calibrations,
-    freq_shift: Optional[float] = None,
-    target: Optional[Target] = None,
-    assign_params: Optional[dict[str, ParameterValueType]] = None,
-    group: str = 'default'
-) -> ScheduleBlock:
-    if not freq_shift:
-        freq_shift = get_qutrit_freq_shift(qubit, target, calibrations)
-    assign_params_dict = {'freq': freq_shift}
-    if assign_params:
-        assign_params_dict.update(assign_params)
-
-    return calibrations.get_schedule(gate_name, qubit, assign_params=assign_params_dict,
-                                     group=group)

@@ -382,29 +382,3 @@ def add_qutrit_qubit_cx(
         pulse.reference('cx_offset_rx', 'q1')
         pulse.reference('cx_geometric_phase', 'q0')
     calibrations.add_schedule(sched, num_qubits=2)
-
-
-def get_qutrit_qubit_composite_gate(
-    gate_name: str,
-    physical_qubits: tuple[int, int],
-    calibrations: Calibrations,
-    freq_shift: Optional[float] = None,
-    target: Optional[Target] = None,
-    assign_params: Optional[dict[str, ParameterValueType]] = None,
-    group: str = 'default'
-) -> ScheduleBlock:
-    physical_qubits = tuple(physical_qubits)
-    template = calibrations.get_template(gate_name, physical_qubits)
-    assign_params_dict = {}
-    for ref in template.references.unassigned():
-        if (gate := ref[0]) in ['x12', 'sx12']:
-            key = ('freq', physical_qubits[:1], gate)
-            if not freq_shift:
-                freq_shift = get_qutrit_freq_shift(physical_qubits[0], target, calibrations)
-            assign_params_dict[key] = freq_shift
-
-    if assign_params:
-        assign_params_dict.update(assign_params)
-
-    return calibrations.get_schedule(gate_name, physical_qubits, assign_params=assign_params_dict,
-                                     group=group)
