@@ -24,9 +24,6 @@ def calibrate_qutrit_qubit_cx(
         # Construct the error mitigation matrix and find the rough CR pulse width
         runner.run_experiment('qubits_assignment_error', force_resubmit=refresh_readout_error)
 
-    # Construct the error mitigation matrix for ternary discriminator
-    runner.run_experiment('qutrit_assignment_error')
-
     # Find the amplitude that does not disrupt the |2> state too much
     runner.run_experiment('cr_initial_amp')
 
@@ -54,19 +51,11 @@ def calibrate_qutrit_qubit_cx(
     # Minimize the y and z components of RCR
     runner.run_experiment('rcr_rotary_amp')
 
-    config = experiments['crcr_unitaries'](runner)
-    config.exp_type += '_prefine'
-    runner.run_experiment(config)
-
     # Fine calibration
     runner.run_experiment('crcr_fine_scanbased')
 
-    for exp_type in [
-    #    'crcr_fine_iter1',
-    #    'crcr_fine_iter2',
-        'crcr_unitaries'
-    ]:
-        runner.run_experiment(exp_type)
+    # Validate CRCR calibration
+    runner.run_experiment('crcr_unitaries')
 
     if qutrit_qubit_index is not None:
         runner.qubits = runner_qubits
