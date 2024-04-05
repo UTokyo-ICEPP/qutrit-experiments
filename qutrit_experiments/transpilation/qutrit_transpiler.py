@@ -45,7 +45,7 @@ def make_instruction_durations(
     instruction_durations = InstructionDurations(backend.instruction_durations, dt=backend.dt)
     for inst in BASIS_GATES:
         durations = []
-        match (inst.gate_type, inst.num_qubits):
+        match (inst.gate_type, len(inst.as_qutrit)):
             case (GateType.PULSE, 1) | (GateType.COMPOSITE, 1):
                 for qubit in qubits:
                     try:

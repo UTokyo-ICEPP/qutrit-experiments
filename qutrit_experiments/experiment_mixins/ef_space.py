@@ -38,8 +38,7 @@ class EFSpaceExperiment:
                 elif isinstance(op, (UGate, U3Gate)):
                     inst.operation = U12Gate(*op.params)
                 elif type(op) is Gate and op.num_qubits == 1: # pylint: disable=unidiomatic-typecheck
-                    inst.operation = QutritPulseGate(name=op.name, num_qubits=1,
-                                                     params=list(op.params))
+                    inst.operation = QutritPulseGate(op.name, (True,), params=list(op.params))
 
             qubits = (circuit.qregs[0][0],)
 
