@@ -127,7 +127,6 @@ class QutritToffoliInfo:
     qubits: tuple[Qubit, Qubit, Qubit]
     xplus_times: tuple[int, int]
     barriers: tuple[DAGOpNode, ...]
-    qutrit_qubit_cx: DAGOpNode
 
 
 class QutritToffoliDynamicalDecoupling(TransformationPass):
@@ -172,7 +171,6 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
             node = next(s for s in dag.successors(node) if c1_qubit not in s.qargs)
             logger.debug('CX(1, 2) on %s found at t=%d', node.qargs, node_start_time[node])
             t_qubit = node.qargs[1]
-            qutrit_qubit_cx = node
             node = next(dag.successors(node))
             barriers.append(node)
             # Follow until next barrier
@@ -190,8 +188,7 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
                 QutritToffoliInfo(
                     qubits=(c1_qubit, c2_qubit, t_qubit),
                     xplus_times=tuple(xplus_times),
-                    barriers=tuple(barriers),
-                    qutrit_qubit_cx=qutrit_qubit_cx
+                    barriers=tuple(barriers)
                 )
             )
 
@@ -270,8 +267,26 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
                 node_start_time[subst_map[node._node_id]] = time
 
             # C1 DD (during qutrit-qubit CX)
-            sched = get_qutrit_qubit_composite_gate(f'{info.qutrit_qubit_cx.name}_dd', qids,
-                                                    self.calibrations, target=self.target)
-            dag.add_calibration(info.qutrit_qubit_cx.name, qids[1:], sched)
+            start_time = node_start_time.pop(info.barriers[2])
+            subdag = DAGCircuit()
+            qreg = QuantumRegister(3)
+            subdag.add_qreg(qreg)
+            start_times = []
+
+            node = subdag.apply_operation_back(Barrier(3), qreg)
+            start_times.append((node, start_time))
+
+            rcr_type = self.calibrations.get_parameter_value('rcr_type', qids[1:])
+            cx_gate_name = QutritQubitCXGate.of_type(rcr_type).gate_name
+            name = f'{cx_gate_name}_dd'
+            sched = self.calibrations.get_schedule(name, qids[0])
+            dag.add_calibration(name, [qids[0]], sched)
+            node = subdag.apply_operation_back(Gate(name, 1, []), [qreg[0]])
+            start_times.append((node, start_time))
+
+            subst_map = dag.substitute_node_with_dag(info.barriers[2], subdag)
+
+            for node, time in start_times:
+                node_start_time[subst_map[node._node_id]] = time
 
         return dag

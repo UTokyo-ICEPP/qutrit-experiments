@@ -29,7 +29,7 @@ def make_toffoli_calibrations(
 ) -> Calibrations:
     """Define parameters and schedules for qutrit-qubit CX gate."""
     add_dd(backend, calibrations, qubits=(qubits[0], qubits[2]))
-    add_qutrit_qubit_cx_with_dd(backend, calibrations, qubits)
+    add_qutrit_qubit_cx_dd(backend, calibrations, qubits)
 
     return calibrations
 
@@ -72,7 +72,7 @@ def add_dd(
                                              schedule=sched.name)
 
 
-def add_qutrit_qubit_cx_with_dd(
+def add_qutrit_qubit_cx_dd(
     backend: Backend,
     calibrations: Calibrations,
     qubits: tuple[int, int, int]
@@ -89,28 +89,14 @@ def add_qutrit_qubit_cx_with_dd(
                                              schedule='x')
 
     # X/X12 on qubit 1 with DD on qubit 2
-    def x_dd():
+    def dd():
         with pulse.align_left():
             pulse.reference('x', 'q0')
             pulse.reference('x', 'q0')
-            pulse.reference('x', 'q1')
-            pulse.reference('x', 'q2')
-            pulse.reference('x', 'q2')
-
-    def x12_dd():
-        with pulse.align_left():
-            pulse.reference('x', 'q0')
-            pulse.reference('x', 'q0')
-            pulse.reference('x12', 'q1')
-            pulse.reference('x', 'q2')
-            pulse.reference('x', 'q2')
 
     cr_duration = calibrations.get_schedule('cr', qubits[1:]).duration
     c1_x_sched = calibrations.get_schedule('x', qubits[:1])
     x_duration = c1_x_sched.duration
-
-    control_channel = pulse.ControlChannel(Parameter('ch1.2'))
-    target_drive_channel = pulse.DriveChannel(Parameter('ch2'))
 
     if cr_duration >= 2 * x_duration:
         c1_cr_dd = calibrations.get_schedule('dd', qubits[0],
@@ -120,59 +106,22 @@ def add_qutrit_qubit_cx_with_dd(
             sched.append(block)
         calibrations.add_schedule(sched, qubits=qubits[0])
 
-        def cr_dd():
-            with pulse.align_left():
-                pulse.reference('cr', 'q1', 'q2')
-                pulse.reference('c1_cr_dd', 'q0')
-
         # CX type X (CR > 2X)
         with pulse.build(name='qutrit_qubit_cx_rcr2_dd', default_alignment='sequential') as sched:
-            # [X12+DD][CR-][X+DD][CR-]
-            with pulse.phase_offset(np.pi, control_channel):
-                x12_dd()
-                with pulse.phase_offset(np.pi, target_drive_channel):
-                    cr_dd()
-                x_dd()
-                cr_dd()
-            for _ in range(2):
-                # [X12+DD][CR+][X+DD][CR+]
-                x12_dd()
-                cr_dd()
-                x_dd()
-                with pulse.phase_offset(np.pi, target_drive_channel):
-                    cr_dd()
-            pulse.reference('cx_geometric_phase', 'q1')
-            with pulse.align_left():
-                pulse.reference('cx_offset_rx', 'q2')
-                pulse.reference('x', 'q0')
-                pulse.reference('x', 'q0')
-                pulse.reference('x', 'q1')
-                pulse.reference('x', 'q1')
-
-        calibrations.add_schedule(sched, qubits=qubits)
+            for _ in range(3):
+                dd()
+                pulse.reference('c1_cr_dd', 'q0')
+                dd()
+                pulse.reference('c1_cr_dd', 'q0')
+            dd()
+        calibrations.add_schedule(sched, qubits=qubits[0])
 
         # CX type X12
         with pulse.build(name='qutrit_qubit_cx_rcr0_dd', default_alignment='sequential') as sched:
-            for _ in range(2):
-                # [CR+][X12+DD][CR+][X+DD]
-                cr_dd()
-                x12_dd()
-                with pulse.phase_offset(np.pi, target_drive_channel):
-                    cr_dd()
-                x_dd()
-            # [CR-][X12+DD][CR-][X+DD]
-            with pulse.phase_offset(np.pi, control_channel):
-                with pulse.phase_offset(np.pi, target_drive_channel):
-                    cr_dd()
-                x12_dd()
-                cr_dd()
-                x_dd()
-            pulse.reference('cx_geometric_phase', 'q1')
-            with pulse.align_left():
-                pulse.reference('cx_offset_rx', 'q2')
-                pulse.reference('x', 'q0')
-                pulse.reference('x', 'q0')
-                pulse.reference('x', 'q1')
-                pulse.reference('x', 'q1')
-
-        calibrations.add_schedule(sched, qubits=qubits)
+            for _ in range(3):
+                pulse.reference('c1_cr_dd', 'q0')
+                dd()
+                pulse.reference('c1_cr_dd', 'q0')
+                dd()
+            dd()
+        calibrations.add_schedule(sched, qubits=qubits[0])
