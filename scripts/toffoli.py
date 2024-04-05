@@ -42,8 +42,8 @@ if __name__ == '__main__':
 
     assert program_config['qubits'] is not None and len(program_config['qubits']) == 3
     print('Starting toffoli:', program_config['name'])
-    calibrations = make_single_qutrit_gate_calibrations(backend)
-    calibrations = make_qutrit_qubit_cx_calibrations(backend, calibrations)
+    calibrations = make_single_qutrit_gate_calibrations(backend, qubits=[program_config['qubits'][1]])
+    calibrations = make_qutrit_qubit_cx_calibrations(backend, calibrations, qubits=program_config['qubits'])
     runner = setup_runner(backend, calibrations, program_config)
     runner.job_retry_interval = 120
     calibrated = load_calibrations(runner, program_config)
