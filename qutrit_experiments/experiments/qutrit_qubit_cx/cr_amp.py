@@ -33,9 +33,6 @@ class RepeatedCRAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
         options.cx_sign = 0
         return options
 
-    _compile_lock = Lock()
-    _fit_functions_cache = {}
-
     @classmethod
     def unitary_params(cls, fit_params: np.ndarray, aval: np.ndarray, npmod=np):
         if npmod is np:
@@ -44,7 +41,7 @@ class RepeatedCRAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
         intercepts = fit_params[1::2]
         return aval[..., None] * slopes + intercepts
 
-    def _get_p0s(self, norm_xvals: np.ndarray, unitary_params: np.ndarray):
+    def _get_p0s(self, norm_xvals: np.ndarray, xvals_norm: float, unitary_params: np.ndarray):
         p0s = []
         for axis in range(3):
             params = unp.nominal_values(unitary_params[:, axis])

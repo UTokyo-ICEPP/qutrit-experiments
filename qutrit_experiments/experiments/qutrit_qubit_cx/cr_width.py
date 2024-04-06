@@ -34,9 +34,6 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         options.intercept_max_wind = 0
         return options
 
-    _compile_lock = Lock()
-    _fit_functions_cache = {}
-
     @classmethod
     def unitary_params(cls, fit_params: np.ndarray, wval: np.ndarray, npmod=np):
         if npmod is np:
@@ -51,7 +48,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         wval_dims = tuple(range(len(wval.shape)))
         return npmod.expand_dims(angle, axis=-1) * npmod.expand_dims(axis, axis=wval_dims)
 
-    def _get_p0s(self, norm_xvals: np.ndarray, unitary_params: np.ndarray):
+    def _get_p0s(self, norm_xvals: np.ndarray, xvals_norm: float, unitary_params: np.ndarray):
         axes = unp.nominal_values(unitary_params)
         axes /= np.sqrt(np.sum(np.square(axes), axis=-1))[:, None]
         # Align along a single orientation and take the mean
@@ -60,27 +57,31 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         psi = np.arccos(min(max(mean_ax[2], -1.), 1.))
         phi = np.arctan2(mean_ax[1], mean_ax[0])
 
-        # Make a mesh of slope and intercept values as initial value candidates
-        slopes = np.linspace(0.01, np.pi, 4)
-        intercepts = np.linspace(0., twopi, 4, endpoint=False)
-        islope, iint = np.ogrid[:len(slopes), :len(intercepts)]
-        p0s = np.empty((2, len(slopes), len(intercepts), 4))
-        p0s[..., 0] = slopes[islope]
-        p0s[..., 1] = intercepts[iint]
+        # Slope = Rabi frequency. Guess from 100kHz to 5MHz with dt=0.2ns
+        slopes_phys = np.array([0.1, 0.5, 1., 5.]) * 1.e+6 * twopi * 2.e-10
+        slopes = slopes_phys * xvals_norm
+        # Effective total width of the GaussianSquare flanks is ~120
+        intercepts = slopes * 120 / xvals_norm
+        p0s = np.empty((2, len(slopes), 4))
+        p0s[..., 0] = slopes[None, :]
+        p0s[..., 1] = intercepts[None, :]
         # Use both orientations
-        p0s[0, ..., 2:] = [psi, phi]
-        p0s[1, ..., 2:] = [np.pi - psi, np.pi + phi]
+        p0s[0, :, 2:] = [psi, phi]
+        p0s[1, :, 2:] = [np.pi - psi, np.pi + phi]
         return p0s.reshape(-1, 4)
 
     def _postprocess_params(self, upopt: np.ndarray, norm: float):
+        logger.debug('Postprocessing fit result %s (norm=%f)', upopt, norm)
+        # Slope must be positive - invert the sign and the axis orientation if negative
         if upopt[0].n < 0.:
-            # Slope must be positive - invert the sign and the axis orientation
+            logger.debug('Adjusting the slope %s', upopt[0])
             upopt[0:2] *= -1.
             upopt[2] = np.pi - upopt[2]
             upopt[3] += np.pi
         # Keep the intercept within the maximum winding number
         # Intercept must be positive in principle but we allow some slack
         if upopt[1].n < self.options.intercept_min or upopt[1].n > 0.:
+            logger.debug('Adjusting the intercept %s', upopt[1])
             upopt[1] %= twopi * (self.options.intercept_max_wind + 1)
         # Keep phi in [-pi, pi]
         upopt[3] = (upopt[3] + np.pi) % twopi - np.pi
@@ -88,6 +89,7 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
 
 
 class CRRoughWidthCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
+
     """Rough CR width calibration based on pure-X approximationof the CR unitaries.
 
     Type X (2):    RCR angles = [θ1+θ0, θ0+θ1, 2θ2]

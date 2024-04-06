@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 import logging
+from threading import Lock
 from typing import Any, Optional, Union
 import jax
 import jax.numpy as jnp
@@ -371,6 +372,12 @@ class QutritQubitTomographyScan(BatchExperiment):
 
 class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
     """Analysis for QutritQubitTomographyScan."""
+    def __init_subclass__(cls, **kwargs):
+        # Each subclass needs its own lock and cache
+        cls._compile_lock = Lock()
+        cls._fit_functions_cache = {}
+        return super().__init_subclass__(**kwargs)
+
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
@@ -589,7 +596,7 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         expvals_e = unp.std_devs(expvals)
         expvals_e_norm = expvals_e / np.mean(expvals_e)
         fit_args = (norm_xvals, meas_bases, initial_states, expvals_n, expvals_e_norm, prep_unitary)
-        p0s = self._get_p0s(norm_xvals, unitary_params)
+        p0s = self._get_p0s(norm_xvals, xvals_norm, unitary_params)
         logger.debug('Initial parameters %s', p0s)
         vobj, vsolve, hess = self.fit_functions(p0s.shape, expvals.shape)
 
@@ -606,14 +613,11 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
         logger.debug('Adjusted parameters %s', upopt)
         return upopt
 
-    def _get_p0s(self, unitary_params: np.ndarray):
+    def _get_p0s(self, norm_xvals: np.ndarray, xvals_norm: float, unitary_params: np.ndarray):
         raise NotImplementedError()
 
     def _postprocess_params(self, upopt: np.ndarray, norm: float):
         return
-
-    _compile_lock = None
-    _fit_functions_cache = None
 
     @classmethod
     def fit_functions(cls, params_shape: tuple[int, ...], expvals_shape: tuple[int, int]):

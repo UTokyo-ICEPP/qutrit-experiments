@@ -90,7 +90,7 @@ def cr_rough_width(runner):
         CRRoughWidthCal,
         runner.qubits,
         args={
-            'widths': np.arange(128., 384., 64.)
+            'widths': np.arange(128, 384, 64)
         }
     )
 
