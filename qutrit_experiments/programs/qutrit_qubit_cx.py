@@ -54,8 +54,9 @@ def calibrate_qutrit_qubit_cx(
     # Fine calibration
     runner.run_experiment('crcr_fine_scanbased')
 
-    # Validate CRCR calibration
-    runner.run_experiment('crcr_unitaries')
+    # Validate
+    for exp_type in ['crcr_unitaries', 'cx_unitaries']:
+        runner.run_experiment(exp_type)
 
     if qutrit_qubit_index is not None:
         runner.qubits = runner_qubits
