@@ -142,24 +142,6 @@ def rcr_rough_cr_amp(runner, experiment_data):
     )
 
 @register_exp
-@add_readout_mitigation(logical_qubits=[1], expval=True)
-def sizzle_t_amp_scan(runner):
-    from ..experiments.qutrit_qubit.qutrit_cr_sizzle import QutritCRTargetStarkCal
-    return ExperimentConfig(
-        QutritCRTargetStarkCal,
-        runner.qubits
-    )
-
-@register_exp
-@add_readout_mitigation(logical_qubits=[1], expval=True)
-def sizzle_c2_amp_scan(runner):
-    from ..experiments.qutrit_qubit.qutrit_cr_sizzle import QutritCRControlStarkCal
-    return ExperimentConfig(
-        QutritCRControlStarkCal,
-        runner.qubits
-    )
-
-@register_exp
 @add_readout_mitigation(logical_qubits=[1])
 def rcr_rotary_amp(runner):
     """Rotary tone amplitude calibration to minimize the y and z components of RCR."""
@@ -176,74 +158,10 @@ def rcr_rotary_amp(runner):
     )
 
 @register_exp
-@add_readout_mitigation(logical_qubits=[1], expval=True)
-def crcr_rotary(runner):
-    from ..experiments.qutrit_qubit_cx.rotary import (CycledRepeatedCRRotaryAmplitudeCal,
-                                                      rotary_angle_per_amp)
-    angle_per_amp = rotary_angle_per_amp(runner.backend, runner.calibrations, runner.qubits)
-    # crcr_rotary_test_angles are the rotary angles with the current CR parameters
-    if (angles := runner.program_data.get('crcr_rotary_test_angles')) is None:
-        # Scan rotary amplitudes expected to generate +-1 rad rotations within one CR pulse
-        angles = np.linspace(-1., 1., 8)
-
-    return ExperimentConfig(
-        CycledRepeatedCRRotaryAmplitudeCal,
-        runner.qubits,
-        args={'amplitudes': angles / angle_per_amp}
-    )
-
-@register_exp
 @add_readout_mitigation(logical_qubits=[1])
 def crcr_fine_scanbased(runner):
     from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineScanCal
     return ExperimentConfig(
         CycledRepeatedCRFineScanCal,
         runner.qubits
-    )
-
-@register_post
-def crcr_angle_width_rate(runner, experiment_data):
-    # d|θ_1x - θ_0x|/dt
-    fit_params = experiment_data.analysis_results('simul_fit_params', block=False).value
-    slope, _, psi, phi = np.stack([unp.nominal_values(fit_params[ic]) for ic in range(2)], axis=1)
-    runner.program_data['crcr_angle_per_width'] = slope * np.sin(psi) * np.cos(phi)
-
-@register_exp
-@add_readout_mitigation(logical_qubits=[1])
-def crcr_fine_iter1(runner):
-    from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineCal
-    return ExperimentConfig(
-        CycledRepeatedCRFineCal,
-        runner.qubits,
-        args={
-            'width_rate': runner.program_data['crcr_angle_per_width'],
-            'current_cal_groups': ('crcr_cr_width', 'crcr_rotary')
-        },
-        run_options={'shots': 8000}
-    )
-
-@register_exp
-@add_readout_mitigation(logical_qubits=[1])
-def crcr_fine_iter2(runner):
-    from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineCal
-    return ExperimentConfig(
-        CycledRepeatedCRFineCal,
-        runner.qubits,
-        args={
-            'width_rate': runner.program_data['crcr_angle_per_width'],
-            'current_cal_groups': ('crcr_fine_iter1', 'crcr_fine_iter1')
-        },
-        run_options={'shots': 8000}
-    )
-
-@register_exp
-@add_readout_mitigation(logical_qubits=[1])
-def crcr_fine_iterrx(runner):
-    from ..experiments.qutrit_qubit_cx.crcr_fine import CycledRepeatedCRFineRxAngleCal
-    return ExperimentConfig(
-        CycledRepeatedCRFineRxAngleCal,
-        runner.qubits,
-        args={
-            'current_cal_group': 'crcr_fine_iter2'
-        }
     )
