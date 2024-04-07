@@ -100,3 +100,28 @@ def toffoli_qpt_bc(runner):
         args={'circuit': circuit, 'target_circuit': target_circuit},
         run_options={'shots': 4000}
     )
+
+@register_exp
+@add_readout_mitigation
+def toffoli_truth_table(runner):
+    from qutrit_experiments.experiments.circuit_runner import CircuitRunner
+    toffoli = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits)
+    circuits = []
+    for init in range(8):
+        circuit = QuantumCircuit(3)
+        if init % 2 == 1:
+            circuit.x(0)
+        if (init // 2) % 2 == 1:
+            circuit.x(1)
+        if (init // 4) % 2 == 1:
+            circuit.x(2)
+        circuit.compose(toffoli, inplace=True)
+        circuit.measure_all()
+        circuit.metadata = {'xval': init}
+        circuits.append(circuit)
+
+    return ExperimentConfig(
+        CircuitRunner,
+        runner.qubits,
+        args={'circuits': circuits},
+    )

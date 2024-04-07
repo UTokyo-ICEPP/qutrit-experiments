@@ -25,10 +25,12 @@ if __name__ == '__main__':
                                                  make_qutrit_qubit_cx_calibrations)
     import qutrit_experiments.configurations.single_qutrit
     import qutrit_experiments.configurations.qutrit_qubit_cx
+    import qutrit_experiments.configurations.toffoli
     from qutrit_experiments.programs.common import (get_program_config, load_calibrations,
                                                     setup_data_dir, setup_runner)
     from qutrit_experiments.programs.single_qutrit_gates import calibrate_single_qutrit_gates
     from qutrit_experiments.programs.qutrit_qubit_cx import calibrate_qutrit_qubit_cx
+    from qutrit_experiments.programs.toffoli import characterize_toffoli
 
     program_config = get_program_config()
     setup_data_dir(program_config)
@@ -53,3 +55,4 @@ if __name__ == '__main__':
     calibrate_single_qutrit_gates(runner, refresh_readout_error=program_config['refresh_readout'],
                                   calibrated=calibrated, qutrit_index=[1])
     calibrate_qutrit_qubit_cx(runner, refresh_readout_error=False, qutrit_qubit_index=(1, 2))
+    characterize_toffoli(runner, refresh_readout_error=False)
