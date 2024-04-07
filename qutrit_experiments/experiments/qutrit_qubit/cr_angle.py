@@ -194,7 +194,7 @@ class CRAngleCounterScan(BatchExperiment):
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
-        options.counter_angles = np.linspace(-np.pi / 8., np.pi / 8., 5)
+        options.counter_angles = np.linspace(-np.pi / 8., np.pi / 8., 8)
         return options
 
     def __init__(
