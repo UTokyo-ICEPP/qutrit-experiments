@@ -44,16 +44,16 @@ class UnitaryTomography(MapToPhysicalQubits, BaseExperiment):
     def circuits(self) -> list[QuantumCircuit]:
         num_qubits = len(self.physical_qubits)
         meas_qubit = self.experiment_options.measured_logical_qubit
-        circuits = []
         if (setups := self.experiment_options.prep_meas_bases) is None:
             setups = product(['x', 'y', 'z'], ['x', 'y', 'z'])
 
-        template = QuantumCircuit(num_qubits, 1)
-        if (pre_circuit := self.experiment_options.pre_circuit) is not None:
-            template.compose(pre_circuit, inplace=True)
-
         post_circuit = self.experiment_options.post_circuit
 
+        template = QuantumCircuit(num_qubits, max(1, post_circuit.num_clbits))
+        if (pre_circuit := self.experiment_options.pre_circuit) is not None:
+            template.compose(pre_circuit, inplace=True)
+        
+        circuits = []
         for initial_state, meas_basis in setups:
             circuit = template.copy()
             if initial_state != 'z':

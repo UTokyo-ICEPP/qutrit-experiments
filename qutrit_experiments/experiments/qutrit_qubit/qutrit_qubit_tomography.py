@@ -9,15 +9,17 @@ from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
 from uncertainties import correlated_values, unumpy as unp
-from qiskit import QuantumCircuit
+from qiskit import ClassicalRegister, QuantumCircuit
 from qiskit.circuit import Gate
 from qiskit.providers import Backend, Options
-from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
+from qiskit_experiments.data_processing import (BasisExpectationValue, DataProcessor,
+                                                MarginalizeCounts, Probability)
 from qiskit_experiments.database_service.exceptions import ExperimentEntryNotFound
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
+from ...data_processing import MultiProbability, ReadoutMitigation, SerializeMultiProbability
 from ...framework_overrides.batch_experiment import BatchExperiment
 from ...framework_overrides.composite_analysis import CompositeAnalysis
 from ...framework.compound_analysis import CompoundAnalysis
@@ -43,6 +45,7 @@ class QutritQubitTomography(BatchExperiment):
         circuit: Union[QuantumCircuit, Gate],
         tomography_type: str = 'unitary',
         measure_preparations: bool = True,
+        measure_qutrit: bool = False,
         control_states: Sequence[int] = (0, 1, 2),
         backend: Optional[Backend] = None,
         extra_metadata: Optional[dict[str, Any]] = None,
@@ -59,13 +62,18 @@ class QutritQubitTomography(BatchExperiment):
             if control_state not in control_states:
                 continue
 
+            post_circuit = QuantumCircuit(2)
+            if measure_qutrit:
+                post_circuit.add_register(ClassicalRegister(3))
+                post_circuit.measure(0, 1)
+                post_circuit.x(0)
+                post_circuit.measure(0, 2)
+
             channel = QuantumCircuit(2)
-            post_circuit = None
             if control_state >= 1:
                 channel.x(0)
             if control_state == 2:
                 channel.append(X12Gate(), [0])
-                post_circuit = QuantumCircuit(2)
                 post_circuit.barrier()
                 post_circuit.append(X12Gate(), [0])
 
@@ -99,6 +107,11 @@ class QutritQubitTomography(BatchExperiment):
                          analysis=analysis_cls([exp.analysis for exp in experiments]))
         self.tomography_type = tomography_type
         self.extra_metadata = extra_metadata or {}
+        if measure_qutrit:
+            nodes = [MarginalizeCounts({0}), Probability('1'), BasisExpectationValue()]
+            # DataProcessor is propagated to subexperiment analyses automatically
+            data_processor = DataProcessor('counts', nodes)
+            self.analysis.set_options(analyze_qutrit=True, data_processor=data_processor)
 
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
@@ -145,6 +158,8 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
         options.prep_unitaries = {}
         options.maxiter = None
         options.tol = None
+        options.analyze_qutrit = False
+        options.qutrit_assignment_matrix = None
         return options
 
     def _set_subanalysis_options(self, experiment_data: ExperimentData):
@@ -198,6 +213,30 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
             AnalysisResultData(name='expvals_predicted', value=predicteds)
         ])
 
+        if self.options.analyze_qutrit:
+            nodes = [MarginalizeCounts({1, 2})]
+            if (cal_matrix := self.options.qutrit_assignment_matrix) is not None:
+                nodes.append(ReadoutMitigation(cal_matrix))
+            nodes.append(MultiProbability())
+            data_processor = DataProcessor('counts', nodes)
+            qutrit_states = {}
+            for iexp in range(len(self._analyses)):
+                child_data = experiment_data.child_data(component_index[iexp])
+                control_state = child_data.metadata['control_state']
+                if child_data.metadata.get('state_preparation', False):
+                    key = (control_state, 'prep')
+                else:
+                    key = (control_state, '')
+                qutrit_data = data_processor(child_data.data())
+                qutrit_states[key] = np.array(
+                    [[datum[outcome] for outcome in ['10', '01', '11', '00']]
+                     for datum in qutrit_data]
+                )
+
+            analysis_results.append(
+                AnalysisResultData(name='qutrit_states', value=qutrit_states)
+            )
+
         if self.options.plot:
             # Plot all expectation values
             labels = []
@@ -226,6 +265,25 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
 
             ax.legend()
             figures.append(ax.get_figure())
+
+            if self.options.analyze_qutrit:
+                ax = get_non_gui_ax()
+                keys = sorted(qutrit_states.keys())
+                xvalues = (np.arange(len(keys)) + 0.5) * list(qutrit_states.values())[0].shape[0]
+                ax.set_xticks(xvalues, labels=[f'{key[0]} {key[1]}' for key in keys])
+                yvalues = np.arange(4) + 0.5
+                ax.set_yticks(yvalues, labels=['0', '1', '2', 'invalid'])
+                ax.set_ylim(0., 4.)
+                ax.set_ylabel('Final state')
+                for istate, key in enumerate(keys):
+                    svalues = qutrit_states[key]
+                    xvalues = np.arange(svalues.shape[0] * istate, svalues.shape[0] * (istate + 1))
+                    xvalues += 0.5
+                    xvalues = np.repeat(xvalues, 4)
+                    yvalues = np.tile(np.arange(4), svalues.shape[0])
+                    ax.scatter(xvalues, yvalues, s=svalues, marker='s')
+
+                figures.append(ax.get_figure())
 
         return analysis_results, figures
 

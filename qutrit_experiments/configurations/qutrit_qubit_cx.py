@@ -44,7 +44,7 @@ def unitaries(runner, gate):
     return ExperimentConfig(
         QutritQubitTomography,
         runner.qubits,
-        args={'circuit': circuit},
+        args={'circuit': circuit, 'measure_qutrit': True},
         run_options={'shots': 8000}
     )
 
