@@ -265,7 +265,7 @@ class ExperimentsRunner:
         if block_for_results:
             self._check_status(exp_data)
 
-        if calibrate:
+        if calibrate and self._calibrations is not None:
             def update_calibrations(exp_data):
                 self.update_calibrations(exp_data, experiment=experiment,
                                          criterion=config.calibration_criterion)
