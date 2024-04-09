@@ -6,8 +6,10 @@ control=|2> as a function of the amplitude and determine an acceptable amplitude
 from collections.abc import Sequence
 import logging
 from typing import Optional, Union
+from matplotlib.figure import Figure
 import lmfit
 import numpy as np
+from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
 from qiskit.providers import Backend
@@ -17,7 +19,9 @@ from qiskit_experiments.calibration_management import BaseCalibrationExperiment,
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.curve_analysis.curve_data import ParameterRepr
-from qiskit_experiments.framework import BaseExperiment, ExperimentData
+from qiskit_experiments.data_processing import DataProcessor, MarginalizeCounts, Probability
+from qiskit_experiments.framework import AnalysisResultData, BaseExperiment, ExperimentData
+from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ...experiment_mixins import MapToPhysicalQubits
 from ...framework.ternary_mcm_analysis import TernaryMCMResultAnalysis
@@ -35,6 +39,8 @@ class CRDiagonality(MapToPhysicalQubits, BaseExperiment):
     2     11
     1     01
     0     10
+    Measure the Rabi oscillation on the target at the same time to determine the saturation point
+    of X.
     """
     @classmethod
     def _default_experiment_options(cls) -> Options:
@@ -42,7 +48,7 @@ class CRDiagonality(MapToPhysicalQubits, BaseExperiment):
         options.schedule = None
         options.amplitudes = np.linspace(0., 0.9, 10)
         return options
-    
+
     @classmethod
     def _default_run_options(cls) -> Options:
         options = super()._default_run_options()
@@ -67,13 +73,14 @@ class CRDiagonality(MapToPhysicalQubits, BaseExperiment):
         else:
             amplitude = next(iter(sched.parameters))
 
-        template = QuantumCircuit(2, 2)
+        template = QuantumCircuit(2, 3)
         template.x(0)
         template.append(X12Gate(), [0])
         template.append(CrossResonanceGate(params=[amplitude]), [0, 1])
-        template.measure(0, 0)
-        template.x(0)
+        template.measure(1, 0)
         template.measure(0, 1)
+        template.x(0)
+        template.measure(0, 2)
         if sched is not None:
             template.add_calibration(CrossResonanceGate.gate_name, self.physical_qubits, sched,
                                      params=[amplitude])
@@ -112,6 +119,12 @@ class CRDiagonalityAnalysis(TernaryMCMResultAnalysis):
             bounds={'a': (0., np.inf)}
         )
 
+    def _initialize(self, experiment_data: ExperimentData):
+        super()._initialize(experiment_data)
+        data_processor = self.options.data_processor
+        if not isinstance(data_processor._nodes[0], MarginalizeCounts):
+            data_processor._nodes.insert(0, MarginalizeCounts({1, 2}))
+
     def _generate_fit_guesses(
         self,
         user_opt: curve.FitOptions,
@@ -129,6 +142,30 @@ class CRDiagonalityAnalysis(TernaryMCMResultAnalysis):
         user_opt.p0.set_if_empty(a=p0_a, b1=p0_b1, b2=p0_b2, c0=p0_c0)
 
         return user_opt
+
+    def _run_analysis(
+        self,
+        experiment_data: ExperimentData
+    ) -> tuple[list[AnalysisResultData], list[Figure]]:
+        results, figures = super()._run_analysis(experiment_data)
+
+        # Now make a plot for the target qubit
+        if self.options.plot:
+            data_processor = DataProcessor('counts', [MarginalizeCounts({0}), Probability('1')])
+            tdata = data_processor(experiment_data.data())
+            xdata = np.asarray([datum["metadata"]['xval'] for datum in experiment_data.data()],
+                            dtype=float)
+
+            plotter = CurvePlotter(MplDrawer())
+            plotter.set_series_data(
+                'target',
+                x_formatted=xdata,
+                y_formatted=unp.nominal_values(tdata),
+                y_formatted_err=unp.std_devs(tdata)
+            )
+            figures.append(plotter.figure())
+
+        return results, figures
 
 
 class CRInitialAmplitudeCal(BaseCalibrationExperiment, CRDiagonality):
