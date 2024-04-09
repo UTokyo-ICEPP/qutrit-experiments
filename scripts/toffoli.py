@@ -84,7 +84,7 @@ if __name__ == '__main__':
     calibrated = load_calibrations(qutrit_runner, program_config)
     calibrate_single_qutrit_gates(qutrit_runner,
                                   refresh_readout_error=program_config['refresh_readout'],
-                                  calibrated=calibrated, qutrit_index=[1])
+                                  calibrated=calibrated)
 
     # Session may have been renewed
     runner.runtime_session = qutrit_runner.runtime_session
