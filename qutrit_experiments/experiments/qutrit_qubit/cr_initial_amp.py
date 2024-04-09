@@ -170,6 +170,12 @@ class CRDiagonalityAnalysis(TernaryMCMResultAnalysis):
 
 class CRInitialAmplitudeCal(BaseCalibrationExperiment, CRDiagonality):
     """Calibration of CR amplitude using CRDiagonality."""
+    @classmethod
+    def _default_experiment_options(cls) -> Options:
+        options = super()._default_experiment_options()
+        options.max_amp = 0.8
+        return options
+
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -215,7 +221,7 @@ class CRInitialAmplitudeCal(BaseCalibrationExperiment, CRDiagonality):
 
     def update_calibrations(self, experiment_data: ExperimentData):
         curvature = BaseUpdater.get_value(experiment_data, 'curvature')
-        cr_amp = min(0.8, np.sqrt((1. - self._cutoff) / curvature))
+        cr_amp = min(self.experiment_options.max_amp, np.sqrt((1. - self._cutoff) / curvature))
         BaseUpdater.add_parameter_value(self._cals, experiment_data, cr_amp, self._param_name,
                                         schedule=self._sched_name,
                                         group=self.experiment_options.group)
