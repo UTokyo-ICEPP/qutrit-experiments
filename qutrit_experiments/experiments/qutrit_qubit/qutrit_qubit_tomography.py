@@ -19,7 +19,7 @@ from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Opt
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ...data_processing import MultiProbability, ReadoutMitigation, SerializeMultiProbability
+from ...data_processing import MultiProbability, ReadoutMitigation
 from ...framework_overrides.batch_experiment import BatchExperiment
 from ...framework_overrides.composite_analysis import CompositeAnalysis
 from ...framework.compound_analysis import CompoundAnalysis
@@ -110,8 +110,10 @@ class QutritQubitTomography(BatchExperiment):
         if measure_qutrit:
             nodes = [MarginalizeCounts({0}), Probability('1'), BasisExpectationValue()]
             # DataProcessor is propagated to subexperiment analyses automatically
-            data_processor = DataProcessor('counts', nodes)
-            self.analysis.set_options(analyze_qutrit=True, data_processor=data_processor)
+            self.analysis.set_options(
+                analyze_qutrit=True,
+                data_processor=DataProcessor('counts', nodes)
+            )
 
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
@@ -162,12 +164,9 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
         options.qutrit_assignment_matrix = None
         return options
 
-    def _set_subanalysis_options(self, experiment_data: ExperimentData):
-        for an in self._analyses:
-            if (val := self.options.maxiter):
-                an.set_options(maxiter=val)
-            if (val := self.options.tol):
-                an.set_options(tol=val)
+    @classmethod
+    def _propagated_option_keys(cls) -> list[str]:
+        return super()._propagated_option_keys() + ['maxiter', 'tol']
 
     def _run_additional_analysis(
         self,
@@ -217,7 +216,7 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
             nodes = [MarginalizeCounts({1, 2})]
             if (cal_matrix := self.options.qutrit_assignment_matrix) is not None:
                 nodes.append(ReadoutMitigation(cal_matrix))
-            nodes.append(MultiProbability())
+            nodes.append(MultiProbability(['10', '01', '11', '00'], alpha_prior=np.full(4, 0.5)))
             data_processor = DataProcessor('counts', nodes)
             qutrit_states = {}
             for iexp in range(len(self._analyses)):
@@ -271,19 +270,22 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
                 keys = sorted(qutrit_states.keys())
                 xvalues = (np.arange(len(keys)) + 0.5) * list(qutrit_states.values())[0].shape[0]
                 ax.set_xticks(xvalues, labels=[f'{key[0]} {key[1]}' for key in keys])
-                yvalues = np.arange(4) + 0.5
+                yvalues = np.arange(4)
                 ax.set_yticks(yvalues, labels=['0', '1', '2', 'invalid'])
-                ax.set_ylim(0., 4.)
+                ax.set_ylim(-0.5, 3.5)
                 ax.set_ylabel('Final state')
                 for istate, key in enumerate(keys):
-                    svalues = qutrit_states[key]
-                    xvalues = np.arange(svalues.shape[0] * istate, svalues.shape[0] * (istate + 1))
+                    svalues = unp.nominal_values(qutrit_states[key])
+                    nx = svalues.shape[0]
+                    xvalues = np.linspace(nx * istate, nx * (istate + 1), nx, endpoint=False)
                     xvalues += 0.5
                     xvalues = np.repeat(xvalues, 4)
                     yvalues = np.tile(np.arange(4), svalues.shape[0])
-                    ax.scatter(xvalues, yvalues, s=svalues, marker='s')
+                    ax.errorbar(xvalues, yvalues, yerr=svalues.reshape(-1) * 0.5, fmt='none')
 
                 figures.append(ax.get_figure())
+                if len(self.options.figure_names) == 1:
+                    self.options.figure_names.append('qutrit_states')
 
         return analysis_results, figures
 
