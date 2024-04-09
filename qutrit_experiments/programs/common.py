@@ -71,11 +71,18 @@ def load_calibrations(
 ) -> set[str]:
     calibrated = set()
     if (calib_path := program_config['calibrations']) is not None:
-        if calib_path != '':
-            shutil.copy(os.path.join(program_config['base_dir'], calib_path,
-                                     'parameter_values.csv'),
-                        runner.data_dir)
-        runner.load_calibrations()
+        if calib_path.endswith('.csv'):
+            data_dir = os.path.dirname(calib_path)
+            file_name = os.path.basename(calib_path)
+            if data_dir == '':
+                data_dir = None
+            elif not os.path.isabs(data_dir):
+                data_dir = os.path.join(program_config['base_dir'], data_dir)
+        else:
+            data_dir = calib_path or None
+            file_name = 'parameter_values.csv'
+
+        runner.load_calibrations(file_name=file_name, data_dir=data_dir)
         runner.load_program_data()
 
         for datum in runner.calibrations.parameters_table(most_recent_only=False)['data']:

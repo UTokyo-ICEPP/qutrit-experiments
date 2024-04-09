@@ -29,8 +29,11 @@ def get_program_config(program_config: Optional[dict[str, Any]] = None) -> dict[
                             dest='backend')
         parser.add_argument('-q', '--qubits', nargs='+', default=[], help='Qubits to use.',
                             dest='qubits')
-        parser.add_argument('-c', '--calibrations', nargs='?', const='', help='Load calibrations. If a'
-                            ' path is given, data is loaded from BASE_DIR/PATH/parameter_values.csv.')
+        parser.add_argument('-c', '--calibrations', nargs='?', const='', help='Load calibrations.'
+                            ' If a path is given, data is loaded from BASE_DIR/PATH/parameter_values.csv.'
+                            ' If the path ends with .csv, it is considered to be the path to the'
+                            ' CSV file (absolute if it starts with /, else relative to BASE_DIR'
+                            ' if it contains a /, else under BASE_DIR/PATH).')
         parser.add_argument('-s', '--session-id', help='Qiskit Runtime Session ID.', metavar='ID',
                             dest='session_id')
         parser.add_argument('-r', '--refresh-readout', action='store_true', help='Resubmit readout'

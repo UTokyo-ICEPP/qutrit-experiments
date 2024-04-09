@@ -128,9 +128,14 @@ class ExperimentsRunner:
     def read_only(self):
         return self._read_only
 
-    def load_calibrations(self):
-        file_name = os.path.join(self._data_dir, 'parameter_values.csv')
-        self._calibrations.load_parameter_values(file_name=file_name)
+    def load_calibrations(
+        self,
+        file_name: str = 'parameter_values.csv',
+        data_dir: Optional[str] = None
+    ):
+        if data_dir is None:
+            data_dir = self._data_dir
+        self._calibrations.load_parameter_values(file_name=os.path.join(data_dir, file_name))
 
     def make_experiment(
         self,
