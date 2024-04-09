@@ -3,8 +3,9 @@
 from functools import wraps
 import logging
 import numpy as np
-from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
+from qiskit_experiments.data_processing import (BasisExpectationValue, DataProcessor,
+                                                MarginalizeCounts, Probability)
 
 from ..calibrations import get_qutrit_pulse_gate, get_qutrit_qubit_composite_gate
 from ..experiment_config import ExperimentConfig, register_exp, register_post
@@ -41,11 +42,15 @@ def unitaries(runner, gate):
     circuit.append(gate, [0, 1])
     circuit.add_calibration(gate.name, runner.qubits, sched)
 
+    dp_nodes = [MarginalizeCounts({0}), Probability('1'), BasisExpectationValue()]
+
     return ExperimentConfig(
         QutritQubitTomography,
         runner.qubits,
         args={'circuit': circuit, 'measure_qutrit': True},
-        run_options={'shots': 8000}
+        run_options={'shots': 8000},
+        # Need the following at the config level for add_readout_mitigation to work properly
+        analysis_options={'data_processor': DataProcessor('counts', dp_nodes)}
     )
 
 @register_exp
@@ -131,14 +136,6 @@ def rcr_rough_cr_amp(runner):
         CRRoughAmplitudeCal,
         runner.qubits,
         calibration_criterion=cal_criterion
-    )
-
-@register_post
-def rcr_rough_cr_amp(runner, experiment_data):
-    fit_params = experiment_data.analysis_results('simul_fit_params', block=False).value
-    rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits)
-    runner.program_data['crcr_dxda'] = np.array(
-        [2. * fit_params[rcr_type][0].n, 2. * fit_params[1][0].n - fit_params[rcr_type][0].n]
     )
 
 @register_exp

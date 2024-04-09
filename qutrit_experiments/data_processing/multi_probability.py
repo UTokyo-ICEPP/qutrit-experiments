@@ -40,7 +40,7 @@ class MultiProbability(TrainableDataAction):
         if outcomes:
             self._parameters.outcomes = list(outcomes)
 
-    def train(self, data: np.ndarray):
+    def train(self, data: Union[dict, list[dict]]):
         params = self._parameters
         if not params.outcomes:
             bitstr_len = len(list(data[0].keys())[0])

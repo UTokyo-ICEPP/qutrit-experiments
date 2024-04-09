@@ -52,7 +52,7 @@ class UnitaryTomography(MapToPhysicalQubits, BaseExperiment):
         template = QuantumCircuit(num_qubits, max(1, post_circuit.num_clbits))
         if (pre_circuit := self.experiment_options.pre_circuit) is not None:
             template.compose(pre_circuit, inplace=True)
-        
+
         circuits = []
         for initial_state, meas_basis in setups:
             circuit = template.copy()
