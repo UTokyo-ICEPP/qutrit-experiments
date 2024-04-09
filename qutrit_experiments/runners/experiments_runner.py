@@ -120,6 +120,10 @@ class ExperimentsRunner:
     def calibrations(self):
         return self._calibrations
 
+    @calibrations.setter
+    def calibrations(self, calibrations: Calibrations):
+        self._calibrations = calibrations
+
     @property
     def data_dir(self):
         return self._data_dir

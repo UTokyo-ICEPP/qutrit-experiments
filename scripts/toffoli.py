@@ -86,10 +86,10 @@ if __name__ == '__main__':
                                   refresh_readout_error=program_config['refresh_readout'],
                                   calibrated=calibrated)
 
+    runner.calibrations = calibrations
     # Session may have been renewed
     runner.runtime_session = qutrit_runner.runtime_session
-    calibrations = make_qutrit_qubit_cx_calibrations(backend, calibrations=calibrations,
-                                                     qubits=all_qubits)
+    make_qutrit_qubit_cx_calibrations(backend, calibrations=calibrations, qubits=all_qubits)
 
     for ic1 in range(0, len(all_qubits), 3):
         runner.qubits = all_qubits[ic1:ic1 + 3]
