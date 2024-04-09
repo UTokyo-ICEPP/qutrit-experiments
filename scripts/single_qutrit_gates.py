@@ -60,7 +60,7 @@ if __name__ == '__main__':
         raise RuntimeError('No qubits have T1 > RESTLESS_REP_DELAY')
     program_config['qubits'] = qubits
 
-    runner = setup_runner(backend, calibrations, program_config, runner_cls=runner_cls)
+    runner = setup_runner(backend, program_config, calibrations=calibrations, runner_cls=runner_cls)
     runner.job_retry_interval = 120
     calibrated = load_calibrations(runner, program_config)
 

@@ -1,5 +1,6 @@
 """Common functions for running calibration programs."""
 from argparse import ArgumentError, ArgumentParser
+from collections.abc import Sequence
 import datetime
 import os
 import pickle
@@ -25,8 +26,9 @@ def setup_data_dir(program_config: dict[str, Any]) -> str:
 
 def setup_runner(
     backend: Backend,
-    calibrations: Calibrations,
     program_config: dict[str, Any],
+    calibrations: Optional[Calibrations] = None,
+    qubits: Optional[Sequence[int]] = None,
     runner_cls: type[ExperimentsRunner] = ExperimentsRunner
 ) -> ExperimentsRunner:
     data_dir = os.path.join(program_config['base_dir'], program_config['name'])
@@ -47,7 +49,8 @@ def setup_runner(
     else:
         runtime_session = None
 
-    runner = runner_cls(backend, qubits=program_config.get('qubits'), calibrations=calibrations,
+    qubits = qubits or program_config.get('qubits')
+    runner = runner_cls(backend, qubits=qubits, calibrations=calibrations,
                         data_dir=data_dir, runtime_session=runtime_session)
 
     return runner
