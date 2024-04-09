@@ -1,4 +1,5 @@
 """Functions for fitting a unitary to observation."""
+import itertools
 import logging
 from threading import Lock
 from typing import Any, NamedTuple, Optional
@@ -17,6 +18,7 @@ from .bloch import rescale_axis, so3_cartesian
 logger = logging.getLogger(__name__)
 axes = ['x', 'y', 'z']
 twopi = 2. * np.pi
+data_processor_lock = Lock()
 default_maxiter = 10000
 default_tol = 1.e-4
 
@@ -41,6 +43,11 @@ def extract_input_values(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if data_processor is None:
         data_processor = DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
+        data_processor.train(data=data)
+    else:
+        with data_processor_lock:
+            if not data_processor.is_trained:
+                data_processor.train(data=data)
 
     expvals = data_processor(data)
     initial_states = []
@@ -71,17 +78,37 @@ def fit_unitary_to_expval(
     if signs is None:
         signs = np.ones_like(initial_states)
 
-    p0s = []
-    for iax in range(3):
-        for sign in [1., -1.]:
-            p0 = np.zeros(3)
-            p0[iax] = np.pi * sign / 2.
-            p0s.append(p0)
+    if set(zip(initial_states, meas_bases)) == set(itertools.product([0, 1, 2], [0, 1, 2])):
+        # An educated guess is possible if we have a full set of measurements
+        if signs is None:
+            signs = np.ones(9)
+        vals = np.empty((3, 3))
+        vals[meas_bases, initial_states] = signs * unp.nominal_values(expvals)
+        cos_theta = (np.sum(np.diagonal(vals)) - 1.) / 2.
+        if np.isclose(cos_theta, 1.):
+            p0s = [np.zeros(3)]
+        else:
+            abs_u0 = np.sqrt(np.maximum((np.diagonal(vals) - cos_theta) / (1. - cos_theta), 0.))
+            # theta is taken to be in [0, pi] -> sin_theta is always >0 so the difference of
+            # offdiagonals give the signs of the unit vector elements
+            p0s = [abs_u0 * np.arccos(cos_theta) * np.sign([
+                vals[2, 1] - vals[1, 2], vals[0, 2] - vals[2, 0], vals[1, 0] - vals[0, 1]
+            ])]
+    else:
+        p0s = []
+        for iax in range(3):
+            for sign in [1., -1.]:
+                p0 = np.zeros(3)
+                p0[iax] = np.pi * sign / 2.
+                p0s.append(p0)
 
-    fitter = UnitaryFitObjective(expvals.shape[0], maxiter, tol)
-    objective_args = (meas_bases, initial_states, signs, unp.nominal_values(expvals),
-                      unp.std_devs(expvals))
-    fit_result = fitter.vsolve(jnp.array(p0s), *objective_args)
+    fitter = UnitaryFitObjective(expvals.shape[0], len(p0s), maxiter, tol)
+    expvals_n = unp.nominal_values(expvals)
+    expvals_e = unp.std_devs(expvals)
+    # expvals std_devs tend to be very small -> normalize with mean for the fit for stability
+    fit_args = (meas_bases, initial_states, signs, expvals_n, expvals_e / np.mean(expvals_e))
+    fit_result = fitter.vsolve(jnp.array(p0s), *fit_args)
+    objective_args = (meas_bases, initial_states, signs, expvals_n, expvals_e)
     fvals = fitter.vobj(fit_result.params, *objective_args)
     iopt = np.argmin(fvals)
     # Renormalize the rotation parameters so that the norm fits within [0, pi].
@@ -137,7 +164,7 @@ class UnitaryFitObjective:
     """Objective function and derivatives for unitary fit."""
     _lock = Lock()
     _instances = {}
-    
+
     @staticmethod
     def fun(params, meas_bases, initial_states, signs, expvals, expvals_err):
         r_elements = so3_cartesian(params, npmod=jnp)[..., meas_bases, initial_states] * signs
@@ -146,31 +173,43 @@ class UnitaryFitObjective:
             axis=-1
         )
 
-    def __new__(cls, num_args: int = 9, maxiter: int = default_maxiter, tol: float = default_tol):
-        key = (num_args, maxiter, tol)
+    def __new__(
+        cls,
+        num_args: int = 9,
+        num_guesses: int = 6,
+        maxiter: int = default_maxiter,
+        tol: float = default_tol
+    ):
+        key = (num_args, num_guesses, maxiter, tol)
         with cls._lock:
             if (instance := cls._instances.get(key)) is None:
                 instance = super().__new__(cls)
-                instance._initialize(num_args, maxiter, tol)
+                instance._initialize(*key)
                 cls._instances[key] = instance
 
         return instance
-    
-    def __init__(self, num_args: int = 9, maxiter: int = default_maxiter, tol: float = default_tol):
+
+    def __init__(
+        self,
+        num_args: int = 9,
+        num_guesses: int = 6,
+        maxiter: int = default_maxiter,
+        tol: float = default_tol
+    ):
         pass
 
-    def _initialize(self, num_args: int, maxiter: int, tol: float):
+    def _initialize(self, num_args: int, num_guesses: int, maxiter: int, tol: float):
         ints = np.zeros(num_args, dtype=np.int64)
         floats = np.zeros(num_args, dtype=np.float64)
         args = (ints, ints, ints, floats, floats)
         in_axes = [0] + ([None] * len(args))
         self.vobj = jax.jit(
             jax.vmap(self.fun, in_axes=in_axes)
-        ).lower(np.zeros((6, 3)), *args).compile()
+        ).lower(np.zeros((num_guesses, 3)), *args).compile()
         self.vsolve = jax.jit(
             jax.vmap(jaxopt.GradientDescent(fun=self.fun, maxiter=maxiter, tol=tol).run,
                      in_axes=in_axes)
-        ).lower(np.zeros((6, 3)), *args).compile()
+        ).lower(np.zeros((num_guesses, 3)), *args).compile()
         self.hess = jax.jit(
             jax.hessian(self.fun)
         ).lower(jnp.zeros(3), *args).compile()
