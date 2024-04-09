@@ -22,7 +22,8 @@ if __name__ == '__main__':
     from qiskit_ibm_runtime import QiskitRuntimeService
     from qiskit_ibm_runtime.exceptions import IBMNotAuthorizedError
     from qutrit_experiments.calibrations import (make_single_qutrit_gate_calibrations,
-                                                 make_qutrit_qubit_cx_calibrations)
+                                                 make_qutrit_qubit_cx_calibrations,
+                                                 make_toffoli_calibrations)
     import qutrit_experiments.configurations.single_qutrit
     import qutrit_experiments.configurations.qutrit_qubit_cx
     import qutrit_experiments.configurations.toffoli
@@ -55,4 +56,5 @@ if __name__ == '__main__':
     calibrate_single_qutrit_gates(runner, refresh_readout_error=program_config['refresh_readout'],
                                   calibrated=calibrated, qutrit_index=[1])
     calibrate_qutrit_qubit_cx(runner, refresh_readout_error=False, qutrit_qubit_index=(1, 2))
+    make_toffoli_calibrations(backend, calibrations, runner.qubits)
     characterize_toffoli(runner, refresh_readout_error=False)
