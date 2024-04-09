@@ -125,3 +125,5 @@ def add_qutrit_qubit_cx_dd(
                 dd()
             dd()
         calibrations.add_schedule(sched, qubits=qubits[0])
+    else:
+        raise CalibrationError('CR shorter than 2xX is not supported.')

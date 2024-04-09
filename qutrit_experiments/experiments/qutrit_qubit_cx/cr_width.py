@@ -101,6 +101,7 @@ class CRRoughWidthCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
         options.parameter_values = [np.linspace(128., 320., 4)]
+        options.require_2x_duration = True
         return options
 
     def __init__(
@@ -108,8 +109,8 @@ class CRRoughWidthCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
         backend: Optional[Backend] = None,
-        cal_parameter_name: list[str] = ['width', 'rcr_type', 'cx_sign'],
-        schedule_name: str = ['cr', None, 'cx_geometric_phase'],
+        cal_parameter_name: list[str] = ['width', 'rcr_type', 'cx_sign', 'cr_amp'],
+        schedule_name: str = ['cr', None, 'cx_geometric_phase', 'cr'],
         auto_update: bool = True,
         widths: Optional[Sequence[float]] = None
     ):
@@ -180,10 +181,27 @@ class CRRoughWidthCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
         # We start with a high CR amp -> width estimate should be on the longer side to allow
         # downward adjustment of amp
         cr_width += self._backend_data.granularity
+        if (req := self.experiment_options.require_2x_duration) or req == 0:
+            # We will later need the CR pulse to be longer than two X pulses of the c1 qubit
+            if isinstance(req, int):
+                qubit = req
+            else:
+                qubit = self.physical_qubits[0]
+            min_width = (2 * self._backend.target['x'][(qubit,)].calibration.duration
+                         - self._cals.get_schedule(self._sched_name[0], self.physical_qubits,
+                                                   assign_params={self._param_name[0]: 0}).duration)
+            while cr_width < min_width:
+                cr_width += self._backend_data.granularity
 
-        cx_sign = np.sign((crcr_rel_freqs * widths + crcr_rel_offsets)[rcr_type_index])
+        cx_sign = np.sign(crcr_rel_freqs[rcr_type_index] * cr_width
+                          + crcr_rel_offsets[rcr_type_index])
 
-        values = [cr_width, int(rcr_type), cx_sign]
+        cr_amp = self._cals.get_parameter_value(self._param_name[3], self.physical_qubits,
+                                                     schedule=self._sched_name[3])
+        # Linear approximation
+        cr_amp /= (cr_width / widths[rcr_type_index])
+
+        values = [cr_width, int(rcr_type), cx_sign, cr_amp]
         for pname, sname, value in zip(self._param_name, self._sched_name, values):
             BaseUpdater.add_parameter_value(
                 self._cals, experiment_data, value, pname, schedule=sname,
