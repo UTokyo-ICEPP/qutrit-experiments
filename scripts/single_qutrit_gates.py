@@ -1,7 +1,13 @@
 #!/usr/bin/env python
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import logging
 
 if __name__ == '__main__':
-    import os
+    from qutrit_experiments.programs.program_config import get_program_config
+    program_config = get_program_config()
+
     try:
         import gpustat
     except ImportError:
@@ -13,23 +19,21 @@ if __name__ == '__main__':
     jax.config.update('jax_enable_x64', True)
     import jax.numpy as jnp
     jnp.zeros(1)
-    import sys
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    import logging
+
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger('qutrit_experiments').setLevel(logging.INFO)
 
-    from qiskit_ibm_runtime import QiskitRuntimeService
-    from qiskit_ibm_runtime.exceptions import IBMNotAuthorizedError
     from qutrit_experiments.calibrations import make_single_qutrit_gate_calibrations
     from qutrit_experiments.constants import RESTLESS_REP_DELAY
-    from qutrit_experiments.programs.common import (get_program_config, load_calibrations,
+    from qutrit_experiments.programs.common import (load_calibrations, setup_backend,
                                                     setup_data_dir, setup_runner)
     from qutrit_experiments.programs.single_qutrit_gates import (calibrate_single_qutrit_gates,
                                                                  characterize_qutrit)
 
     program_config = get_program_config()
     assert program_config['qubits'] is not None
+    print('Starting single_qutrit_gates:', program_config['name'])
+
     if (nq := len(program_config['qubits'])) == 1:
         import qutrit_experiments.configurations.single_qutrit
         from qutrit_experiments.runners import ExperimentsRunner
@@ -40,15 +44,7 @@ if __name__ == '__main__':
         runner_cls = ParallelRunner
 
     setup_data_dir(program_config)
-    while True:
-        try:
-            service = QiskitRuntimeService(channel='ibm_quantum', instance=program_config['instance'])
-            backend = service.backend(program_config['backend'], instance=program_config['instance'])
-        except IBMNotAuthorizedError:
-            continue
-        break
-
-    print('Starting single_qutrit_gates:', program_config['name'])
+    backend = setup_backend(program_config)
     calibrations = make_single_qutrit_gate_calibrations(backend)
 
     qubits = []

@@ -1,7 +1,13 @@
 #!/usr/bin/env python
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import logging
 
 if __name__ == '__main__':
-    import os
+    from qutrit_experiments.programs.program_config import get_program_config
+    program_config = get_program_config()
+
     try:
         import gpustat
     except ImportError:
@@ -13,9 +19,7 @@ if __name__ == '__main__':
     jax.config.update('jax_enable_x64', True)
     import jax.numpy as jnp
     jnp.zeros(1)
-    import sys
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    import logging
+
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger('qutrit_experiments').setLevel(logging.INFO)
 
@@ -29,27 +33,18 @@ if __name__ == '__main__':
     import qutrit_experiments.configurations.qutrit_qubit_cx
     import qutrit_experiments.configurations.toffoli
     from qutrit_experiments.experiment_config import ParallelExperimentConfig
-    from qutrit_experiments.programs.common import (get_program_config, load_calibrations,
+    from qutrit_experiments.programs.common import (load_calibrations, setup_backend,
                                                     setup_data_dir, setup_runner)
     from qutrit_experiments.programs.single_qutrit_gates import calibrate_single_qutrit_gates
     from qutrit_experiments.programs.qutrit_qubit_cx import calibrate_qutrit_qubit_cx
     from qutrit_experiments.programs.toffoli import characterize_toffoli
 
-    program_config = get_program_config()
     setup_data_dir(program_config)
-    while True:
-        try:
-            service = QiskitRuntimeService(channel='ibm_quantum', instance=program_config['instance'])
-            backend = service.backend(program_config['backend'], instance=program_config['instance'])
-        except IBMNotAuthorizedError:
-            continue
-        break
-
     assert program_config['qubits'] is not None and len(program_config['qubits']) % 3 == 0
     print('Starting toffoli:', program_config['name'])
 
+    backend = setup_backend(program_config)
     all_qubits = tuple(program_config['qubits'])
-
     runner = setup_runner(backend, program_config)
     runner.job_retry_interval = 120
 
@@ -63,14 +58,15 @@ if __name__ == '__main__':
     else:
         config = ParallelExperimentConfig(
             run_options={'shots': 10000},
-            exp_type='qubits_assignment_error'
+            exp_type='qubits_assignment_error_parallel'
         )
         for ic1 in range(0, len(all_qubits), 3):
             qubits = all_qubits[ic1:ic1 + 3]
             subconf = qubits_assignment_error(runner, qubits)
             subconf.exp_type = f'qubits_assignment_error-{"_".join(map(str, qubits))}'
             config.subexperiments.append(subconf)
-        data = runner.run_experiment(config)
+
+        data = runner.run_experiment(config, force_resubmit=program_config['refresh_readout'])
         for ibatch in range(len(all_qubits) // 3):
             qubits_assignment_error_post(runner, data.child_data(ibatch))
 
