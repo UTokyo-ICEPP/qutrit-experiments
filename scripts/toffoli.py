@@ -24,8 +24,11 @@ if __name__ == '__main__':
     from qutrit_experiments.calibrations import (make_single_qutrit_gate_calibrations,
                                                  make_qutrit_qubit_cx_calibrations,
                                                  make_toffoli_calibrations)
+    from qutrit_experiments.configurations.common import (qubits_assignment_error,
+                                                          qubits_assignment_error_post)
     import qutrit_experiments.configurations.qutrit_qubit_cx
     import qutrit_experiments.configurations.toffoli
+    from qutrit_experiments.experiment_config import ParallelExperimentConfig
     from qutrit_experiments.programs.common import (get_program_config, load_calibrations,
                                                     setup_data_dir, setup_runner)
     from qutrit_experiments.programs.single_qutrit_gates import calibrate_single_qutrit_gates
@@ -47,26 +50,36 @@ if __name__ == '__main__':
 
     all_qubits = tuple(program_config['qubits'])
 
-
-
     runner = setup_runner(backend, program_config)
     runner.job_retry_interval = 120
-    runner.run_experiment('qubits_assignment_error',
-                          force_resubmit=program_config['refresh_readout'])
-
-
 
     if len(all_qubits) == 3:
+        runner.run_experiment('qubits_assignment_error',
+                              force_resubmit=program_config['refresh_readout'])
+
         import qutrit_experiments.configurations.single_qutrit
         qutrit_runner_cls = None
         qutrits = [all_qubits[1]]
     else:
+        config = ParallelExperimentConfig(
+            run_options={'shots': 10000},
+            exp_type='qubits_assignment_error'
+        )
+        for ic1 in range(0, len(all_qubits), 3):
+            qubits = all_qubits[ic1:ic1 + 3]
+            subconf = qubits_assignment_error(runner, qubits)
+            subconf.exp_type = f'qubits_assignment_error-{"_".join(map(str, qubits))}'
+            config.subexperiments.append(subconf)
+        data = runner.run_experiment(config)
+        for ibatch in range(len(all_qubits) // 3):
+            qubits_assignment_error_post(runner, data.child_data(ibatch))
+
         import qutrit_experiments.configurations.full_backend_qutrits
         from qutrit_experiments.runners.parallel_runner import ParallelRunner
         qutrit_runner_cls = ParallelRunner
         qutrits = all_qubits[1::3]
 
-    
+    calibrations = make_single_qutrit_gate_calibrations(backend, qubits=qutrits)
     qutrit_runner = setup_runner(backend, program_config, calibrations=calibrations,
                                  qubits=qutrits, runner_cls=qutrit_runner_cls)
     qutrit_runner.program_data = runner.program_data
@@ -76,13 +89,14 @@ if __name__ == '__main__':
     calibrate_single_qutrit_gates(qutrit_runner,
                                   refresh_readout_error=program_config['refresh_readout'],
                                   calibrated=calibrated, qutrit_index=[1])
-    
+
     # Session may have been renewed
     runner.runtime_session = qutrit_runner.runtime_session
-    calibrations = make_qutrit_qubit_cx_calibrations(backend, calibrations, qubits=all_qubits)
+    calibrations = make_qutrit_qubit_cx_calibrations(backend, calibrations=calibrations,
+                                                     qubits=all_qubits)
 
-    for icomb in range(len(all_qubits) // 3):
-        runner.qubits = all_qubits[icomb * 3:(icomb + 1) * 3]
+    for ic1 in range(0, len(all_qubits), 3):
+        runner.qubits = all_qubits[ic1:ic1 + 3]
         calibrate_qutrit_qubit_cx(runner, refresh_readout_error=False, qutrit_qubit_index=(1, 2))
         make_toffoli_calibrations(backend, calibrations, runner.qubits)
         characterize_toffoli(runner, refresh_readout_error=False)
