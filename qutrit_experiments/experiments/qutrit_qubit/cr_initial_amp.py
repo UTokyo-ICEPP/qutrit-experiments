@@ -118,12 +118,20 @@ class CRDiagonalityAnalysis(TernaryMCMResultAnalysis):
             result_parameters=[ParameterRepr('a', 'curvature')],
             bounds={'a': (0., np.inf)}
         )
+        self.plotter.set_figure_options(
+            xlabel='CR amplitude',
+            ylabel='Qutrit state probability',
+            ylim=(-0.05, 1.05)
+        )
 
     def _initialize(self, experiment_data: ExperimentData):
-        super()._initialize(experiment_data)
-        data_processor = self.options.data_processor
+        if (data_processor := self.options.data_processor) is None:
+            data_processor = self._make_data_processor()
         if not isinstance(data_processor._nodes[0], MarginalizeCounts):
             data_processor._nodes.insert(0, MarginalizeCounts({1, 2}))
+        self.options.data_processor = data_processor
+
+        super()._initialize(experiment_data)
 
     def _generate_fit_guesses(
         self,
@@ -157,6 +165,10 @@ class CRDiagonalityAnalysis(TernaryMCMResultAnalysis):
                             dtype=float)
 
             plotter = CurvePlotter(MplDrawer())
+            plotter.set_figure_options(
+                xlabel='CR amplitude',
+                ylabel='Target P(1)'
+            )
             plotter.set_series_data(
                 'target',
                 x_formatted=xdata,

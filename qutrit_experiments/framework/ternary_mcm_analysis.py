@@ -30,14 +30,7 @@ class TernaryMCMResultAnalysis(curve.CurveAnalysis):
 
     def _initialize(self, experiment_data: ExperimentData):
         if self.options.data_processor is None:
-            nodes = []
-            if (cal_matrix := self.options.assignment_matrix) is not None:
-                nodes.append(ReadoutMitigation(cal_matrix))
-            nodes += [
-                MultiProbability(),
-                SerializeMultiProbability(['10', '01', '11'])
-            ]
-            self.options.data_processor = DataProcessor('counts', nodes)
+            self.options.data_processor = self._make_data_processor()
 
         super()._initialize(experiment_data)
 
@@ -57,3 +50,12 @@ class TernaryMCMResultAnalysis(curve.CurveAnalysis):
             labels=curve_data.labels
         )
 
+    def _make_data_processor(self) -> DataProcessor:
+        nodes = []
+        if (cal_matrix := self.options.assignment_matrix) is not None:
+            nodes.append(ReadoutMitigation(cal_matrix))
+        nodes += [
+            MultiProbability(),
+            SerializeMultiProbability(['10', '01', '11'])
+        ]
+        return DataProcessor('counts', nodes)
