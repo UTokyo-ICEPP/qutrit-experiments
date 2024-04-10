@@ -10,7 +10,7 @@ from typing import Any, Optional, Union
 import lmfit
 from matplotlib.figure import Figure
 import numpy as np
-from scipy.optimize import curve_fit
+from scipy.optimize import least_squares
 from uncertainties import correlated_values, unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
@@ -31,6 +31,7 @@ from ...gates import CrossResonanceGate, X12Gate
 from ...util.pulse_area import gs_effective_duration, rabi_cycles_per_area
 
 logger = logging.getLogger(__name__)
+twopi = 2. * np.pi
 
 
 class CRAngle(MapToPhysicalQubits, BaseExperiment):
@@ -257,6 +258,9 @@ class CRAngleCounterScanAnalysis(CompoundAnalysis):
         xvals = np.array(xvals)
         yvals = np.array(yvals)
         yvals_n = unp.nominal_values(yvals)
+        # Center yvals_n around 0
+        yvals_shift = yvals_n[yvals.shape[0] // 2]
+        yvals_n = (yvals_n - yvals_shift + np.pi) % twopi - np.pi
         yvals_e = unp.std_devs(yvals)
 
         def curve(x, slope, intercept):
@@ -278,8 +282,8 @@ class CRAngleCounterScanAnalysis(CompoundAnalysis):
             plotter.set_series_data(
                 'angles',
                 x_formatted=xvals,
-                y_formatted=yvals_n,
-                y_formatted_err=yvals_e,
+                y_formatted=unp.nominal_values(yvals),
+                y_formatted_err=unp.std_devs(yvals),
                 x_interp=x_interp,
                 y_interp=curve(x_interp, *popt)
             )
