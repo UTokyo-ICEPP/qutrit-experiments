@@ -90,9 +90,11 @@ if __name__ == '__main__':
     # Session may have been renewed
     runner.runtime_session = qutrit_runner.runtime_session
     make_qutrit_qubit_cx_calibrations(backend, calibrations=calibrations, qubits=all_qubits)
+    data_dir = runner.data_dir
 
     for ic1 in range(0, len(all_qubits), 3):
         runner.qubits = all_qubits[ic1:ic1 + 3]
+        runner.data_dir = os.path.join(data_dir, '_'.join(map(str, runner.qubits)))
         calibrate_qutrit_qubit_cx(runner, refresh_readout_error=False, qutrit_qubit_index=(1, 2))
         make_toffoli_calibrations(backend, calibrations, runner.qubits)
         characterize_toffoli(runner, refresh_readout_error=False)
