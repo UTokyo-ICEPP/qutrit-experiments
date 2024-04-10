@@ -66,15 +66,12 @@ class ExperimentsRunner:
         runtime_session: Optional[Session] = None
     ):
         self._backend = backend
-        self._calibrations = calibrations
+        self.calibrations = calibrations
 
         self.qubits = qubits
+        self.data_dir = data_dir
 
-        self._data_dir = data_dir
-        if data_dir and not os.path.exists(self._data_dir):
-            os.makedirs(self._data_dir)
-
-        self._read_only = read_only
+        self.read_only = read_only
 
         if runtime_session is not None:
             self._runtime_session = runtime_session
@@ -97,6 +94,11 @@ class ExperimentsRunner:
     def backend(self):
         return self._backend
 
+    @backend.setter
+    def backend(self, backend: Backend):
+        self._backend = backend
+        self.runtime_session = Session(service=self._backend.service, backend=self._backend)
+
     @property
     def qubits(self):
         return self._qubits
@@ -104,6 +106,16 @@ class ExperimentsRunner:
     @qubits.setter
     def qubits(self, value: Union[Sequence[int], None]):
         self._qubits = None if value is None else tuple(value)
+
+    @property
+    def data_dir(self) -> str:
+        return self._data_dir
+
+    @data_dir.setter
+    def data_dir(self, path: Union[str, None]):
+        if path and not os.path.exists(path):
+            os.makedirs(path)
+        self._data_dir = path
 
     @property
     def runtime_session(self):
@@ -116,22 +128,6 @@ class ExperimentsRunner:
     def runtime_session(self, session: Session):
         self._runtime_session = session
 
-    @property
-    def calibrations(self):
-        return self._calibrations
-
-    @calibrations.setter
-    def calibrations(self, calibrations: Calibrations):
-        self._calibrations = calibrations
-
-    @property
-    def data_dir(self):
-        return self._data_dir
-
-    @property
-    def read_only(self):
-        return self._read_only
-
     def load_calibrations(
         self,
         file_name: str = 'parameter_values.csv',
@@ -139,7 +135,7 @@ class ExperimentsRunner:
     ):
         if data_dir is None:
             data_dir = self._data_dir
-        self._calibrations.load_parameter_values(file_name=os.path.join(data_dir, file_name))
+        self.calibrations.load_parameter_values(file_name=os.path.join(data_dir, file_name))
 
     def make_experiment(
         self,
@@ -163,7 +159,7 @@ class ExperimentsRunner:
             if config.physical_qubits is not None:
                 args['physical_qubits'] = config.physical_qubits
             if issubclass(config.cls, BaseCalibrationExperiment):
-                args['calibrations'] = self._calibrations
+                args['calibrations'] = self.calibrations
 
         experiment = config.cls(**args)
         experiment._type = config.exp_type
@@ -274,7 +270,7 @@ class ExperimentsRunner:
         if block_for_results:
             self._check_status(exp_data)
 
-        if calibrate and self._calibrations is not None:
+        if calibrate and self.calibrations is not None:
             def update_calibrations(exp_data):
                 self.update_calibrations(exp_data, experiment=experiment,
                                          criterion=config.calibration_criterion)
@@ -316,7 +312,7 @@ class ExperimentsRunner:
             # Nothing to do
             return transpiled_circuits or experiment._transpiled_circuits()
 
-        instruction_durations = make_instruction_durations(self._backend, self._calibrations,
+        instruction_durations = make_instruction_durations(self._backend, self.calibrations,
                                                            qubits=experiment.physical_qubits)
 
         if not transpiled_circuits:
@@ -343,7 +339,7 @@ class ExperimentsRunner:
 
         start = time.time()
         transpiled_circuits = transpile_qutrit_circuits(transpiled_circuits,
-                                                        self._backend, self._calibrations,
+                                                        self._backend, self.calibrations,
                                                         instruction_durations=instruction_durations,
                                                         options=self.qutrit_transpile_options)
         end = time.time()
@@ -497,8 +493,8 @@ class ExperimentsRunner:
             self.pass_parameter_value(pname, qubits, from_schedule=sname, from_group='default',
                                       to_group=exp_type)
 
-        if any(x[-1] for x in update_list) and self._data_dir and not self._read_only:
-            self._calibrations.save(folder=self._data_dir, overwrite=True)
+        if any(x[-1] for x in update_list) and self._data_dir and not self.read_only:
+            self.calibrations.save(folder=self._data_dir, overwrite=True)
 
     def save_program_data(self, key: str):
         if not self._data_dir:
@@ -698,7 +694,7 @@ class ExperimentsRunner:
             from_qubits = (from_qubits,)
 
         param_key = (from_param, from_qubits, from_schedule)
-        parameter_values = [pv for pv in self._calibrations._params[param_key]
+        parameter_values = [pv for pv in self.calibrations._params[param_key]
                             if pv.group == from_group]
         from_value = max(enumerate(parameter_values), key=lambda x: (x[1].date_time, x[0]))[1]
 
@@ -725,7 +721,7 @@ class ExperimentsRunner:
             exp_id=from_value.exp_id,
             group=to_group
         )
-        self._calibrations.add_parameter_value(to_value, to_param, qubits=to_qubits,
+        self.calibrations.add_parameter_value(to_value, to_param, qubits=to_qubits,
                                                schedule=to_schedule)
 
     @staticmethod
