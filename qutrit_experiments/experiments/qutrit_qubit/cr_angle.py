@@ -10,7 +10,7 @@ from typing import Any, Optional, Union
 import lmfit
 from matplotlib.figure import Figure
 import numpy as np
-from scipy.optimize import least_squares
+from scipy.optimize import curve_fit
 from uncertainties import correlated_values, unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
@@ -268,6 +268,7 @@ class CRAngleCounterScanAnalysis(CompoundAnalysis):
 
         p0 = (1., np.mean(yvals_n - xvals))
         popt, pcov = curve_fit(curve, xvals, yvals_n, sigma=yvals_e, p0=p0)
+        popt[1] += yvals_shift
         popt_ufloats = correlated_values(popt, pcov)
 
         analysis_results.append(AnalysisResultData(name='angle', value=popt_ufloats[1]))
