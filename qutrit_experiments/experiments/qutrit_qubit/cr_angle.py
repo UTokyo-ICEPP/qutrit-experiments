@@ -179,15 +179,30 @@ class CRAngleAnalysis(curve.CurveAnalysis):
         psi2 = (max_cos_arg_sq + min_cos_arg_sq) / 2.
         p0_psi = np.sqrt(psi2)
         p0_s = max_cos_arg_sq / psi2 - 1.
-        p0_x0 = exp_data.x[np.argmax(cos_arg)]
-
         user_opt.p0.set_if_empty(
-            x0=p0_x0,
             psi=p0_psi,
             s=p0_s
         )
+        options = []
+        if user_opt.p0['x0'] is not None:
+            options.append(user_opt)
 
-        return user_opt
+        ix0 = np.argmax(cos_arg)
+
+        opt = user_opt.copy()
+        opt.p0['x0'] = exp_data.x[ix0]
+        options.append(opt)
+
+        if ix0 < 3:
+            opt = user_opt.copy()
+            opt.p0['x0'] = exp_data.x[-1]
+            options.append(opt)
+        if ix0 >= len(exp_data.x) - 3:
+            opt = user_opt.copy()
+            opt.p0['x0'] = exp_data.x[0]
+            options.append(opt)
+
+        return options
 
 
 class CRAngleCounterScan(BatchExperiment):
@@ -286,7 +301,7 @@ class CRAngleCounterScanAnalysis(CompoundAnalysis):
                 y_formatted=unp.nominal_values(yvals),
                 y_formatted_err=unp.std_devs(yvals),
                 x_interp=x_interp,
-                y_interp=curve(x_interp, *popt)
+                y_interp=(curve(x_interp, *popt) + np.pi) % twopi - np.pi
             )
             figures.append(plotter.figure())
 
