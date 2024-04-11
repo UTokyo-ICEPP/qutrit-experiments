@@ -267,7 +267,7 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
 
             if self.options.analyze_qutrit:
                 ax = get_non_gui_ax()
-                keys = sorted(qutrit_states.keys())
+                keys = sorted(qutrit_states.keys(), key=lambda x: (x[1], x[0]))
                 xvalues = (np.arange(len(keys)) + 0.5) * list(qutrit_states.values())[0].shape[0]
                 ax.set_xticks(xvalues, labels=[f'{key[0]} {key[1]}' for key in keys])
                 yvalues = np.arange(4)
