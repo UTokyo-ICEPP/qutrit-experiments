@@ -23,6 +23,7 @@ from qiskit_experiments.data_processing import DataProcessor, MarginalizeCounts,
 from qiskit_experiments.framework import AnalysisResultData, BaseExperiment, ExperimentData
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
+from ...data_processing import get_ternary_data_processor
 from ...experiment_mixins import MapToPhysicalQubits
 from ...framework.ternary_mcm_analysis import TernaryMCMResultAnalysis
 from ...gates import CrossResonanceGate, X12Gate
@@ -80,6 +81,7 @@ class CRDiagonality(MapToPhysicalQubits, BaseExperiment):
         template.measure(1, 0)
         template.measure(0, 1)
         template.x(0)
+        template.append(X12Gate(), [0])
         template.measure(0, 2)
         if sched is not None:
             template.add_calibration(CrossResonanceGate.gate_name, self.physical_qubits, sched,
@@ -126,7 +128,11 @@ class CRDiagonalityAnalysis(TernaryMCMResultAnalysis):
 
     def _initialize(self, experiment_data: ExperimentData):
         if (data_processor := self.options.data_processor) is None:
-            data_processor = self._make_data_processor()
+            data_processor = get_ternary_data_processor(
+                assignment_matrix=self.options.assignment_matrix,
+                include_invalid=False,
+                serialize=True
+            )
         if not isinstance(data_processor._nodes[0], MarginalizeCounts):
             data_processor._nodes.insert(0, MarginalizeCounts({1, 2}))
         self.options.data_processor = data_processor

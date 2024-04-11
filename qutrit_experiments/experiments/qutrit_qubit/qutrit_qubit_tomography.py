@@ -19,7 +19,7 @@ from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Opt
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ...data_processing import MultiProbability, ReadoutMitigation
+from ...data_processing import get_ternary_data_processor
 from ...framework_overrides.batch_experiment import BatchExperiment
 from ...framework_overrides.composite_analysis import CompositeAnalysis
 from ...framework.compound_analysis import CompoundAnalysis
@@ -67,6 +67,7 @@ class QutritQubitTomography(BatchExperiment):
                 post_circuit.add_register(ClassicalRegister(3))
                 post_circuit.measure(0, 1)
                 post_circuit.x(0)
+                post_circuit.append(X12Gate(), [0])
                 post_circuit.measure(0, 2)
 
             channel = QuantumCircuit(2)
@@ -74,8 +75,6 @@ class QutritQubitTomography(BatchExperiment):
                 channel.x(0)
             if control_state == 2:
                 channel.append(X12Gate(), [0])
-                post_circuit.barrier()
-                post_circuit.append(X12Gate(), [0])
 
             if iexp < 3:
                 channel.compose(circuit, inplace=True)
@@ -213,11 +212,12 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
         ])
 
         if self.options.analyze_qutrit:
-            nodes = [MarginalizeCounts({1, 2})]
-            if (cal_matrix := self.options.qutrit_assignment_matrix) is not None:
-                nodes.append(ReadoutMitigation(cal_matrix))
-            nodes.append(MultiProbability(['10', '01', '11', '00'], alpha_prior=np.full(4, 0.5)))
-            data_processor = DataProcessor('counts', nodes)
+            data_processor = get_ternary_data_processor(
+                assignment_matrix=self.options.qutrit_assignment_matrix,
+                include_invalid=True,
+                serialize=False
+            )
+            data_processor._nodes.insert(0, MarginalizeCounts({1, 2}))
             qutrit_states = {}
             for iexp in range(len(self._analyses)):
                 child_data = experiment_data.child_data(component_index[iexp])

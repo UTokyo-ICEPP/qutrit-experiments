@@ -3,14 +3,13 @@ import lmfit
 import numpy as np
 from typing import Optional
 import qiskit_experiments.curve_analysis as curve
-from qiskit_experiments.data_processing import DataProcessor
 from qiskit_experiments.framework import ExperimentData, Options
 
-from ..data_processing import MultiProbability, ReadoutMitigation, SerializeMultiProbability
+from ..data_processing import get_ternary_data_processor
 
 class TernaryMCMResultAnalysis(curve.CurveAnalysis):
-    """Analysis for experiments with ternary results classified with MCM (measure-X-measure).
-    
+    """Analysis for experiments with ternary results classified with MCM (measure-Xminus-measure).
+
     The processed data have a structure of x=[x0, x0, x0, x1, x1, x1, ...],
     y=[P0(0), P0(1), P0(2), P1(0), P1(1), P1(2), ...], data_allocation=[0, 1, 2, 0, 1, 2, ...]
     """
@@ -19,7 +18,7 @@ class TernaryMCMResultAnalysis(curve.CurveAnalysis):
         options = super()._default_options()
         options.assignment_matrix = None
         return options
-    
+
     def __init__(self, models: Optional[list[lmfit.Model]] = None, name: Optional[str] = None):
         super().__init__(models=models, name=name)
         self.set_options(
@@ -30,7 +29,11 @@ class TernaryMCMResultAnalysis(curve.CurveAnalysis):
 
     def _initialize(self, experiment_data: ExperimentData):
         if self.options.data_processor is None:
-            self.options.data_processor = self._make_data_processor()
+            self.options.data_processor = get_ternary_data_processor(
+                assignment_matrix=self.options.assignment_matrix,
+                include_invalid=False,
+                serialize=True
+            )
 
         super()._initialize(experiment_data)
 
@@ -49,13 +52,3 @@ class TernaryMCMResultAnalysis(curve.CurveAnalysis):
             data_allocation=np.tile([0, 1, 2], curve_data.x.shape[0]),
             labels=curve_data.labels
         )
-
-    def _make_data_processor(self) -> DataProcessor:
-        nodes = []
-        if (cal_matrix := self.options.assignment_matrix) is not None:
-            nodes.append(ReadoutMitigation(cal_matrix))
-        nodes += [
-            MultiProbability(),
-            SerializeMultiProbability(['10', '01', '11'])
-        ]
-        return DataProcessor('counts', nodes)

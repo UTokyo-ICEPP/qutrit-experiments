@@ -32,7 +32,7 @@ class EFT1(MapToPhysicalQubits, BaseExperiment):
         # Number of buffer circuits to insert to let the |2> state relax
         options.insert_buffer_circuits = 2
         return options
-    
+
     @classmethod
     def _default_run_options(cls) -> Options:
         options = super()._default_run_options()
@@ -71,6 +71,7 @@ class EFT1(MapToPhysicalQubits, BaseExperiment):
             circ.measure(0, 0)
             circ.barrier(0)
             circ.x(0)
+            circ.append(X12Gate(), [0])
             circ.barrier(0)
             circ.measure(0, 1)
             circ.metadata = {'xval': timing.delay_time(time=delay), 'unit': 's'}

@@ -22,7 +22,7 @@ class MCMLocalReadoutError(MapToPhysicalQubits, BaseExperiment):
         options = super()._default_run_options()
         options.rep_delay = 5.e-4
         return options
-    
+
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -40,6 +40,7 @@ class MCMLocalReadoutError(MapToPhysicalQubits, BaseExperiment):
         meas_template = QuantumCircuit(1, 2)
         meas_template.measure(0, 0)
         meas_template.x(0)
+        meas_template.append(X12Gate(), [0])
         meas_template.measure(0, 1)
 
         circuits = []
