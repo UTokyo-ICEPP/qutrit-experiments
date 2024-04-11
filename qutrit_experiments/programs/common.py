@@ -74,13 +74,14 @@ def load_calibrations(
         if calib_path.endswith('.csv'):
             data_dir = os.path.dirname(calib_path)
             file_name = os.path.basename(calib_path)
-            if data_dir == '':
-                data_dir = None
-            elif not os.path.isabs(data_dir):
-                data_dir = os.path.join(program_config['base_dir'], data_dir)
         else:
-            data_dir = calib_path or None
+            data_dir = calib_path
             file_name = 'parameter_values.csv'
+
+        if data_dir == '':
+            data_dir = None
+        elif not os.path.isabs(data_dir):
+            data_dir = os.path.join(program_config['base_dir'], data_dir)
 
         runner.load_calibrations(file_name=file_name, data_dir=data_dir)
         runner.load_program_data()
