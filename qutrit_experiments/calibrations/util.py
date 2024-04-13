@@ -40,7 +40,7 @@ def get_qutrit_freq_shift(
 ) -> float:
     f12 = calibrations.get_parameter_value('f12', qubit)
     f01 = target.qubit_properties[qubit].frequency
-    return f12 - f01
+    return (f12 - f01) * target.dt
 
 
 def get_qutrit_pulse_gate(

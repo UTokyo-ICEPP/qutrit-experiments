@@ -102,7 +102,7 @@ def hcr_template(runner, exp_type):
     assign_params = {
         'width': Parameter('width'),
         'margin': 0.,
-        'stark_frequency': runner.backend.qubit_properties(target).frequency,
+        'stark_freq': runner.backend.qubit_properties(target).frequency * runner.backend.dt,
         'cr_amp': Parameter('cr_amp'),
         'cr_sign_angle': 0.,
         'cr_stark_amp': 0.,
@@ -173,7 +173,7 @@ def hcr_singlestate_template(runner, exp_type):
     assign_params = {
         'width': Parameter('width'),
         'margin': 0.,
-        'stark_frequency': runner.backend.qubit_properties(target).frequency,
+        'stark_freq': runner.backend.qubit_properties(target).frequency * runner.backend.dt,
         'cr_amp': Parameter('cr_amp'),
         'cr_sign_angle': 0.,
         'cr_stark_amp': 0.,
@@ -208,7 +208,7 @@ def hcr_amplitude_scan(runner):
     assign_params = {
         'width': Parameter('width'),
         'margin': 0.,
-        'stark_frequency': runner.backend.qubit_properties(target).frequency,
+        'stark_freq': runner.backend.qubit_properties(target).frequency * runner.backend.dt,
         'cr_amp': Parameter('cr_amp'),
         'cr_sign_angle': 0.,
         'cr_stark_amp': 0.,
@@ -242,7 +242,7 @@ def ucr_tomography_template(runner, exp_type):
     assign_params = {
         'width': Parameter('width'),
         'margin': 0.,
-        'stark_frequency': Parameter('stark_frequency'),
+        'stark_freq': Parameter('stark_freq'),
         'cr_amp': Parameter('cr_amp'),
         'cr_sign_angle': 0.,
         'cr_stark_amp': Parameter('cr_stark_amp'),

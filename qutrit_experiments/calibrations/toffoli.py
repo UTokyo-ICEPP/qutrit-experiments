@@ -18,30 +18,49 @@ from ..gates import ParameterValueType
 from ..pulse_library import DoubleDrag
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule
-from .util import get_default_ecr_schedule, get_operational_qubits, get_qutrit_freq_shift
+from .util import get_default_ecr_schedule, get_operational_qubits
+from .qubit import add_x, set_x_default
 
 logger = logging.getLogger(__name__)
 
 def make_toffoli_calibrations(
     backend: Backend,
     calibrations: Calibrations,
-    qubits: tuple[int, int, int]
+    set_defaults: bool = True,
+    qubits: Optional[Sequence[int]] = None
 ) -> Calibrations:
     """Define parameters and schedules for qutrit-qubit CX gate."""
-    add_dd(backend, calibrations, qubits=(qubits[0], qubits[2]))
-    add_qutrit_qubit_cx_dd(backend, calibrations, qubits)
+    if calibrations is None:
+        calibrations = Calibrations.from_backend(backend)
+    if type(calibrations.add_schedule).__name__ == 'method':
+        update_add_schedule(calibrations)
+
+    if not calibrations.has_template('x'):
+        add_x(calibrations)
+    add_dd(calibrations)
+    add_qutrit_qubit_cx_dd(calibrations)
+
+    if set_defaults:
+        set_toffoli_parameters(backend, calibrations, qubits)
 
     return calibrations
 
 
-def add_dd(
+def set_toffoli_parameters(
     backend: Backend,
     calibrations: Calibrations,
-    qubits: tuple[int, int]
+    qubits: tuple[int, int, int]
+):
+    set_x_default(backend, calibrations, qubits=qubits)
+    set_dd_default(backend, calibrations, qubits=qubits)
+    # Toffoli schedule depends on the calibrated parameters specific to qubits
+    instantiate_qutrit_qubit_cx_dd(calibrations, qubits)
+
+
+def add_dd(
+    calibrations: Calibrations
 ) -> None:
     """Add templates for DD sequences (X-delay-X)."""
-    inst_map = backend.defaults().instruction_schedule_map
-
     duration = Parameter('duration')
     pulse_duration = Parameter('pulse_duration')
     dd_pulse = DoubleDrag(
@@ -56,7 +75,16 @@ def add_dd(
         pulse.play(dd_pulse, pulse.DriveChannel(Parameter('ch0')))
     calibrations.add_schedule(sched, num_qubits=1)
 
-    for qubit in qubits:
+
+def set_dd_default(
+    backend: Backend,
+    calibrations: Calibrations,
+    qubits: Optional[Sequence[int]] = None
+) -> None:
+    """Copy the backend defaults X parameter values into DoubleDrag."""
+    inst_map = backend.defaults().instruction_schedule_map
+    operational_qubits = get_operational_qubits(backend, qubits=qubits)
+    for qubit in operational_qubits:
         x_sched = inst_map.get('x', qubit)
         x_pulse = x_sched.instructions[0][1].pulse
         x_duration = x_sched.duration
@@ -69,31 +97,46 @@ def add_dd(
         ]
         for pname, value in pvalues:
             calibrations.add_parameter_value(ParameterValue(value), pname, qubits=[qubit],
-                                             schedule=sched.name)
+                                             schedule='dd')
 
 
 def add_qutrit_qubit_cx_dd(
-    backend: Backend,
-    calibrations: Calibrations,
-    qubits: tuple[int, int, int]
-) -> None:
-    """Add the qutrit-qubit CX schedule including DD on the c1 qubit. To be called once all
-    calibrations for the non-DD CX is settled."""
-    inst_map = backend.defaults().instruction_schedule_map
-
-    # Import the X parameter values from inst_map
-    if ParameterKey('duration', (qubits[0],), 'x') not in calibrations._params:
-        params = inst_map.get('x', qubits[0]).instructions[0][1].pulse.parameters
-        for pname, value in params.items():
-            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=[qubits[0]],
-                                             schedule='x')
-
+    calibrations: Calibrations
+):
+    """Define the DD sequence for the c1 qubit."""
     # X/X12 on qubit 1 with DD on qubit 2
     def dd():
         with pulse.align_left():
             pulse.reference('x', 'q0')
             pulse.reference('x', 'q0')
 
+    # CX type X (CR > 2X)
+    with pulse.build(name='qutrit_qubit_cx_rcr2_dd', default_alignment='sequential') as sched:
+        for _ in range(3):
+            dd()
+            pulse.reference('c1_cr_dd', 'q0')
+            dd()
+            pulse.reference('c1_cr_dd', 'q0')
+        dd()
+    calibrations.add_schedule(sched, num_qubits=1)
+
+    # CX type X12
+    with pulse.build(name='qutrit_qubit_cx_rcr0_dd', default_alignment='sequential') as sched:
+        for _ in range(3):
+            pulse.reference('c1_cr_dd', 'q0')
+            dd()
+            pulse.reference('c1_cr_dd', 'q0')
+            dd()
+        dd()
+    calibrations.add_schedule(sched, num_qubits=1)
+
+
+def instantiate_qutrit_qubit_cx_dd(
+    calibrations: Calibrations,
+    qubits: tuple[int, int, int]
+) -> None:
+    """Add the qutrit-qubit CX schedule including DD on the c1 qubit. To be called once all
+    calibrations for the non-DD CX is settled."""
     cr_duration = calibrations.get_schedule('cr', qubits[1:]).duration
     c1_x_sched = calibrations.get_schedule('x', qubits[:1])
     x_duration = c1_x_sched.duration
@@ -106,24 +149,5 @@ def add_qutrit_qubit_cx_dd(
             sched.append(block)
         calibrations.add_schedule(sched, qubits=qubits[0])
 
-        # CX type X (CR > 2X)
-        with pulse.build(name='qutrit_qubit_cx_rcr2_dd', default_alignment='sequential') as sched:
-            for _ in range(3):
-                dd()
-                pulse.reference('c1_cr_dd', 'q0')
-                dd()
-                pulse.reference('c1_cr_dd', 'q0')
-            dd()
-        calibrations.add_schedule(sched, qubits=qubits[0])
-
-        # CX type X12
-        with pulse.build(name='qutrit_qubit_cx_rcr0_dd', default_alignment='sequential') as sched:
-            for _ in range(3):
-                pulse.reference('c1_cr_dd', 'q0')
-                dd()
-                pulse.reference('c1_cr_dd', 'q0')
-                dd()
-            dd()
-        calibrations.add_schedule(sched, qubits=qubits[0])
     else:
         raise CalibrationError('CR shorter than 2xX is not supported.')

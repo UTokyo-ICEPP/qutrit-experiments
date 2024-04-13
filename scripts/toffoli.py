@@ -23,13 +23,14 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger('qutrit_experiments').setLevel(logging.INFO)
-    
+
     from qiskit import QuantumCircuit
     from qiskit_ibm_runtime import QiskitRuntimeService
     from qiskit_ibm_runtime.exceptions import IBMNotAuthorizedError
     from qutrit_experiments.calibrations import (make_single_qutrit_gate_calibrations,
                                                  make_qutrit_qubit_cx_calibrations,
                                                  make_toffoli_calibrations)
+    from qutrit_experiments.calibrations.toffoli import set_toffoli_parameters
     from qutrit_experiments.configurations.common import (qubits_assignment_error,
                                                           qubits_assignment_error_post)
     import qutrit_experiments.configurations.qutrit_qubit_cx
@@ -42,20 +43,25 @@ if __name__ == '__main__':
     from qutrit_experiments.programs.qutrit_qubit_cx import calibrate_qutrit_qubit_cx, run_unitaries
     from qutrit_experiments.programs.toffoli import characterize_toffoli
 
+    # Create the data directory
     setup_data_dir(program_config)
     assert program_config['qubits'] is not None and len(program_config['qubits']) % 3 == 0
     print('Starting toffoli:', program_config['name'])
 
+    # Instantiate the backend
     backend = setup_backend(program_config)
     all_qubits = tuple(program_config['qubits'])
 
     if len(all_qubits) == 3:
+        # Single Toffoli gate calibration
         qubits_assignment_error = 'qubits_assignment_error'
 
         import qutrit_experiments.configurations.single_qutrit
         qutrit_runner_cls = None
         qutrits = [all_qubits[1]]
     else:
+        # Multiple Toffoli gates calibration (serial)
+        # Readout mitigation in groups of three
         config = ParallelExperimentConfig(
             run_options={'shots': 10000},
             exp_type='qubits_assignment_error_parallel'
@@ -81,33 +87,42 @@ if __name__ == '__main__':
         qutrit_runner_cls = ParallelRunner
         qutrits = all_qubits[1::3]
 
+    # Define all schedules to be calibrated
     calibrations = make_single_qutrit_gate_calibrations(backend, qubits=qutrits)
     make_qutrit_qubit_cx_calibrations(backend, calibrations=calibrations, qubits=all_qubits)
+    make_toffoli_calibrations(backend, calibrations=calibrations, set_defaults=False)
 
+    # Define the main ExperimentsRunner and run the readout mitigation measurements
     runner = setup_runner(backend, program_config, calibrations=calibrations)
     runner.job_retry_interval = 120
 
     runner.run_experiment(qubits_assignment_error,
                           force_resubmit=program_config['refresh_readout'])
 
+    # Load the calibrations if source is specified in program_config
     calibrated = load_calibrations(runner, program_config)
 
-    qutrit_runner = setup_runner(backend, program_config, calibrations=calibrations,
-                                 qubits=qutrits, runner_cls=qutrit_runner_cls)
-    qutrit_runner.program_data = runner.program_data
-    qutrit_runner.runtime_session = runner.runtime_session
-    qutrit_runner.job_retry_interval = 120
+    if qutrit_runner_cls is None:
+        qutrit_runner = runner
+    else:
+        # Define a ParallelRunner to calibrate single qutrit gates in parallel
+        qutrit_runner = setup_runner(backend, program_config, calibrations=calibrations,
+                                    qubits=qutrits, runner_cls=qutrit_runner_cls)
+        qutrit_runner.program_data = runner.program_data
+        qutrit_runner.runtime_session = runner.runtime_session
+        qutrit_runner.job_retry_interval = 120
+
+    # Single qutrit gates
     calibrate_single_qutrit_gates(qutrit_runner,
                                   refresh_readout_error=program_config['refresh_readout'],
                                   calibrated=calibrated)
-
-    runner.calibrations = calibrations
     # Session may have been renewed
     runner.runtime_session = qutrit_runner.runtime_session
-    
+
     data_dir = runner.data_dir
 
     for ic1 in range(0, len(all_qubits), 3):
+        # For each qubit combination, make a subdirectory and run the calibrations
         toffoli_qubits = all_qubits[ic1:ic1 + 3]
         runner.data_dir = os.path.join(data_dir, '_'.join(map(str, toffoli_qubits)))
 
@@ -133,5 +148,5 @@ if __name__ == '__main__':
 
         runner.qubits = toffoli_qubits
         calibrate_qutrit_qubit_cx(runner, refresh_readout_error=False, qutrit_qubit_index=(1, 2))
-        make_toffoli_calibrations(backend, calibrations, runner.qubits)
+        set_toffoli_parameters(backend, calibrations, toffoli_qubits)
         characterize_toffoli(runner, refresh_readout_error=False)

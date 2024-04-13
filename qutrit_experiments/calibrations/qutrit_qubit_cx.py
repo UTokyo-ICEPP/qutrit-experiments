@@ -17,7 +17,8 @@ from ..gates import ParameterValueType
 from ..pulse_library import ModulatedGaussianSquare
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule
-from .util import get_default_ecr_schedule, get_operational_qubits, get_qutrit_freq_shift
+from .util import get_default_ecr_schedule, get_operational_qubits
+from .qubit import add_x, set_x_default
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 def make_qutrit_qubit_cx_calibrations(
     backend: Backend,
     calibrations: Optional[Calibrations] = None,
+    set_defaults: bool = True,
     qubits: Optional[Sequence[int]] = None
 ) -> Calibrations:
     """Define parameters and schedules for qutrit-qubit CX gate."""
@@ -33,19 +35,24 @@ def make_qutrit_qubit_cx_calibrations(
     if type(calibrations.add_schedule).__name__ == 'method':
         update_add_schedule(calibrations)
 
-    add_qutrit_qubit_cr(backend, calibrations, qubits=qubits)
-    add_qutrit_qubit_rcr(backend, calibrations, qubits=qubits)
-    add_qutrit_qubit_cx(backend, calibrations, qubits=qubits)
+    add_qutrit_qubit_cr(calibrations)
+    if not calibrations.has_template('x'):
+        add_x(calibrations)
+    add_qutrit_qubit_rcr(calibrations)
+    add_qutrit_qubit_cx(calibrations)
 
     calibrations._register_parameter(Parameter('rcr_type'), ())
+
+    if set_defaults:
+        set_qutrit_qubit_cr_default(backend, calibrations, qubits=qubits)
+        set_x_default(backend, calibrations, qubits=qubits)
+        instantiate_qutrit_qubit_cx(backend, calibrations, qubits=qubits)
 
     return calibrations
 
 
 def add_qutrit_qubit_cr(
-    backend: Backend,
-    calibrations: Calibrations,
-    qubits: Optional[Sequence[int]] = None
+    calibrations: Calibrations
 ) -> None:
     """Define CR and counter tones with ModulatedGaussianSquare potentiallly with an additional
     off-resonant component."""
@@ -54,8 +61,7 @@ def add_qutrit_qubit_cr(
     width = Parameter('width')
     margin = Parameter('margin')
     duration = sigma * rsr * 2 + width + margin
-    stark_frequency = Parameter('stark_frequency')
-    stark_detuning = (stark_frequency - Parameter('target_frequency')) * backend.dt
+    stark_detuning = Parameter('stark_freq') - Parameter('target_freq')
 
     cr_amp = Parameter('cr_amp')
     cr_base_angle = Parameter('cr_base_angle')
@@ -73,8 +79,8 @@ def add_qutrit_qubit_cr(
     cr_pulse = ModulatedGaussianSquare(duration=duration, amp=cr_full_amp,
                                        sigma=sigma, freq=(0., stark_detuning),
                                        fractions=(cr_amp, cr_stark_amp), width=width,
-                                       angle=cr_base_angle + cr_sign_angle, risefall_sigma_ratio=rsr,
-                                       phases=(cr_stark_sign_phase,),
+                                       angle=cr_base_angle + cr_sign_angle,
+                                       risefall_sigma_ratio=rsr, phases=(cr_stark_sign_phase,),
                                        name='CR')
     counter_pulse = ModulatedGaussianSquare(duration=duration, amp=counter_full_amp,
                                             sigma=sigma, freq=(0., stark_detuning),
@@ -87,13 +93,20 @@ def add_qutrit_qubit_cr(
         pulse.play(counter_pulse, pulse.DriveChannel(Parameter('ch1')), name='Counter')
     calibrations.add_schedule(sched, num_qubits=2)
 
+
+def set_qutrit_qubit_cr_default(
+    backend: Backend,
+    calibrations: Calibrations,
+    qubits: Optional[Sequence[int]] = None
+) -> None:
+    """Give default values to CR parameters."""
     operational_qubits = get_operational_qubits(backend, qubits=qubits)
 
     for (control, target), control_channels in backend.control_channels.items():
         if len(set((control, target)) & operational_qubits) != 2:
             continue
         control_channel = control_channels[0]
-        target_frequency = backend.qubit_properties(target).frequency
+        target_freq = backend.qubit_properties(target).frequency * backend.dt
         ecr_sched = get_default_ecr_schedule(backend, (control, target))
         control_instructions = [inst for _, inst in ecr_sched.instructions
                                 if isinstance(inst, pulse.Play) and inst.channel == control_channel]
@@ -117,8 +130,8 @@ def add_qutrit_qubit_cr(
             ('sigma', default_cr.sigma),
             ('width', 0.),
             ('margin', 0.),
-            ('stark_frequency', target_frequency),
-            ('target_frequency', target_frequency),
+            ('stark_freq', target_freq),
+            ('target_freq', target_freq),
             ('cr_amp', 0.),
             ('cr_base_angle', default_cr.angle),
             ('cr_sign_angle', 0.),
@@ -135,36 +148,9 @@ def add_qutrit_qubit_cr(
 
 
 def add_qutrit_qubit_rcr(
-    backend: Backend,
-    calibrations: Calibrations,
-    qubits: Optional[Sequence[int]] = None
+    calibrations: Calibrations
 ) -> None:
-    """Add the RCR and CX schedules. Also import the X schedule from default inst_map."""
-    inst_map = backend.defaults().instruction_schedule_map
-    operational_qubits = get_operational_qubits(backend, qubits=qubits)
-
-    # X schedule
-    # Note: Defining a template and binding constants from inst_map seems to unnecessarily increase
-    # the recall overhead of the schedule (plus we lose the pulse names specific to the drive
-    # channels). However, for the unbound compound schedules to be able to reference this schedule,
-    # it needs to be defined unbounded.
-    with pulse.build(name='x') as sched:
-        pulse.play(
-            pulse.Drag(duration=Parameter('duration'), amp=Parameter('amp'),
-                       sigma=Parameter('sigma'), beta=Parameter('beta'), angle=Parameter('angle'),
-                       name='Xp'),
-            pulse.DriveChannel(Parameter('ch0')),
-            name='Xp'
-        )
-    calibrations.add_schedule(sched, num_qubits=1)
-
-    # Import the parameter values from inst_map
-    for qubit in operational_qubits:
-        params = inst_map.get('x', qubit).instructions[0][1].pulse.parameters
-        for pname, value in params.items():
-            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=[qubit],
-                                             schedule='x')
-
+    """Add the RCR and CX schedules."""
     control_channel = pulse.ControlChannel(Parameter('ch0.1'))
     target_drive_channel = pulse.DriveChannel(Parameter('ch1'))
 
@@ -237,13 +223,8 @@ def add_qutrit_qubit_rcr(
 
 
 def add_qutrit_qubit_cx(
-    backend: Backend,
-    calibrations: Calibrations,
-    qubits: Optional[Sequence[int]] = None
+    calibrations: Calibrations
 ) -> None:
-    inst_map = backend.defaults().instruction_schedule_map
-    operational_qubits = get_operational_qubits(backend, qubits=qubits)
-
     # Offset Rx for CX (template)
     duration = Parameter('duration')
     amp = Parameter('amp')
@@ -283,47 +264,6 @@ def add_qutrit_qubit_cx(
         pulse.shift_phase(LO_SIGN * cx_sign * np.pi / 2., drive_channel)
         pulse.shift_phase(-LO_SIGN * cx_sign * np.pi / 2., drive_channel, name='ef_phase')
     calibrations.add_schedule(geom_sched, num_qubits=1)
-
-    # Since the last shift_phases are parts of Rz, which must be applied to variable number of
-    # channels, we instantiate a full schedule for each qubit.
-    for control, target in backend.control_channels.keys():
-        if len(set((control, target)) & operational_qubits) != 2:
-            continue
-        sx_inst = inst_map.get('sx', target).instructions[0][1]
-        sx_pulse = sx_inst.pulse
-        drive_channel = sx_inst.channel
-        rz_channels = [inst.channel for _, inst in inst_map.get('rz', target).instructions]
-        rz_channels.remove(drive_channel)
-
-        # Offset Rx
-        phase = LO_SIGN * angle
-        qubit_sched = rx_sched.append(pulse.ShiftPhase(phase, rz_channels[0]), inplace=False)
-        for channel in rz_channels[1:]:
-            qubit_sched.append(pulse.ShiftPhase(phase, channel))
-        calibrations.add_schedule(qubit_sched, qubits=[target])
-
-        param_defaults = [
-            ('duration', sx_pulse.duration),
-            ('amp', sx_pulse.amp),
-            ('sigma', sx_pulse.sigma),
-            ('beta', sx_pulse.beta),
-            ('base_angle', sx_pulse.angle)
-        ]
-        for pname, value in param_defaults:
-            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=target,
-                                             schedule=rx_sched.name)
-        calibrations.add_parameter_value(ParameterValue(0.), angle.name, qubits=target,
-                                         schedule=rx_sched.name)
-
-        # Geometric phase
-        phase = LO_SIGN * cx_sign * np.pi / 2.
-        qubit_sched = geom_sched.append(pulse.ShiftPhase(phase, rz_channels[0]), inplace=False)
-        for channel in rz_channels[1:]:
-            qubit_sched.append(pulse.ShiftPhase(phase, channel))
-        calibrations.add_schedule(qubit_sched, qubits=[control])
-
-        calibrations.add_parameter_value(ParameterValue(0), cx_sign.name, qubits=control,
-                                         schedule=geom_sched.name)
 
     # Calibrations.get_schedule cannot assign parameters to nested references so we repeat the
     # CRCR implementations here instead of referencing them
@@ -382,3 +322,57 @@ def add_qutrit_qubit_cx(
         pulse.reference('cx_offset_rx', 'q1')
         pulse.reference('cx_geometric_phase', 'q0')
     calibrations.add_schedule(sched, num_qubits=2)
+
+
+def instantiate_qutrit_qubit_cx(
+    backend: Backend,
+    calibrations: Calibrations,
+    qubits: Optional[Sequence[int]] = None
+) -> None:
+    inst_map = backend.defaults().instruction_schedule_map
+    operational_qubits = get_operational_qubits(backend, qubits=qubits)
+
+    # Since the last shift_phases are parts of Rz, which must be applied to variable number of
+    # channels, we instantiate a full schedule for each qubit.
+    for control, target in backend.control_channels.keys():
+        if len(set((control, target)) & operational_qubits) != 2:
+            continue
+        sx_inst = inst_map.get('sx', target).instructions[0][1]
+        sx_pulse = sx_inst.pulse
+        drive_channel = sx_inst.channel
+        rz_channels = [inst.channel for _, inst in inst_map.get('rz', target).instructions]
+        rz_channels.remove(drive_channel)
+
+        # Offset Rx
+        rx_sched = calibrations.get_template('cx_offset_rx')
+        angle = rx_sched.get_parameters('angle')[0]
+        phase = LO_SIGN * angle
+        qubit_sched = rx_sched.append(pulse.ShiftPhase(phase, rz_channels[0]), inplace=False)
+        for channel in rz_channels[1:]:
+            qubit_sched.append(pulse.ShiftPhase(phase, channel))
+        calibrations.add_schedule(qubit_sched, qubits=[target])
+
+        param_defaults = [
+            ('duration', sx_pulse.duration),
+            ('amp', sx_pulse.amp),
+            ('sigma', sx_pulse.sigma),
+            ('beta', sx_pulse.beta),
+            ('base_angle', sx_pulse.angle)
+        ]
+        for pname, value in param_defaults:
+            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=target,
+                                             schedule=rx_sched.name)
+        calibrations.add_parameter_value(ParameterValue(0.), angle.name, qubits=target,
+                                         schedule=rx_sched.name)
+
+        # Geometric phase
+        geom_sched = calibrations.get_template('cx_geometric_phase')
+        cx_sign = geom_sched.get_parameters('cx_sign')[0]
+        phase = LO_SIGN * cx_sign * np.pi / 2.
+        qubit_sched = geom_sched.append(pulse.ShiftPhase(phase, rz_channels[0]), inplace=False)
+        for channel in rz_channels[1:]:
+            qubit_sched.append(pulse.ShiftPhase(phase, channel))
+        calibrations.add_schedule(qubit_sched, qubits=[control])
+
+        calibrations.add_parameter_value(ParameterValue(0), cx_sign.name, qubits=control,
+                                         schedule=geom_sched.name)

@@ -6,17 +6,14 @@ from typing import Optional
 import numpy as np
 from qiskit import pulse
 from qiskit.providers import Backend
-from qiskit.pulse import ScheduleBlock
 from qiskit.circuit import Parameter
-from qiskit.transpiler import Target
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 
 from ..constants import LO_SIGN
-from ..gates import ParameterValueType
 from ..pulse_library import ModulatedDrag
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule
-from .util import get_operational_qubits, get_qutrit_freq_shift
+from .util import get_operational_qubits
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +21,8 @@ logger = logging.getLogger(__name__)
 def make_single_qutrit_gate_calibrations(
     backend: Backend,
     calibrations: Optional[Calibrations] = None,
-    qubits: Optional[Sequence[int]] = None
+    set_defaults: bool = True,
+    qubits: Optional[Sequence[int]] = None,
 ) -> Calibrations:
     """Define parameters and schedules for single-qutrit gates."""
     if calibrations is None:
@@ -32,8 +30,13 @@ def make_single_qutrit_gate_calibrations(
     if type(calibrations.add_schedule).__name__ == 'method':
         update_add_schedule(calibrations)
 
-    set_f12_default(backend, calibrations, qubits=qubits)
-    add_x12_sx12(backend, calibrations, qubits=qubits)
+    if 'f12' not in set(p.name for p in calibrations.parameters.keys()):
+        calibrations._register_parameter(Parameter('f12'), ())
+    add_x12_sx12(calibrations)
+
+    if set_defaults:
+        set_f12_default(backend, calibrations, qubits=qubits)
+        set_x12_sx12_default(backend, calibrations, qubits=qubits)
 
     return calibrations
 
@@ -44,9 +47,6 @@ def set_f12_default(
     qubits: Optional[Sequence[int]] = None
 ) -> None:
     """Give default values to f12."""
-    if 'f12' not in set(p.name for p in calibrations.parameters.keys()):
-        calibrations._register_parameter(Parameter('f12'), ())
-
     operational_qubits = get_operational_qubits(backend, qubits=qubits)
     for qubit in operational_qubits:
         qubit_props = backend.qubit_properties(qubit)
@@ -63,9 +63,7 @@ def set_f12_default(
 
 
 def add_x12_sx12(
-    backend: Backend,
-    calibrations: Calibrations,
-    qubits: Optional[Sequence[int]] = None
+    calibrations: Calibrations
 ) -> None:
     r"""X and SX pulses are assumed to effect unitaries of form
 
@@ -103,20 +101,25 @@ def add_x12_sx12(
     # Schedules
     for gate_name, pulse_name in [('x12', 'Ξp'), ('sx12', 'Ξ90p')]:
         with pulse.build(name=gate_name) as sched:
-            pulse.play(ModulatedDrag(Parameter('duration'), Parameter('amp'),
-                                     Parameter('sigma'), Parameter('beta'),
-                                     Parameter('freq') * backend.dt,
+            pulse.play(ModulatedDrag(Parameter('duration'), Parameter('amp'), Parameter('sigma'),
+                                     Parameter('beta'), Parameter('freq'),
                                      angle=Parameter('angle'), name=pulse_name),
                        drive_channel, name=pulse_name)
         calibrations.add_schedule(sched, num_qubits=1)
 
+
+def set_x12_sx12_default(
+    backend: Backend,
+    calibrations: Calibrations,
+    qubits: Optional[Sequence[int]] = None
+) -> None:
     # Parameter default values and phase corrections
     inst_map = backend.defaults().instruction_schedule_map
     operational_qubits = get_operational_qubits(backend, qubits=qubits)
 
-    for gate_name, pulse_name, qubit_gate_name, geom_phase in [
-        ('x12', 'Ξp', 'x', np.pi / 2.),
-        ('sx12', 'Ξ90p', 'sx', np.pi / 4.)
+    for gate_name, qubit_gate_name, geom_phase in [
+        ('x12', 'x', np.pi / 2.),
+        ('sx12', 'sx', np.pi / 4.)
     ]:
         for qubit in operational_qubits:
             # Parameter default values
@@ -152,4 +155,3 @@ def add_x12_sx12(
 
             calibrations.add_parameter_value(ParameterValue(0.), 'delta', qubits=[qubit],
                                              schedule=sched.name)
-
