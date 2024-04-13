@@ -721,15 +721,19 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
 
 def make_ut_dataframe(experiment_data):
     """Helper function to construct a pandas DataFrame from unitary tomography results."""
-    res = experiment_data.analysis_results('prep_parameters').value
-    data = [({'control': f'{state} prep'}
-              | {op: f'{res[state][iop].n:.3f}±{res[state][iop].std_dev:.3f}'
-                  for iop, op in enumerate(['x', 'y', 'z'])})
-             for state in [1, 2]]
-    res = experiment_data.analysis_results('unitary_parameters').value
-    data += [({'control': f'{state}'}
-               | {op: f'{res[state][iop].n:.3f}±{res[state][iop].std_dev:.3f}'
-                   for iop, op in enumerate(['x', 'y', 'z'])})
-             for state in range(3)]
+    obs_keys = experiment_data.analysis_results('expvals_observed').value.keys()
+    prep_params = experiment_data.analysis_results('prep_parameters').value
+    unit_params = experiment_data.analysis_results('unitary_parameters').value
+    data = []
+    for state, prep in obs_keys:
+        if prep == 'prep':
+            source = prep_params
+        else:
+            source = unit_params
+        datum = {'control': f'{state}{prep}'}
+        for op, val in zip(['x', 'y', 'z'], source[state]):
+            datum[op] = f'{val.n:.3f}±{val.std_dev:.3f}'
+        data.append(datum)
+
     columns = ['control', 'x', 'y', 'z']
     return pd.DataFrame(data=data, columns=columns)
