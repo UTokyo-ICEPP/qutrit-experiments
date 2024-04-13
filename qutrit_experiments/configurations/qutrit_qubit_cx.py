@@ -24,33 +24,38 @@ def qubits_assignment_error_func(runner):
 
 register_post(qubits_assignment_error_post, exp_type='qubits_assignment_error')
 
-def unitaries(runner, gate):
+def unitaries(runner, gate, sched=None):
     from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
 
-    if isinstance(gate, QutritGate):
-        if gate.gate_type == GateType.COMPOSITE:
-            sched = get_qutrit_qubit_composite_gate(gate.name, runner.qubits, runner.calibrations,
-                                                    target=runner.backend.target)
-        elif gate.gate_type == GateType.PULSE:
-            qutrit = np.array(runner.qubits)[list(gate.as_qutrit)][0]
-            sched = get_qutrit_pulse_gate(gate.name, qutrit, runner.calibrations,
-                                          target=runner.backend.target)
-    else:
-        sched = runner.calibrations.get_schedule(gate.name, runner.qubits)
+    if sched is None:
+        if isinstance(gate, QutritGate):
+            if gate.gate_type == GateType.COMPOSITE:
+                sched = get_qutrit_qubit_composite_gate(gate.name, runner.qubits, runner.calibrations,
+                                                        target=runner.backend.target)
+            elif gate.gate_type == GateType.PULSE:
+                qutrit = np.array(runner.qubits)[list(gate.as_qutrit)][0]
+                sched = get_qutrit_pulse_gate(gate.name, qutrit, runner.calibrations,
+                                            target=runner.backend.target)
+        else:
+            sched = runner.calibrations.get_schedule(gate.name, runner.qubits)
 
     circuit = QuantumCircuit(2)
     circuit.append(gate, [0, 1])
     circuit.add_calibration(gate.name, runner.qubits, sched)
 
     dp_nodes = [MarginalizeCounts({0}), Probability('1'), BasisExpectationValue()]
+    assignment_matrix = runner.program_data['qutrit_assignment_matrix'][runner.qubits[0]]
 
     return ExperimentConfig(
         QutritQubitTomography,
         runner.qubits,
         args={'circuit': circuit, 'measure_qutrit': True},
-        run_options={'shots': 8000},
+        run_options={'shots': 8000, 'rep_delay': 5.e-4},
         # Need the following at the config level for add_readout_mitigation to work properly
-        analysis_options={'data_processor': DataProcessor('counts', dp_nodes)}
+        analysis_options={
+            'data_processor': DataProcessor('counts', dp_nodes),
+            'qutrit_assignment_matrix': assignment_matrix
+        }
     )
 
 @register_exp

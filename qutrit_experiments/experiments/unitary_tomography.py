@@ -69,10 +69,9 @@ class UnitaryTomography(MapToPhysicalQubits, BaseExperiment):
                 circuit.rz(np.pi / 2., meas_qubit)
             if meas_basis != 'z':
                 circuit.sx(meas_qubit)
+            circuit.measure(meas_qubit, 0)
             if post_circuit is not None:
                 circuit.compose(post_circuit, inplace=True)
-            circuit.barrier()
-            circuit.measure(meas_qubit, 0)
             circuit.metadata = {
                 'initial_state': initial_state,
                 'meas_basis': meas_basis

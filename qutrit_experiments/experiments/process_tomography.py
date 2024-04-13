@@ -91,10 +91,7 @@ class CircuitTomography(TomographyExperiment):
 
         if (post_circuit := self.experiment_options.post_circuit) is not None:
             for circuit in circuits:
-                circuit.remove_final_measurements()
                 circuit.compose(post_circuit, inplace=True)
-                circuit.barrier()
-                circuit.measure(self._meas_indices, len(self._meas_indices))
 
         if len(self._prep_physical_qubits) * len(self._meas_physical_qubits) == 1:
             self._add_basis_metadata(circuits)
