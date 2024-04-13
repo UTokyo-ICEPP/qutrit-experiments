@@ -38,7 +38,7 @@ def setup_runner(
     program_config: dict[str, Any],
     calibrations: Optional[Calibrations] = None,
     qubits: Optional[Sequence[int]] = None,
-    runner_cls: type[ExperimentsRunner] = ExperimentsRunner
+    runner_cls: Optional[type[ExperimentsRunner]] = None
 ) -> ExperimentsRunner:
     data_dir = os.path.join(program_config['base_dir'], program_config['name'])
     if program_config.get('work_dir'):
@@ -57,6 +57,8 @@ def setup_runner(
         runtime_session._session_id = program_config['session_id']
     else:
         runtime_session = None
+
+    runner_cls = runner_cls or ExperimentsRunner
 
     qubits = qubits or program_config.get('qubits')
     runner = runner_cls(backend, qubits=qubits, calibrations=calibrations,
