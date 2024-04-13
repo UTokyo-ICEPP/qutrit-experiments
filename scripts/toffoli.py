@@ -19,10 +19,12 @@ if __name__ == '__main__':
     jax.config.update('jax_enable_x64', True)
     import jax.numpy as jnp
     jnp.zeros(1)
+    import numpy as np
 
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger('qutrit_experiments').setLevel(logging.INFO)
-
+    
+    from qiskit import QuantumCircuit
     from qiskit_ibm_runtime import QiskitRuntimeService
     from qiskit_ibm_runtime.exceptions import IBMNotAuthorizedError
     from qutrit_experiments.calibrations import (make_single_qutrit_gate_calibrations,
@@ -32,11 +34,12 @@ if __name__ == '__main__':
                                                           qubits_assignment_error_post)
     import qutrit_experiments.configurations.qutrit_qubit_cx
     import qutrit_experiments.configurations.toffoli
-    from qutrit_experiments.experiment_config import ParallelExperimentConfig
+    from qutrit_experiments.experiment_config import ExperimentConfig, ParallelExperimentConfig, register_post
+    from qutrit_experiments.experiments.readout_error import CorrelatedReadoutError
     from qutrit_experiments.programs.common import (load_calibrations, setup_backend,
                                                     setup_data_dir, setup_runner)
     from qutrit_experiments.programs.single_qutrit_gates import calibrate_single_qutrit_gates
-    from qutrit_experiments.programs.qutrit_qubit_cx import calibrate_qutrit_qubit_cx
+    from qutrit_experiments.programs.qutrit_qubit_cx import calibrate_qutrit_qubit_cx, run_unitaries
     from qutrit_experiments.programs.toffoli import characterize_toffoli
 
     setup_data_dir(program_config)
@@ -45,12 +48,9 @@ if __name__ == '__main__':
 
     backend = setup_backend(program_config)
     all_qubits = tuple(program_config['qubits'])
-    runner = setup_runner(backend, program_config)
-    runner.job_retry_interval = 120
 
     if len(all_qubits) == 3:
-        runner.run_experiment('qubits_assignment_error',
-                              force_resubmit=program_config['refresh_readout'])
+        qubits_assignment_error = 'qubits_assignment_error'
 
         import qutrit_experiments.configurations.single_qutrit
         qutrit_runner_cls = None
@@ -62,13 +62,19 @@ if __name__ == '__main__':
         )
         for ic1 in range(0, len(all_qubits), 3):
             qubits = all_qubits[ic1:ic1 + 3]
-            subconf = qubits_assignment_error(runner, qubits)
-            subconf.exp_type = f'qubits_assignment_error-{"_".join(map(str, qubits))}'
+            subconf = ExperimentConfig(
+                CorrelatedReadoutError,
+                qubits,
+                exp_type=f'qubits_assignment_error-{"_".join(map(str, qubits))}'
+            )
             config.subexperiments.append(subconf)
 
-        data = runner.run_experiment(config, force_resubmit=program_config['refresh_readout'])
-        for ibatch in range(len(all_qubits) // 3):
-            qubits_assignment_error_post(runner, data.child_data(ibatch))
+        qubits_assignment_error = config
+
+        @register_post
+        def qubits_assignment_error_parallel(runner, data):
+            for ibatch in range(len(all_qubits) // 3):
+                qubits_assignment_error_post(runner, data.child_data(ibatch))
 
         import qutrit_experiments.configurations.full_backend_qutrits
         from qutrit_experiments.runners.parallel_runner import ParallelRunner
@@ -76,12 +82,21 @@ if __name__ == '__main__':
         qutrits = all_qubits[1::3]
 
     calibrations = make_single_qutrit_gate_calibrations(backend, qubits=qutrits)
+    make_qutrit_qubit_cx_calibrations(backend, calibrations=calibrations, qubits=all_qubits)
+
+    runner = setup_runner(backend, program_config, calibrations=calibrations)
+    runner.job_retry_interval = 120
+
+    runner.run_experiment(qubits_assignment_error,
+                          force_resubmit=program_config['refresh_readout'])
+
+    calibrated = load_calibrations(runner, program_config)
+
     qutrit_runner = setup_runner(backend, program_config, calibrations=calibrations,
                                  qubits=qutrits, runner_cls=qutrit_runner_cls)
     qutrit_runner.program_data = runner.program_data
     qutrit_runner.runtime_session = runner.runtime_session
     qutrit_runner.job_retry_interval = 120
-    calibrated = load_calibrations(qutrit_runner, program_config)
     calibrate_single_qutrit_gates(qutrit_runner,
                                   refresh_readout_error=program_config['refresh_readout'],
                                   calibrated=calibrated)
@@ -89,12 +104,34 @@ if __name__ == '__main__':
     runner.calibrations = calibrations
     # Session may have been renewed
     runner.runtime_session = qutrit_runner.runtime_session
-    make_qutrit_qubit_cx_calibrations(backend, calibrations=calibrations, qubits=all_qubits)
+    
     data_dir = runner.data_dir
 
     for ic1 in range(0, len(all_qubits), 3):
-        runner.qubits = all_qubits[ic1:ic1 + 3]
-        runner.data_dir = os.path.join(data_dir, '_'.join(map(str, runner.qubits)))
+        toffoli_qubits = all_qubits[ic1:ic1 + 3]
+        runner.data_dir = os.path.join(data_dir, '_'.join(map(str, toffoli_qubits)))
+
+        controlling = set(ch['operates']['qubits'][0] for ch in backend.channels.values()
+                          if ch['type'] == 'control' and ch['operates']['qubits'][1] == toffoli_qubits[1]) - set(toffoli_qubits)
+
+        if controlling:
+            runner.qubits = [toffoli_qubits[1], list(controlling)[0]]
+            circuit = QuantumCircuit(2)
+            circuit.sx(0)
+            circuit.rz(-np.pi / 2., 0)
+            circuit.rz(-np.pi / 2., 1)
+            circuit.sx(1)
+            circuit.rz(-np.pi, 1)
+            circuit.ecr(1, 0)
+            circuit.rz(-np.pi / 2., 0)
+            circuit.sx(0)
+            circuit.rz(np.pi / 2., 0)
+            circuit.rz(np.pi / 2., 1)
+            circuit.sx(1)
+            circuit.rz(np.pi / 2., 1)
+            run_unitaries(runner, 'reverse_cx_unitaries', circuit=circuit)
+
+        runner.qubits = toffoli_qubits
         calibrate_qutrit_qubit_cx(runner, refresh_readout_error=False, qutrit_qubit_index=(1, 2))
         make_toffoli_calibrations(backend, calibrations, runner.qubits)
         characterize_toffoli(runner, refresh_readout_error=False)
