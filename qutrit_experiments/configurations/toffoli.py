@@ -111,6 +111,6 @@ def toffoli_truth_table(runner):
         TruthTable,
         runner.qubits,
         args={
-            'circuits': qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits)
+            'circuit': qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits)
         }
     )
