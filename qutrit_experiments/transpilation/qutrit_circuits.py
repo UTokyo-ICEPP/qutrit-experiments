@@ -152,7 +152,7 @@ class AddQutritCalibrations(TransformationPass):
                     raise TranspilerError('Operation set_f12 must appear before any x12, sx12, and'
                                           ' set_f12 gates in the circuit.')
                 qubit_props = self.target.qubit_properties[qubits[0]]
-                freq_diffs[qubits[0]] = node.op.params[0] - qubit_props.frequency
+                freq_diffs[qubits[0]] = (node.op.params[0] - qubit_props.frequency) * self.target.dt
                 dag.remove_op_node(node)
 
             elif isinstance(node.op, RZGate) and qubits[0] in dag_qutrits:
@@ -217,8 +217,7 @@ class AddQutritCalibrations(TransformationPass):
                             continue
 
                         # Phase of the EF frame relative to the GE frame
-                        ef_lo_phase = (LO_SIGN * node_start_time[node] * twopi * freq_diffs[qubit]
-                                       * self.target.dt)
+                        ef_lo_phase = LO_SIGN * node_start_time[node] * twopi * freq_diffs[qubit]
                         # Change of frame - Bloch rotation from 0 to the EF frame angle
                         # Because we share the same channel for GE and EF drives, GE angle must be offset
                         pre_angles.append(ef_lo_phase + cumul_angle_ef[qubit]
@@ -281,7 +280,7 @@ class AddQutritCalibrations(TransformationPass):
                         elif inst.name.startswith('Ξp') or inst.name.startswith('Ξ90p'):
                             # See comments on X12Gate
                             ef_lo_phase = (LO_SIGN * (start_time + inst_time) * twopi
-                                           * freq_diffs[qutrit] * self.target.dt)
+                                           * freq_diffs[qutrit])
                             parameter = ef_phase_params[qutrit].pop(0)
                             assign_map[parameter] = (ef_lo_phase + cumul_angle_ef[qutrit]
                                                      - cumul_angle_ge[qutrit]) % twopi

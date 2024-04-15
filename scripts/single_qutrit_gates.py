@@ -36,8 +36,7 @@ if __name__ == '__main__':
 
     if (nq := len(program_config['qubits'])) == 1:
         import qutrit_experiments.configurations.single_qutrit
-        from qutrit_experiments.runners import ExperimentsRunner
-        runner_cls = ExperimentsRunner
+        runner_cls = None
     else:
         import qutrit_experiments.configurations.full_backend_qutrits
         from qutrit_experiments.runners import ParallelRunner
