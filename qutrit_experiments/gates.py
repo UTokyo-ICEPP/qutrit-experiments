@@ -260,15 +260,22 @@ class CRCRTypeX12Gate(CRCRGate):
 
 class QutritQubitCXGate(QutritQubitCompositeGate):
     """CX gate with a control qutrit and target qubit."""
+    TYPE_CRCR_X = 2
+    TYPE_CRCR_X12 = 0
+    TYPE_REVERSE = -1
+    TYPE_UNKNOWN = 3
+
     gate_name = 'qutrit_qubit_cx'
 
     @classmethod
-    def of_type(cls, rcr_type: int) -> type['QutritQubitCXGate']:
-        match rcr_type:
-            case RCRGate.TYPE_X:
+    def of_type(cls, cx_type: int) -> type['QutritQubitCXGate']:
+        match cx_type:
+            case cls.TYPE_CRCR_X:
                 return QutritQubitCXTypeXGate
-            case RCRGate.TYPE_X12:
+            case cls.TYPE_CRCR_X12:
                 return QutritQubitCXTypeX12Gate
+            case cls.TYPE_REVERSE:
+                return QutritQubitCXTypeReverseGate
 
     def __init__(
         self,
@@ -286,6 +293,11 @@ class QutritQubitCXTypeXGate(QutritQubitCXGate):
 class QutritQubitCXTypeX12Gate(QutritQubitCXGate):
     """CX gate with a control qutrit and target qubit."""
     gate_name = 'qutrit_qubit_cx_rcr0'
+
+
+class QutritQubitCXTypeReverseGate(QutritQubitCXGate):
+    """CX gate with a control qutrit and target qubit."""
+    gate_name = 'qutrit_qubit_cx_reverse'
 
 
 class QutritMCXGate(QutritCompositeGate):

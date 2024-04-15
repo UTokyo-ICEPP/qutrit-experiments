@@ -25,6 +25,8 @@ if __name__ == '__main__':
     logging.getLogger('qutrit_experiments').setLevel(logging.INFO)
 
     from qiskit import QuantumCircuit
+
+    from qiskit.pulse import ControlChannel
     from qiskit_ibm_runtime import QiskitRuntimeService
     from qiskit_ibm_runtime.exceptions import IBMNotAuthorizedError
     from qutrit_experiments.calibrations import (make_single_qutrit_gate_calibrations,
@@ -37,11 +39,13 @@ if __name__ == '__main__':
     import qutrit_experiments.configurations.toffoli
     from qutrit_experiments.experiment_config import ExperimentConfig, ParallelExperimentConfig, register_post
     from qutrit_experiments.experiments.readout_error import CorrelatedReadoutError
+    from qutrit_experiments.gates import QutritQubitCXGate
     from qutrit_experiments.programs.common import (load_calibrations, setup_backend,
                                                     setup_data_dir, setup_runner)
     from qutrit_experiments.programs.single_qutrit_gates import calibrate_single_qutrit_gates
     from qutrit_experiments.programs.qutrit_qubit_cx import calibrate_qutrit_qubit_cx, run_unitaries
     from qutrit_experiments.programs.toffoli import characterize_toffoli
+    from qutrit_experiments.util.qutrit_qubit_cx_type import qutrit_qubit_cx_type
 
     # Create the data directory
     setup_data_dir(program_config)
@@ -125,28 +129,15 @@ if __name__ == '__main__':
         # For each qubit combination, make a subdirectory and run the calibrations
         toffoli_qubits = all_qubits[ic1:ic1 + 3]
         runner.data_dir = os.path.join(data_dir, '_'.join(map(str, toffoli_qubits)))
-
-        controlling = set(ch['operates']['qubits'][0] for ch in backend.channels.values()
-                          if ch['type'] == 'control' and ch['operates']['qubits'][1] == toffoli_qubits[1]) - set(toffoli_qubits)
-
-        if controlling:
-            runner.qubits = [toffoli_qubits[1], list(controlling)[0]]
-            circuit = QuantumCircuit(2)
-            circuit.sx(0)
-            circuit.rz(-np.pi / 2., 0)
-            circuit.rz(-np.pi / 2., 1)
-            circuit.sx(1)
-            circuit.rz(-np.pi, 1)
-            circuit.ecr(1, 0)
-            circuit.rz(-np.pi / 2., 0)
-            circuit.sx(0)
-            circuit.rz(np.pi / 2., 0)
-            circuit.rz(np.pi / 2., 1)
-            circuit.sx(1)
-            circuit.rz(np.pi / 2., 1)
-            run_unitaries(runner, 'reverse_cx_unitaries', circuit=circuit)
-
         runner.qubits = toffoli_qubits
-        calibrate_qutrit_qubit_cx(runner, refresh_readout_error=False, qutrit_qubit_index=(1, 2))
+
+        cx_type = qutrit_qubit_cx_type(backend, toffoli_qubits[1:])
+
+        if cx_type == QutritQubitCXGate.TYPE_UNKNOWN:
+            calibrate_qutrit_qubit_cx(runner, refresh_readout_error=False,
+                                      qutrit_qubit_index=(1, 2))
+        else:
+            calibrations.add_parameter_value('rcr_type', cx_type)
+
         set_toffoli_parameters(backend, calibrations, toffoli_qubits)
         characterize_toffoli(runner, refresh_readout_error=False)
