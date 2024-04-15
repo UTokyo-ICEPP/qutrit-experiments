@@ -19,20 +19,13 @@ if __name__ == '__main__':
     jax.config.update('jax_enable_x64', True)
     import jax.numpy as jnp
     jnp.zeros(1)
-    import numpy as np
 
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger('qutrit_experiments').setLevel(logging.INFO)
 
-    from qiskit import QuantumCircuit
-
-    from qiskit.pulse import ControlChannel
-    from qiskit_ibm_runtime import QiskitRuntimeService
-    from qiskit_ibm_runtime.exceptions import IBMNotAuthorizedError
     from qutrit_experiments.calibrations import (make_single_qutrit_gate_calibrations,
                                                  make_qutrit_qubit_cx_calibrations,
                                                  make_toffoli_calibrations)
-    from qutrit_experiments.calibrations.toffoli import set_toffoli_parameters
     from qutrit_experiments.configurations.common import (qubits_assignment_error,
                                                           qubits_assignment_error_post)
     import qutrit_experiments.configurations.qutrit_qubit_cx
@@ -43,7 +36,7 @@ if __name__ == '__main__':
     from qutrit_experiments.programs.common import (load_calibrations, setup_backend,
                                                     setup_data_dir, setup_runner)
     from qutrit_experiments.programs.single_qutrit_gates import calibrate_single_qutrit_gates
-    from qutrit_experiments.programs.qutrit_qubit_cx import calibrate_qutrit_qubit_cx, run_unitaries
+    from qutrit_experiments.programs.qutrit_qubit_cx import calibrate_qutrit_qubit_cx
     from qutrit_experiments.programs.toffoli import characterize_toffoli
     from qutrit_experiments.util.qutrit_qubit_cx_type import qutrit_qubit_cx_type
 
@@ -141,5 +134,4 @@ if __name__ == '__main__':
         else:
             calibrations.add_parameter_value('rcr_type', cx_type)
 
-        set_toffoli_parameters(backend, calibrations, toffoli_qubits)
         characterize_toffoli(runner, refresh_readout_error=False)

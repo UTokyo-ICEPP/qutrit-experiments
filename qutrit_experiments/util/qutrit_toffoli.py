@@ -16,32 +16,35 @@ from ..transpilation.layout_and_translation import (generate_layout_passmanager,
                                                     generate_translation_passmanager)
 from ..gates import QutritQubitCXGate, QutritToffoliGate
 
+
 def qutrit_toffoli_circuit(
     backend: Backend,
     calibrations: Calibrations,
-    physical_qubits: Sequence[int, int, int]
+    physical_qubits: Sequence[int]
 ) -> QuantumCircuit:
     physical_qubits = tuple(physical_qubits)
     x_duration = calibrations.get_schedule('x', physical_qubits[1]).duration
     x12_duration = calibrations.get_schedule('x12', physical_qubits[1]).duration
     rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits[1:])
 
-    # Decompose the Toffoli gate into high-level gates. Use the BasisTranslator to break down the
-    # standard CX
-    basis_gates = backend.basis_gates + ['xplus', 'xminus',
+    basis_gates = backend.basis_gates + ['rz12', 'xplus', 'xminus',
                                          QutritQubitCXGate.of_type(rcr_type).gate_name]
-    pretranslation_pm = PassManager()
-    decomp = QutritToffoliDecomposition(backend.target)
-    decomp.calibrations = calibrations
-    pretranslation_pm.append(decomp)
-    pretranslation_pm.append(BasisTranslator(sel, basis_gates))
-
     # Apply refocusing and DD
     instruction_durations = make_instruction_durations(backend, calibrations, physical_qubits)
     instruction_durations.update([
         ('xplus', physical_qubits[1], x_duration + x12_duration),
         ('xminus', physical_qubits[1], x_duration + x12_duration),
     ])
+
+    # Decompose the Toffoli gate into high-level gates. Use the BasisTranslator to break down the
+    # standard CX
+    # If CX type is reverse, decompose into the gate sequence of refocusing (cycled) version
+    pretranslation_pm = PassManager()
+    decomp = QutritToffoliDecomposition(backend.target, instruction_durations)
+    decomp.calibrations = calibrations
+    pretranslation_pm.append(decomp)
+    pretranslation_pm.append(BasisTranslator(sel, basis_gates))
+
     phase_corr_pm = PassManager()
     phase_corr_pm.append(ALAPScheduleAnalysis(instruction_durations))
     refocusing = QutritToffoliRefocusing()
