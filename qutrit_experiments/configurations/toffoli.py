@@ -104,24 +104,11 @@ def toffoli_qpt_bc(runner):
 @register_exp
 @add_readout_mitigation
 def toffoli_truth_table(runner):
-    from qutrit_experiments.experiments.circuit_runner import CircuitRunner
-    toffoli = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits)
-    circuits = []
-    for init in range(8):
-        circuit = QuantumCircuit(3)
-        if init % 2 == 1:
-            circuit.x(0)
-        if (init // 2) % 2 == 1:
-            circuit.x(1)
-        if (init // 4) % 2 == 1:
-            circuit.x(2)
-        circuit.compose(toffoli, inplace=True)
-        circuit.measure_all()
-        circuit.metadata = {'xval': init}
-        circuits.append(circuit)
-
+    from qutrit_experiments.experiments.truth_table import TruthTable
     return ExperimentConfig(
-        CircuitRunner,
+        TruthTable,
         runner.qubits,
-        args={'circuits': circuits},
+        args={
+            'circuits': qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits)
+        }
     )
