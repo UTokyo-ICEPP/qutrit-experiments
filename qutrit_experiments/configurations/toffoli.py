@@ -65,6 +65,8 @@ def toffoli_qpt_bare(runner):
     circuit.append(XminusGate(), [1])
     circuit.cx(0, 1)
     circuit.barrier()
+    # CX gate is in the list of basis gates and will be attached a calibration in
+    # the qutrit circuits transpiler
     circuit.append(QutritQubitCXGate.of_type(rcr_type)(), [1, 2])
     circuit.barrier()
     circuit.cx(0, 1)
