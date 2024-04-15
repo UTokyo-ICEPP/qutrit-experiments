@@ -87,7 +87,7 @@ if __name__ == '__main__':
     # Define all schedules to be calibrated
     calibrations = make_single_qutrit_gate_calibrations(backend, qubits=qutrits)
     make_qutrit_qubit_cx_calibrations(backend, calibrations=calibrations, qubits=all_qubits)
-    make_toffoli_calibrations(backend, calibrations=calibrations, set_defaults=False)
+    make_toffoli_calibrations(backend, calibrations=calibrations, qubits=all_qubits)
 
     # Define the main ExperimentsRunner and run the readout mitigation measurements
     runner = setup_runner(backend, program_config, calibrations=calibrations)
