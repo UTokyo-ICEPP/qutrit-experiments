@@ -3,18 +3,16 @@
 All passes in this module are meant to be run on a circuit that contains one Toffoli gate and
 nothing else.
 """
-from dataclasses import dataclass
 import logging
 import numpy as np
 from qiskit import QuantumRegister
-from qiskit.dagcircuit import DAGCircuit, DAGOpNode
-from qiskit.circuit import Barrier, Delay, Gate, Qubit
+from qiskit.dagcircuit import DAGCircuit
+from qiskit.circuit import Barrier, Delay, Gate
 from qiskit.circuit.library import CXGate, ECRGate, HGate, RZGate, XGate
 from qiskit.transpiler import InstructionDurations, Target, TransformationPass, TranspilerError
 
 from ..calibrations import get_qutrit_qubit_composite_gate
-from ..gates import (QutritQubitCXGate, QutritQubitCXTypeReverseGate, QutritToffoliGate, RZ12Gate,
-                     XplusGate, XminusGate)
+from ..gates import (QutritQubitCXGate, QutritToffoliGate, RZ12Gate, XplusGate, XminusGate)
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +62,7 @@ class QutritToffoliDecomposition(TransformationPass):
                 dag.add_calibration(cx_gate.gate_name, qids[1:], sched)
 
         return dag
-    
+
     def insert_reverse_cx(self, subdag: DAGCircuit, qids: tuple[int, int, int]):
         def dur(gate, *iqs):
             return self.inst_durations.get(gate, [qids[i] for i in iqs])
@@ -94,7 +92,7 @@ class QutritToffoliDecomposition(TransformationPass):
 class QutritToffoliRefocusing(TransformationPass):
     """Calculate the phase errors due to f12 detuning and convert the last X+ to X-X- with an
     inserted delay.
-    
+
     With f12 detuning, X12->X12 exp(-iδtζ). Effect on CX(c2, t) is a phase shift on the |2> level.
     Type CRCR_X
         CR+ X CR+ X12(t2) CR+ X CR+ X12(t1) CR- X CR- X12(t0)
@@ -262,7 +260,7 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
             qreg = QuantumRegister(3)
             subdag.add_qreg(qreg)
             return subdag, qreg, []
-        
+
         def add_dd(name, qubit, start_time, duration, placement='left'):
             if duration < 2 * x_durations[qubit]:
                 return
@@ -317,7 +315,7 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
 
         # C1&T DD (end side)
         subdag, qreg, start_times = make_dd_subdag()
-        
+
         start_time = node_start_time[barriers[-3]]
         add_dd('t_dd_cx1', 2, start_time,
                node_start_time[barriers[-2]] - start_time)
@@ -377,7 +375,7 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
                     add_dd('c1_dd_cycle', 0, time, t_dd_duration)
                     time += t_dd_duration
             add_dd('c1_dd_rx', 0, time, rx_duration)
-        
+
         insert_dd_to_dag(barriers[2])
 
         return dag
