@@ -48,8 +48,10 @@ def add_dd(
                               amp=Parameter('amp'),
                               sigma=Parameter('sigma'),
                               beta=Parameter('beta'),
-                              interval=(0, (duration - 2 * pulse_duration) / 2)),
-                   pulse.DriveChannel(Parameter('ch0')))
+                              interval=(0, (duration - 2 * pulse_duration) / 2),
+                              name='DD'),
+                   pulse.DriveChannel(Parameter('ch0')),
+                   name='DD')
     calibrations.add_schedule(sched, num_qubits=1)
 
     with pulse.build(name='dd_right') as sched:
@@ -58,8 +60,10 @@ def add_dd(
                               amp=Parameter('amp'),
                               sigma=Parameter('sigma'),
                               beta=Parameter('beta'),
-                              interval=((duration - 2 * pulse_duration) / 2, 0)),
-                   pulse.DriveChannel(Parameter('ch0')))
+                              interval=((duration - 2 * pulse_duration) / 2, 0),
+                              name='DD'),
+                   pulse.DriveChannel(Parameter('ch0')),
+                   name='DD')
     calibrations.add_schedule(sched, num_qubits=1)
 
 
