@@ -108,18 +108,20 @@ if __name__ == '__main__':
 
     if qutrit_runner_cls is None:
         qutrit_runner = runner
+        qutrit_index = [1]
     else:
         # Define a ParallelRunner to calibrate single qutrit gates in parallel
         qutrit_runner = setup_runner(backend, program_config, calibrations=calibrations,
-                                    qubits=qutrits, runner_cls=qutrit_runner_cls)
+                                     qubits=qutrits, runner_cls=qutrit_runner_cls)
         qutrit_runner.program_data = runner.program_data
         qutrit_runner.runtime_session = runner.runtime_session
         qutrit_runner.job_retry_interval = 120
+        qutrit_index = None
 
     # Single qutrit gates
     calibrate_single_qutrit_gates(qutrit_runner,
                                   refresh_readout_error=program_config['refresh_readout'],
-                                  calibrated=calibrated)
+                                  calibrated=calibrated, qutrit_index=qutrit_index)
     # Session may have been renewed
     runner.runtime_session = qutrit_runner.runtime_session
 
