@@ -1,62 +1,115 @@
+"""Transpiler passes to convert the Qutrit Toffoli gate into a fully scheduled circuit.
+
+All passes in this module are meant to be run on a circuit that contains one Toffoli gate and
+nothing else.
+"""
 from dataclasses import dataclass
 import logging
 import numpy as np
 from qiskit import QuantumRegister
 from qiskit.dagcircuit import DAGCircuit, DAGOpNode
 from qiskit.circuit import Barrier, Delay, Gate, Qubit
-from qiskit.circuit.library import CXGate, XGate
-from qiskit.transpiler import Target, TransformationPass, TranspilerError
+from qiskit.circuit.library import CXGate, ECRGate, HGate, RZGate, XGate
+from qiskit.transpiler import InstructionDurations, Target, TransformationPass, TranspilerError
 
 from ..calibrations import get_qutrit_qubit_composite_gate
-from ..gates import QutritQubitCXGate, QutritToffoliGate, XplusGate, XminusGate
-
+from ..gates import (QutritQubitCXGate, QutritQubitCXTypeReverseGate, QutritToffoliGate, RZ12Gate,
+                     XplusGate, XminusGate)
 
 logger = logging.getLogger(__name__)
 
 
 class QutritToffoliDecomposition(TransformationPass):
-    def __init__(self, target: Target):
+    """Decompose QutritToffoliGate to the basic sequence and append the CX calibration if
+    applicable."""
+    def __init__(self, target: Target, instruction_durations: InstructionDurations):
         super().__init__()
         self.target = target
+        self.inst_durations = instruction_durations
         self.calibrations = None
 
     def run(self, dag: DAGCircuit) -> DAGCircuit:
         for node in dag.topological_op_nodes():
-            if isinstance(node.op, QutritToffoliGate):
-                qids = tuple(dag.find_bit(q).index for q in node.qargs)
-                rcr_type = self.calibrations.get_parameter_value('rcr_type', qids[1:])
-                cx_gate = QutritQubitCXGate.of_type(rcr_type)
+            if not isinstance(node.op, QutritToffoliGate):
+                continue
 
-                subdag = DAGCircuit()
-                qreg = QuantumRegister(3)
-                subdag.add_qreg(qreg)
-                subdag.apply_operation_back(Barrier(3), qreg)
-                subdag.apply_operation_back(XminusGate(label='qutrit_toffoli_begin'), [qreg[1]])
-                subdag.apply_operation_back(Barrier(2), qreg[:2])
-                subdag.apply_operation_back(CXGate(), qreg[:2])
-                subdag.apply_operation_back(Barrier(3), qreg)
+            qids = tuple(dag.find_bit(q).index for q in node.qargs)
+            rcr_type = self.calibrations.get_parameter_value('rcr_type', qids[1:])
+            reverse_cx = (rcr_type == QutritQubitCXGate.TYPE_REVERSE)
+            cx_gate = QutritQubitCXGate.of_type(rcr_type)
+
+            subdag = DAGCircuit()
+            qreg = QuantumRegister(3)
+            subdag.add_qreg(qreg)
+            subdag.apply_operation_back(XminusGate(label='qutrit_toffoli_begin'), [qreg[1]])
+            subdag.apply_operation_back(Barrier(2), qreg[:2])
+            subdag.apply_operation_back(CXGate(), qreg[:2])
+            subdag.apply_operation_back(Barrier(3), qreg)
+            if reverse_cx:
+                self.insert_reverse_cx(subdag, qids)
+            else:
                 subdag.apply_operation_back(cx_gate(), qreg[1:])
-                subdag.apply_operation_back(Barrier(3), qreg)
-                subdag.apply_operation_back(CXGate(), qreg[:2])
-                subdag.apply_operation_back(Barrier(2), qreg[:2])
-                subdag.apply_operation_back(XplusGate(label='qutrit_toffoli_end'), [qreg[1]])
-                subdag.apply_operation_back(Barrier(3), qreg)
-                dag.substitute_node_with_dag(node, subdag)
+            subdag.apply_operation_back(Barrier(3), qreg)
+            subdag.apply_operation_back(CXGate(), qreg[:2])
+            subdag.apply_operation_back(Barrier(2), qreg[:2])
+            subdag.apply_operation_back(XplusGate(label='qutrit_toffoli_end'), [qreg[1]])
+            dag.substitute_node_with_dag(node, subdag)
 
-                if dag.calibrations.get(cx_gate.gate_name, {}).get(qids[1:], ()) is None:
-                    sched = get_qutrit_qubit_composite_gate(cx_gate.gate_name, qids[1:],
-                                                            self.calibrations, target=self.target)
-                    dag.add_calibration(cx_gate.gate_name, qids[1:], sched)
+            if (not reverse_cx
+                and dag.calibrations.get(cx_gate.gate_name, {}).get(qids[1:], ()) is None):
+                sched = get_qutrit_qubit_composite_gate(cx_gate.gate_name, qids[1:],
+                                                        self.calibrations, target=self.target)
+                dag.add_calibration(cx_gate.gate_name, qids[1:], sched)
 
         return dag
+    
+    def insert_reverse_cx(self, subdag: DAGCircuit, qids: tuple[int, int, int]):
+        def dur(gate, *iqs):
+            return self.inst_durations.get(gate, [qids[i] for i in iqs])
+
+        qreg = next(iter(subdag.qregs.values()))
+        t = 0
+        subdag.apply_operation_back(XplusGate(), [qreg[1]])
+        subdag.apply_operation_back(HGate(), [qreg[2]])
+        subdag.apply_operation_back(XGate(), [qreg[2]])
+        t += max(dur('xplus', 1), dur('sx', 2) + dur('x', 2))
+        subdag.apply_operation_back(ECRGate(), [qreg[2], qreg[1]])
+        t += dur('ecr', 2, 1)
+        subdag.apply_operation_back(XGate(), [qreg[1]])
+        subdag.apply_operation_back(RZGate(np.pi / 3.), [qreg[1]]) # Cancel the geometric phase correction
+        subdag.apply_operation_back(RZ12Gate(2. * np.pi / 3.), [qreg[1]]) # Cancel the geometric phase correction
+        subdag.apply_operation_back(XGate(), [qreg[2]])
+        t += max(dur('x', 1), dur('x', 2))
+        subdag.apply_operation_back(ECRGate(), [qreg[2], qreg[1]])
+        t += dur('ecr', 2, 1)
+        subdag.apply_operation_back(XplusGate(), [qreg[1]])
+        subdag.apply_operation_back(RZGate(np.pi), [qreg[2]])
+        subdag.apply_operation_back(HGate(), [qreg[2]])
+        subdag.apply_operation_back(Delay(t - dur('xplus', 1)), [qreg[1]])
+        subdag.apply_operation_back(XplusGate(label='revese_cx_end'), [qreg[1]])
 
 
 class QutritToffoliRefocusing(TransformationPass):
     """Calculate the phase errors due to f12 detuning and convert the last X+ to X-X- with an
     inserted delay.
+    
+    With f12 detuning, X12->X12 exp(-iδtζ). Effect on CX(c2, t) is a phase shift on the |2> level.
+    Type CRCR_X
+        CR+ X CR+ X12(t2) CR+ X CR+ X12(t1) CR- X CR- X12(t0)
+      = CR+ X CR+ X12 CR+ X CR+ X12 CR- X CR- X12 exp[-iδ(t2(-z-ζ) + t1z + t0ζ)]
+      = CX exp[iδα(z+2ζ)] ~ CX P2(-3α)
+    where α is the time between the two X12s
+    Type CRCR_X12
+        X CR- X12(t2) CR- X CR+ X12(t1) CR+ X CR+ X12(t0) CR+
+      = X CR- X12 CR- X CR+ X12 CR+ X CR+ X12 CR+ exp[-iδ(t2(-z-ζ) + t1z + t0ζ)]
+      = CX exp[iδα(z+2ζ)] ~ CX P2(-3α)
+    Type REVERSE
+        X+(t2) Delay X+(t1) ECR X ECR X+(t0)
+      = X+ Delay X+ ECR X ECR X+ exp[-iδ(t2(-z-ζ) + t1z + t0ζ)]
+      = CX exp[iδα(z+2ζ)] ~ CX P2(-3α)
+    where α is the time between the first two X12s
 
-    At the current form this pass is specific to Toffoli testing and cannot be used in real contexts
-    where the gate is used within some logical circuit."""
+    """
     def __init__(self):
         super().__init__()
         self.calibrations = None
@@ -64,6 +117,7 @@ class QutritToffoliRefocusing(TransformationPass):
     def run(self, dag: DAGCircuit) -> DAGCircuit:
         node_start_time = self.property_set['node_start_time']
 
+        cx_qubits = None
         for node in dag.topological_op_nodes():
             if (start_time := node_start_time.get(node)) is None:
                 raise TranspilerError(
@@ -75,6 +129,7 @@ class QutritToffoliRefocusing(TransformationPass):
                 if isinstance(node.op, XminusGate):
                     # Convert to X+-delay-X+
                     toffoli_begin = start_time
+                    qutrit = dag.find_bit(node.qargs[0]).index
                     subdag = DAGCircuit()
                     qreg = QuantumRegister(1)
                     subdag.add_qreg(qreg)
@@ -91,22 +146,28 @@ class QutritToffoliRefocusing(TransformationPass):
                     node_start_time[subst_map[next(op_nodes)._node_id]] = start_time
                 elif isinstance(node.op, XplusGate):
                     # Assume to already be in sequence X+-delay-X+
+                    first_xplus_node = node
                     delay_node = next(dag.successors(node))
                     if not isinstance(delay_node.op, Delay):
                         raise TranspilerError('X+(qutrit_toffoli_begin) is not followed by a delay')
                     refocusing_delay = delay_node.op
             elif isinstance(node.op, XplusGate) and node.op.label == 'qutrit_toffoli_end':
                 toffoli_end = start_time
+            elif isinstance(node.op, XplusGate) and node.op.label == 'reverse_cx_end':
+                cx_delay_node = next(dag.predecessors(node))
             elif isinstance(node.op, QutritQubitCXGate):
                 cx_qubits = tuple(dag.find_bit(q).index for q in node.qargs)
 
-        x_duration = self.calibrations.get_schedule('x', cx_qubits[0]).duration
-        x12_duration = self.calibrations.get_schedule('x12', cx_qubits[0]).duration
-        cr_duration = self.calibrations.get_schedule('cr', cx_qubits).duration
-
+        x_duration = self.calibrations.get_schedule('x', qutrit).duration
+        x12_duration = self.calibrations.get_schedule('x12', qutrit).duration
         # Phase error due to f12 detuning (detuning factored out)
-        u_qutrit_phase = np.array([0., 0., -3. * (x_duration + x12_duration + 2. * cr_duration)])
-        added_time = u_qutrit_phase[2] + (toffoli_end - toffoli_begin)
+        if cx_qubits:
+            cr_duration = self.calibrations.get_schedule('cr', cx_qubits).duration
+            alpha = x_duration + x12_duration + 2. * cr_duration
+        else:
+            alpha = x_duration + x12_duration + cx_delay_node.duration
+
+        added_time = -3 * alpha + (toffoli_end - toffoli_begin)
         # Subtract the X+ duration
         refocusing_delay.duration = added_time - (x_duration + x12_duration)
 
