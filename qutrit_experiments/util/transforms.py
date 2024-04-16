@@ -1,7 +1,20 @@
 """Transformation utilities."""
+from collections.abc import Sequence
+import logging
+from typing import Optional, Union
+import numpy as np
+import scipy
 from qiskit import pulse
+from qiskit.providers import Backend
+from qiskit.providers.exceptions import BackendConfigurationError
 from qiskit.pulse import Schedule, ScheduleBlock
 from qiskit.qobj.converters.pulse_instruction import ParametricPulseShapes
+from qiskit_experiments.calibration_management import Calibrations
+
+from ..calibrations import get_qutrit_freq_shift
+
+logger = logging.getLogger(__name__)
+twopi = 2. * np.pi
 
 
 def schedule_to_block(schedule: Schedule):
@@ -25,3 +38,203 @@ def symbolic_pulse_to_waveform(schedule_block: ScheduleBlock):
                 schedule_block.replace(inst, waveform_inst, inplace=True)
         elif isinstance(block, ScheduleBlock):
             symbolic_pulse_to_waveform(block)
+
+
+def schedule_to_matrix(
+    schedule: Union[Schedule, ScheduleBlock],
+    backend: Backend,
+    calibrations: Calibrations,
+    physical_qubits: Sequence[int],
+    qutrit_indices: Sequence[int],
+    qutrit_detunings: Optional[Sequence[float]] = None
+):
+    """Compute the qubit-qutrit-qubit unitary matrix given by the schedule."""
+    physical_qubits = tuple(physical_qubits)
+    dims = np.full(len(physical_qubits), 2)
+    dims[qutrit_indices] = 3
+    detuning = np.zeros(len(physical_qubits))
+    if qutrit_detunings:
+        detuning[qutrit_indices] = qutrit_detunings
+
+    drive_channels = {backend.drive_channel(pq): iq for iq, pq in enumerate(physical_qubits)}
+    control_channels = {}
+    for iq1, pq1 in enumerate(physical_qubits):
+        for iq2, pq2 in enumerate(physical_qubits):
+            if iq1 == iq2:
+                continue
+            try:
+                ch = backend.control_channel((pq1, pq2))[0]
+            except BackendConfigurationError:
+                continue
+            control_channels[ch] = (iq1, iq2)
+
+    channel_phases = {ch: 0. for ch in list(drive_channels.keys()) + list(control_channels.keys())}
+
+    starks = {
+        (iq, op): np.exp(-0.5j * calibrations.get_parameter_value(f'delta_{op}', physical_qubits[iq]))
+        for iq in qutrit_indices
+        for op in ['x', 'x12', 'sx', 'sx12']
+    }
+    qutrit_freq_shifts = {
+        iq: get_qutrit_freq_shift(physical_qubits[iq], backend.target, calibrations)
+        for iq in qutrit_indices
+    }
+
+    x3 = np.array([[0., 1., 0.], [1., 0., 0.], [0., 0., 0.]], dtype=complex)
+    rx45p3 = scipy.linalg.expm(-0.5j * np.pi / 4. * x3)
+    rx45m3 = scipy.linalg.expm(0.5j * np.pi / 4. * x3)
+    zero3 = np.zeros((3, 3), dtype=complex)
+
+    def block_matrix(blocks):
+        return np.concatenate([np.concatenate(row, axis=1) for row in blocks], axis=0)
+
+    op_unitaries = {
+        'x': {
+            2: np.array([[0., -1.j], [-1.j, 0.]]),
+            3: np.array([[0., -1.j, 0.], [-1.j, 0., 0.], [0., 0., 1]])
+        },
+        'sx': {
+            2: np.array([[1., -1.j], [-1.j, 1.]]) / np.sqrt(2.),
+            3: np.array([[1., -1.j, 0.], [-1.j, 1., 0.], [0., 0., np.sqrt(2.)]]) / np.sqrt(2.)
+        },
+        'x12': {
+            3: np.array([[1., 0., 0.], [0., 0., -1.j], [0., -1.j, 0.]])
+        },
+        'sx12': {
+            3: np.array([[np.sqrt(2.), 0., 0.], [0., 1., -1.j], [0., -1.j, 1.]]) / np.sqrt(2.)
+        },
+        'zx45p': {
+            (2, 3): block_matrix([[rx45p3, zero3], [zero3, rx45m3]])
+        },
+        'zx45m': {
+            (2, 3): block_matrix([[rx45m3, zero3], [zero3, rx45p3]])
+        }
+    }
+
+    def phase_shift_op(phase, dim, subspace=0):
+        match (dim, subspace):
+            case (2, 0):
+                return np.array([[np.exp(-1.j * phase), 0.], [0., 1.]])
+            case (3, 0):
+                return np.array(
+                    [[np.exp(-1.j * phase), 0., 0.],
+                     [0., 1., 0.],
+                     [0., 0., 1.]]
+                )
+            case (3, 1):
+                return np.array(
+                    [[1., 0., 0.],
+                     [0., 1., 0.],
+                     [0., 0., np.exp(1.j * phase)]]
+                )
+
+    def embed_1q_gate(gate_name, channel, time):
+        iq = drive_channels[channel]
+        if dims[iq] == 3:
+            bare_op = op_unitaries[gate_name][3].copy()
+            phase = channel_phases[channel]
+            if gate_name in ['x12', 'sx12']:
+                bare_op[0, 0] *= starks[(iq, gate_name)]
+                # x12 pulse at time t corresponds to a pi pulse with phase offset -freq_shift*t
+                # in the EF frame
+                phase -= (twopi * qutrit_freq_shifts[iq] - detuning[iq]) * time
+                subspace = 1
+            else:
+                bare_op[2, 2] *= starks[(iq, gate_name)]
+                subspace = 0
+            rz = phase_shift_op(phase, 3, subspace)
+        else:
+            bare_op = op_unitaries[gate_name][2].copy()
+            rz = phase_shift_op(channel_phases[channel], 2)
+
+        matrix = np.eye(np.prod(dims[:iq]), dtype=complex)
+        matrix = np.kron(matrix, rz.conjugate() @ bare_op @ rz)
+        return np.kron(matrix, np.eye(np.prod(dims[iq + 1:]), dtype=complex))
+
+    def embed_2q_gate(gate_name, channel):
+        iqc, iqt = control_channels[channel]
+        bare_op = op_unitaries[gate_name][(dims[iqc], dims[iqt])].copy()
+        block_rz = phase_shift_op(channel_phases[channel], dims[iqt])
+        blocks = np.zeros((dims[iqc], dims[iqc], dims[iqt], dims[iqt]), dtype=complex)
+        blocks[np.arange(dims[iqc]), np.arange(dims[iqc])] = block_rz
+        rz = block_matrix(blocks)
+        op = rz.conjugate() @ bare_op @ rz
+        if iqc > iqt:
+            op = op.reshape((dims[iqc], dims[iqt], dims[iqc], dims[iqt])).transpose((1, 0, 3, 2))
+            op = op.reshape((dims[iqc] * dims[iqt], dims[iqc] * dims[iqt]))
+            low = iqt
+            high = iqc
+        else:
+            low = iqc
+            high = iqt
+
+        matrix = np.eye(np.prod(dims[:low]), dtype=complex)
+        matrix = np.kron(matrix, op)
+        return np.kron(matrix, np.eye(np.prod(dims[high + 1:]), dtype=complex))
+
+    tmax = 0
+
+    sched_unitary = np.eye(np.prod(dims), dtype=complex)
+
+    for time, inst in schedule.instructions:
+        tmax = max(time + inst.duration, tmax)
+
+        if isinstance(inst, (pulse.Delay, pulse.instructions.RelativeBarrier)):
+            continue
+        if isinstance(inst, pulse.ShiftPhase):
+            try:
+                logger.debug('Updating phase of %s %f -> %f', inst.channel,
+                             channel_phases[inst.channel], channel_phases[inst.channel] + inst.phase)
+                channel_phases[inst.channel] += inst.phase
+            except KeyError:
+                pass
+            continue
+        if not isinstance(inst, pulse.Play):
+            raise RuntimeError(f'Unhandled {inst} at time {time}')
+
+        if isinstance(inst.channel, pulse.DriveChannel):
+            if inst.name.startswith('Xp'):
+                op_unitary = embed_1q_gate('x', inst.channel, time)
+            elif inst.name.startswith('X90p'):
+                op_unitary = embed_1q_gate('sx', inst.channel, time)
+            elif inst.name.startswith('Ξp'):
+                op_unitary = embed_1q_gate('x12', inst.channel, time)
+            elif inst.name.startswith('Ξ90p'):
+                op_unitary = embed_1q_gate('sx12', inst.channel, time)
+            elif inst.name == 'DD':
+                op_unitary = embed_1q_gate('x', inst.channel, time)
+                op_unitary = op_unitary @ op_unitary
+            elif inst.name.startswith('CR90p_d') or inst.name.startswith('CR90m_d'):
+                continue
+            else:
+                raise RuntimeError(f'Unhandled 1q drive {inst} at time {time}')
+        elif isinstance(inst.channel, pulse.ControlChannel):
+            if inst.name.startswith('CR90p_u'):
+                op_unitary = embed_2q_gate('zx45p', inst.channel)
+            elif inst.name.startswith('CR90m_u'):
+                op_unitary = embed_2q_gate('zx45m', inst.channel)
+            else:
+                raise RuntimeError(f'Unhandled control drive {inst} at time {time}')
+        else:
+            raise RuntimeError(f'Instruction {inst} on unknown channel')
+
+        logger.debug('%d, %s\n%s', time, inst, op_unitary)
+        sched_unitary = op_unitary @ sched_unitary
+
+    rzs = [None] * len(physical_qubits)
+    for channel, phase in channel_phases.items():
+        if isinstance(channel, pulse.DriveChannel):
+            logger.debug('Channel %s final phase %f', channel, phase)
+            iq = drive_channels[channel]
+            rzs[iq] = phase_shift_op(phase, dims[iq])
+
+    final_rz = np.ones(1, dtype=complex)
+    for rz in rzs:
+        final_rz = np.kron(final_rz, rz)
+    logger.debug('Final Rz\n%s', final_rz)
+    sched_unitary = final_rz @ sched_unitary
+
+    sched_unitary.real = np.where(np.abs(sched_unitary.real) < 1.e-8, 0., sched_unitary.real)
+    sched_unitary.imag = np.where(np.abs(sched_unitary.imag) < 1.e-8, 0., sched_unitary.imag)
+
+    return sched_unitary
