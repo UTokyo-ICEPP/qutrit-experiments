@@ -74,21 +74,18 @@ class AddQutritCalibrations(TransformationPass):
         freq_diffs = {}
         cumul_angle_ge = defaultdict(float) # Angle in the g-e (|0>-|1>) sphere
         cumul_angle_ef = defaultdict(float) # Angle in the e-f (|1>-|2>) sphere
-        # Geometric + Stark phase correction caches
-        corr_phase = {'x': {}, 'sx': {}, 'x12': {}, 'sx12': {}}
+        # Rz channels cache
+        rz_channels = {}
         # Drive channel to qubit mapping
         channel_qutrit_map = {}
 
-        def get_corr_phase(gate, qubit):
-            if (corr := corr_phase[gate].get(qubit)) is None:
-                sched = self.calibrations.get_schedule(f'{gate}_phase_corr', qubit)
-                offset = next(inst.phase for _, inst in sched.instructions
-                              if isinstance(inst, pulse.ShiftPhase))
-                channels = list(inst.channel for _, inst in sched.instructions
-                                if isinstance(inst, pulse.ShiftPhase))
-                corr = (offset, channels)
-                corr_phase[gate][qubit] = corr
-            return corr
+        def get_rz_channels(qubit):
+            if (channels := rz_channels.get(qubit)) is None:
+                sched = self.target['rz']((qubit,)).calibration
+                channels = set(inst.channel for _, inst in sched.instructions
+                               if isinstance(inst, pulse.ShiftPhase))
+                rz_channels[qubit] = channels
+            return channels
 
         def insert_ef_phase_shifts(original, ef_phase_params=None, ef_phase_shifts=None):
             if ef_phase_params is None:
@@ -106,7 +103,11 @@ class AddQutritCalibrations(TransformationPass):
                         param = Parameter(f'ef_phase_q{qutrit}_{idx}')
                         ef_phase_params[qutrit].append(param)
                         shift = ef_phase_shifts[qutrit]
-                        offset, channels = get_corr_phase(block.name, qutrit)
+                        delta = self.calibrations.get_parameter_value(f'delta_{block.name}', qutrit)
+                        geom_phase = np.pi / 2. if block.name == 'x12' else np.pi / 4.
+                        # Need to apply PO(delta/2 - geom) to effect the full X12 gate
+                        offset = LO_SIGN * (geom_phase - delta / 2.)
+                        channels = get_rz_channels(qutrit)
                         logger.debug('  Inserting placeholder %d for qubit %d', idx, qutrit)
                         copy.append(pulse.ShiftPhase(param + shift, drive_channel))
                         copy.append(block)
@@ -179,7 +180,9 @@ class AddQutritCalibrations(TransformationPass):
                 # SX = P2(delta/2 - pi/4) U_x(pi/2)
                 # See the docstring of add_x12_sx12()
                 # P2(phi) is equivalent to BlochRot[ef](phi)
-                offset = get_corr_phase(node.op.name, qubits[0])[0]
+                delta = self.calibrations.get_parameter_value(f'delta_{node.op.name}', qubits[0])
+                geom_phase = np.pi / 2. if isinstance(node.op, XGate) else np.pi / 4.
+                offset = delta / 2. - geom_phase
                 cumul_angle_ef[qubits[0]] += offset
                 logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[0], offset)
 
@@ -225,7 +228,10 @@ class AddQutritCalibrations(TransformationPass):
                         post_angles.append(-pre_angles[-1])
 
                         if isinstance(node.op, (X12Gate, SX12Gate)):
-                            offset = get_corr_phase(node.op.name, qubit)[0]
+                            delta = self.calibrations.get_parameter_value(f'delta_{node.op.name}',
+                                                                          qubit)
+                            geom_phase = np.pi / 2. if isinstance(node.op, X12Gate) else np.pi / 4.
+                            offset = geom_phase - delta / 2.
                             post_angles[-1] += offset
                             cumul_angle_ge[qubit] += offset
                             logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qubit, offset)
@@ -274,9 +280,11 @@ class AddQutritCalibrations(TransformationPass):
                             # Instruction with control channel etc.
                             continue
                         if inst.name.startswith('Xp'):
-                            cumul_angle_ef[qutrit] += get_corr_phase('x', qutrit)[0]
+                            delta = self.calibrations.get_parameter_value('delta_x', qutrit)
+                            cumul_angle_ef[qutrit] += delta / 2. - np.pi / 2.
                         elif inst.name.startswith('X90p'):
-                            cumul_angle_ef[qutrit] += get_corr_phase('sx', qutrit)[0]
+                            delta = self.calibrations.get_parameter_value('delta_sx', qutrit)
+                            cumul_angle_ef[qutrit] += delta / 2. - np.pi / 4.
                         elif inst.name.startswith('Ξp') or inst.name.startswith('Ξ90p'):
                             # See comments on X12Gate
                             ef_lo_phase = (LO_SIGN * (start_time + inst_time) * twopi
@@ -286,9 +294,11 @@ class AddQutritCalibrations(TransformationPass):
                                                      - cumul_angle_ge[qutrit]) % twopi
                             logger.debug('  Assigning %.2f to %s', assign_map[parameter], parameter)
                             if inst.name.startswith('Ξp'):
-                                cumul_angle_ge[qutrit] += get_corr_phase('x12', qutrit)[0]
+                                delta = self.calibrations.get_parameter_value('delta_x12', qutrit)
+                                cumul_angle_ge[qutrit] += np.pi / 2. - delta / 2.
                             else:
-                                cumul_angle_ge[qutrit] += get_corr_phase('sx12', qutrit)[0]
+                                delta = self.calibrations.get_parameter_value('delta_sx12', qutrit)
+                                cumul_angle_ge[qutrit] += np.pi / 4. - delta / 2.
 
                     assert set(len(l) for l in ef_phase_params.values()) == {0}
 

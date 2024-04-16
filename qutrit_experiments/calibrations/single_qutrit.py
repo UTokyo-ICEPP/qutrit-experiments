@@ -106,6 +106,11 @@ def add_x12_sx12(
                                      angle=Parameter('angle'), name=pulse_name),
                        drive_channel, name=pulse_name)
         calibrations.add_schedule(sched, num_qubits=1)
+        # Define the Stark phase shift without a containing schedule
+        calibrations._register_parameter(Parameter(f'delta_{gate_name}'), ())
+
+    for gate_name in ['x', 'sx']:
+        calibrations._register_parameter(Parameter(f'delta_{gate_name}'), ())
 
 
 def set_x12_sx12_default(
@@ -117,10 +122,7 @@ def set_x12_sx12_default(
     inst_map = backend.defaults().instruction_schedule_map
     operational_qubits = get_operational_qubits(backend, qubits=qubits)
 
-    for gate_name, qubit_gate_name, geom_phase in [
-        ('x12', 'x', np.pi / 2.),
-        ('sx12', 'sx', np.pi / 4.)
-    ]:
+    for gate_name, qubit_gate_name in [('x12', 'x'), ('sx12', 'sx')]:
         for qubit in operational_qubits:
             # Parameter default values
             qubit_sched = inst_map.get(qubit_gate_name, qubit)
@@ -134,24 +136,7 @@ def set_x12_sx12_default(
                 calibrations.add_parameter_value(ParameterValue(0.), param_name, qubits=[qubit],
                                                  schedule=gate_name)
 
-            # Phase correction schedules (defined for each qubit because the number of Rz channels is
-            # qubit dependent)
-            rz_channels = [inst.channel for _, inst in inst_map.get('rz', qubit).instructions]
-
-            delta = Parameter('delta')
-            with pulse.build(name=f'{gate_name}_phase_corr') as sched:
-                for channel in rz_channels:
-                    pulse.shift_phase(LO_SIGN * (geom_phase - delta / 2.), channel)
-            calibrations.add_schedule(sched, qubits=[qubit])
-
-            calibrations.add_parameter_value(ParameterValue(0.), 'delta', qubits=[qubit],
-                                             schedule=sched.name)
-
-            delta = Parameter('delta')
-            with pulse.build(name=f'{qubit_gate_name}_phase_corr') as sched:
-                for channel in rz_channels:
-                    pulse.shift_phase(LO_SIGN * (delta / 2. - geom_phase), channel)
-            calibrations.add_schedule(sched, qubits=[qubit])
-
-            calibrations.add_parameter_value(ParameterValue(0.), 'delta', qubits=[qubit],
-                                             schedule=sched.name)
+            calibrations.add_parameter_value(ParameterValue(0.), f'delta_{gate_name}',
+                                             qubits=[qubit])
+            calibrations.add_parameter_value(ParameterValue(0.), f'delta_{qubit_gate_name}',
+                                             qubits=[qubit])
