@@ -5,7 +5,8 @@ from enum import Enum, auto
 from typing import Optional, Union
 import numpy as np
 from qiskit import QuantumCircuit, QuantumRegister
-from qiskit.circuit import Gate, Parameter
+from qiskit.circuit import Barrier, Gate, Parameter
+from qiskit.circuit.library import CXGate, ECRGate, HGate, RZGate, XGate
 from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary as sel
 #from qiskit.circuit.parameterexpression import ParameterValueType
 # For some reason Pylance fails to recognize imported ParameterValueType as a valid type alias so
@@ -333,38 +334,59 @@ q = QuantumRegister(1, 'q')
 theta = Parameter('theta')
 phi = Parameter('phi')
 lam = Parameter('lam')
-u3_qasm_def = QuantumCircuit(q, global_phase=(lam + phi - np.pi) / 2)
-u3_qasm_def.append(RZ12Gate(lam), [0])
-u3_qasm_def.append(SX12Gate(), [0])
-u3_qasm_def.append(RZ12Gate(theta + np.pi), [0])
-u3_qasm_def.append(SX12Gate(), [0])
-u3_qasm_def.append(RZ12Gate(phi + 3 * np.pi), [0])
-sel.add_equivalence(U12Gate(theta, phi, lam), u3_qasm_def)
+qasm_def = QuantumCircuit(q, global_phase=(lam + phi - np.pi) / 2)
+qasm_def.append(RZ12Gate(lam), [0])
+qasm_def.append(SX12Gate(), [0])
+qasm_def.append(RZ12Gate(theta + np.pi), [0])
+qasm_def.append(SX12Gate(), [0])
+qasm_def.append(RZ12Gate(phi + 3 * np.pi), [0])
+sel.add_equivalence(U12Gate(theta, phi, lam), qasm_def)
 
 q = QuantumRegister(1, 'q')
-xplus_qasm_def = QuantumCircuit(q)
-xplus_qasm_def.append(X12Gate(), [0])
-xplus_qasm_def.x(0)
-sel.add_equivalence(XplusGate(), xplus_qasm_def)
+qasm_def = QuantumCircuit(q)
+qasm_def.append(X12Gate(), [0])
+qasm_def.x(0)
+sel.add_equivalence(XplusGate(), qasm_def)
 
 q = QuantumRegister(1, 'q')
-xminus_qasm_def = QuantumCircuit(q)
-xminus_qasm_def.x(0)
-xminus_qasm_def.append(X12Gate(), [0])
-sel.add_equivalence(XminusGate(), xminus_qasm_def)
+qasm_def = QuantumCircuit(q)
+qasm_def.x(0)
+qasm_def.append(X12Gate(), [0])
+sel.add_equivalence(XminusGate(), qasm_def)
 
 # Compact version of reverse CX
 q = QuantumRegister(2, 'q')
-cx_qasm_def = QuantumCircuit(q)
-cx_qasm_def.append(XplusGate(), [0])
-cx_qasm_def.h(1)
-cx_qasm_def.x(1)
-cx_qasm_def.ecr(1, 0)
-cx_qasm_def.x(1)
-cx_qasm_def.ecr(1, 0)
-cx_qasm_def.append(X12Gate(), [0])
-cx_qasm_def.rz(np.pi / 3., 0)
-cx_qasm_def.append(RZ12Gate(-np.pi / 3.), [0])
-cx_qasm_def.rz(np.pi, 1)
-cx_qasm_def.h(1)
-sel.add_equivalence(QutritQubitCXTypeReverseGate(), cx_qasm_def)
+qasm_def = QuantumCircuit(q)
+for gate, qargs in [
+    (XplusGate(), [0]),
+    (HGate(), [1]),
+    (XGate(), [1]),
+    (ECRGate(), [1, 0]),
+    (XGate(), [1]),
+    (ECRGate(), [1, 0]),
+    (X12Gate(), [0]),
+    (RZGate(np.pi / 3.), [0]),
+    (RZ12Gate(-np.pi / 3.), [0]),
+    (RZGate(np.pi), [1]),
+    (HGate(), [1])
+]:
+    qasm_def.append(gate, qargs)
+sel.add_equivalence(QutritQubitCXTypeReverseGate(), qasm_def)
+
+q = QuantumRegister(3, 'q')
+qasm_def = QuantumCircuit(q)
+for gate, qargs in [
+    (Barrier(3), q),
+    (XminusGate(label='qutrit_toffoli_begin'), q[:1]),
+    (Barrier(2), q[:2]),
+    (CXGate(), q[:2]),
+    (Barrier(3), q),
+    (QutritQubitCXGate(), q[1:]),
+    (Barrier(3), q),
+    (CXGate(), q[:2]),
+    (Barrier(2), q[:2]),
+    (XplusGate(label='qutrit_toffoli_end'), q[:1]),
+    (Barrier(3), q)
+]:
+    qasm_def.append(gate, qargs)
+sel.add_equivalence(QutritToffoliGate(), qasm_def)
