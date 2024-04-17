@@ -10,14 +10,12 @@ from qiskit_experiments.calibration_management import Calibrations
 from qiskit_experiments.exceptions import CalibrationError
 
 from ..constants import LO_SIGN
-from ..gates import (GateType, QutritQubitCXTypeX12Gate, QutritQubitCXTypeXGate, RZ12Gate,
-                     SetF12Gate, SX12Gate, X12Gate)
+from ..gates import GateType, QutritQubitCXGate, RZ12Gate, SetF12Gate, SX12Gate, X12Gate
 from .custom_pulses import ConvertCustomPulses, RemoveUnusedCalibrations
 from .qutrit_circuits import ContainsQutritInstruction, AddQutritCalibrations
 from .rz import CastRZToAngle, ConsolidateRZAngle, InvertRZSign
 
-BASIS_GATES = [QutritQubitCXTypeX12Gate, QutritQubitCXTypeXGate, RZ12Gate, SetF12Gate, SX12Gate,
-               X12Gate]
+BASIS_GATES = [RZ12Gate, SetF12Gate, SX12Gate, X12Gate, QutritQubitCXGate]
 
 
 @dataclass
@@ -54,10 +52,16 @@ def make_instruction_durations(
                         continue
                     durations.append((inst.gate_name, qubit, duration))
             case (GateType.PULSE, 2) | (GateType.COMPOSITE, 2):
+                if inst is QutritQubitCXGate:
+                    # rcr0 and rcr2 durations are identical
+                    sched_name = 'qutrit_qubit_cx_rcr0'
+                else:
+                    sched_name = inst.gate_name
+
                 for edge in backend.coupling_map.get_edges():
                     if edge[0] in qubits and edge[1] in qubits:
                         try:
-                            duration = calibrations.get_schedule(inst.gate_name, edge).duration
+                            duration = calibrations.get_schedule(sched_name, edge).duration
                         except CalibrationError:
                             continue
                         durations.append((inst.gate_name, edge, duration))

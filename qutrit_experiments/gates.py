@@ -188,42 +188,6 @@ class RCRGate(Gate):
     gate_name = 'rcr'
     gate_type = GateType.COMPOSITE
 
-    @classmethod
-    def of_type(cls, rcr_type: int) -> type['RCRGate']:
-        match rcr_type:
-            case cls.TYPE_X:
-                return RCRTypeXGate
-            case cls.TYPE_X12:
-                return RCRTypeX12Gate
-
-
-class RCRTypeXGate(RCRGate):
-    """Repeated cross resonance gate."""
-    gate_name = 'rcr2'
-
-    def __init__(
-        self,
-        params: Optional[Sequence[ParameterValueType]] = None,
-        label: Optional[str] = None
-    ):
-        if params is None:
-            params = []
-        else:
-            params = list(params)
-        super().__init__(self.gate_name, 2, params=params, label=label)
-
-
-class RCRTypeX12Gate(QutritQubitCompositeGate, RCRGate):
-    """Repeated cross resonance gate."""
-    gate_name = 'rcr0'
-
-    def __init__(
-        self,
-        params: Optional[Sequence[ParameterValueType]] = None,
-        label: Optional[str] = None
-    ):
-        super().__init__(params, label=label)
-
 
 class CRCRGate(QutritQubitCompositeGate):
     """Cycled RCR gate.
@@ -240,65 +204,16 @@ class CRCRGate(QutritQubitCompositeGate):
     ):
         super().__init__(params, label=label)
 
-    @classmethod
-    def of_type(cls, rcr_type: int) -> type['CRCRGate']:
-        match rcr_type:
-            case RCRGate.TYPE_X:
-                return CRCRTypeXGate
-            case RCRGate.TYPE_X12:
-                return CRCRTypeX12Gate
-
-
-class CRCRTypeXGate(CRCRGate):
-    """Cycled RCR gate."""
-    gate_name = 'crcr2'
-
-
-class CRCRTypeX12Gate(CRCRGate):
-    """Cycled RCR gate."""
-    gate_name = 'crcr0'
-
 
 class QutritQubitCXGate(QutritQubitCompositeGate):
     """CX gate with a control qutrit and target qubit."""
-    TYPE_CRCR_X = 2
-    TYPE_CRCR_X12 = 0
-    TYPE_REVERSE = -1
-    TYPE_UNKNOWN = 3
-
     gate_name = 'qutrit_qubit_cx'
-
-    @classmethod
-    def of_type(cls, cx_type: int) -> type['QutritQubitCXGate']:
-        match cx_type:
-            case cls.TYPE_CRCR_X:
-                return QutritQubitCXTypeXGate
-            case cls.TYPE_CRCR_X12:
-                return QutritQubitCXTypeX12Gate
-            case cls.TYPE_REVERSE:
-                return QutritQubitCXTypeReverseGate
-
     def __init__(
         self,
         params: Optional[Sequence[ParameterValueType]] = None,
         label: Optional[str] = None
     ):
         super().__init__(params, label=label)
-
-
-class QutritQubitCXTypeXGate(QutritQubitCXGate):
-    """CX gate with a control qutrit and target qubit."""
-    gate_name = 'qutrit_qubit_cx_rcr2'
-
-
-class QutritQubitCXTypeX12Gate(QutritQubitCXGate):
-    """CX gate with a control qutrit and target qubit."""
-    gate_name = 'qutrit_qubit_cx_rcr0'
-
-
-class QutritQubitCXTypeReverseGate(QutritQubitCXGate):
-    """CX gate with a control qutrit and target qubit."""
-    gate_name = 'qutrit_qubit_cx_reverse'
 
 
 class QutritMCXGate(QutritCompositeGate):
@@ -371,7 +286,7 @@ for gate, qargs in [
     (HGate(), [1])
 ]:
     qasm_def.append(gate, qargs)
-sel.add_equivalence(QutritQubitCXTypeReverseGate(), qasm_def)
+sel.add_equivalence(QutritQubitCXGate(), qasm_def)
 
 q = QuantumRegister(3, 'q')
 qasm_def = QuantumCircuit(q)

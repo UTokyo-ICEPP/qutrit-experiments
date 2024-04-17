@@ -65,15 +65,17 @@ def toffoli_qpt_bare(runner):
     circuit.append(XminusGate(), [1])
     circuit.cx(0, 1)
     circuit.barrier()
-    # CX gate is in the list of basis gates and will be attached a calibration in
-    # the qutrit circuits transpiler
-    circuit.append(QutritQubitCXGate.of_type(rcr_type)(), [1, 2])
+    circuit.append(QutritQubitCXGate(), [1, 2])
     circuit.barrier()
     circuit.cx(0, 1)
     circuit.append(XplusGate(), [1])
 
     # No layout, just translation
+    # If CX gate is of reverse (t->c2) type, take it out from the basis gate list here to trigger
+    # the decomposition into the compact (non-refocused) form
     basis_gates = runner.backend.basis_gates + [g.gate_name for g in BASIS_GATES]
+    if rcr_type == -1:
+        basis_gates.remove('qutrit_qubit_cx')
     pm = generate_translation_passmanager(basis_gates)
     pm.append(ConsolidateRZAngle())
     circuit = pm.run(circuit)

@@ -19,7 +19,7 @@ from qiskit_experiments.framework import AnalysisResultData, BaseExperiment, Exp
 from qiskit_experiments.library.characterization.analysis import FineAmplitudeAnalysis
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ...calibrations import get_qutrit_qubit_composite_gate
+from ...calibrations.qutrit_qubit_cx import get_qutrit_qubit_cx_gate
 from ...experiment_mixins import MapToPhysicalQubits
 from ...framework.compound_analysis import CompoundAnalysis
 from ...framework_overrides.batch_experiment import BatchExperiment
@@ -41,7 +41,6 @@ class CycledRepeatedCRPingPong(MapToPhysicalQubits, BaseExperiment):
         self,
         physical_qubits: Sequence[int],
         control_state: int,
-        rcr_type: int,
         cx_sign: Optional[Number] = None,
         schedule: Optional[ScheduleBlock] = None,
         repetitions: Optional[Sequence[int]] = None,
@@ -53,7 +52,6 @@ class CycledRepeatedCRPingPong(MapToPhysicalQubits, BaseExperiment):
             self.set_experiment_options(repetitions=repetitions)
 
         self._control_state = control_state
-        self._cx_gate = QutritQubitCXGate.of_type(rcr_type)()
 
         # Fit function is P(1) = A/2*cos(n*(apg + dθ) - po) + B
         # Let Rx(θ) correspond to cos(θ - π)
@@ -99,7 +97,7 @@ class CycledRepeatedCRPingPong(MapToPhysicalQubits, BaseExperiment):
                 circuit.append(X12Gate(), [0])
             circuit.sx(1)
             for _ in range(repetition):
-                circuit.append(self._cx_gate, [0, 1])
+                circuit.append(QutritQubitCXGate(), [0, 1])
                 if self._control_state != 1:
                     circuit.x(1)
             if self._control_state == 2:
@@ -111,7 +109,7 @@ class CycledRepeatedCRPingPong(MapToPhysicalQubits, BaseExperiment):
                 'series': 1
             }
             if (sched := self.experiment_options.schedule) is not None:
-                circuit.add_calibration(self._cx_gate, self.physical_qubits, sched)
+                circuit.add_calibration(QutritQubitCXGate.gate_name, self.physical_qubits, sched)
             circuits.append(circuit)
 
         return circuits
@@ -122,15 +120,14 @@ class CycledRepeatedCRFine(BatchExperiment):
     def __init__(
         self,
         physical_qubits: Sequence[int],
-        rcr_type: int,
         cx_sign: Number,
         schedule: Optional[ScheduleBlock] = None,
         repetitions: Optional[Sequence[int]] = None,
         backend: Optional[Backend] = None
     ):
         experiments = [
-            CycledRepeatedCRPingPong(physical_qubits, ic, rcr_type, cx_sign=cx_sign,
-                                     schedule=schedule, repetitions=repetitions, backend=backend)
+            CycledRepeatedCRPingPong(physical_qubits, ic, cx_sign=cx_sign, schedule=schedule,
+                                     repetitions=repetitions, backend=backend)
             for ic in range(2)
         ]
         super().__init__(experiments, backend=backend)
@@ -156,13 +153,11 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
         auto_update: bool = True
     ):
         physical_qubits = tuple(physical_qubits)
-        rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
         cx_sign = calibrations.get_parameter_value('cx_sign', physical_qubits,
                                                    schedule='cx_geometric_phase')
         super().__init__(
             calibrations,
             physical_qubits,
-            rcr_type,
             cx_sign,
             backend=backend,
             schedule_name=schedule_name,
@@ -175,13 +170,13 @@ class CycledRepeatedCRFineCal(BaseCalibrationExperiment, CycledRepeatedCRFine):
         )
 
         self._dxda = dxda
-        self._gate_name = QutritQubitCXGate.of_type(rcr_type).gate_name
-        self._schedule = get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits,
-                                                         calibrations, target=backend.target)
+        self._schedule = get_qutrit_qubit_cx_gate(physical_qubits, calibrations,
+                                                  target=backend.target)
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         if circuit.metadata['composite_metadata'][0]['series'] == 1:
-            circuit.add_calibration(self._gate_name, self.physical_qubits, self._schedule)
+            circuit.add_calibration(QutritQubitCXGate.gate_name, self.physical_qubits,
+                                    self._schedule)
 
     def update_calibrations(self, experiment_data: ExperimentData):
         component_index = experiment_data.metadata['component_child_index']
@@ -237,14 +232,12 @@ class CycledRepeatedCRFineRxAngleCal(BaseCalibrationExperiment, CycledRepeatedCR
         repetitions: Optional[Sequence[int]] = None,
         auto_update: bool = True
     ):
-        rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
         cx_sign = calibrations.get_parameter_value('cx_sign', physical_qubits,
                                                    schedule='cx_geometric_phase')
         super().__init__(
             calibrations,
             physical_qubits,
             1,
-            rcr_type,
             backend=backend,
             schedule_name=schedule_name,
             cal_parameter_name=cal_parameter_name,
@@ -257,9 +250,8 @@ class CycledRepeatedCRFineRxAngleCal(BaseCalibrationExperiment, CycledRepeatedCR
             calibration_qubit_index={(self._param_name, self._sched_name): [1]}
         )
 
-        self._gate_name = QutritQubitCXGate.of_type(rcr_type).gate_name
-        self._schedule = get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits,
-                                                         calibrations, target=backend.target)
+        self._schedule = get_qutrit_qubit_cx_gate(physical_qubits, calibrations,
+                                                  target=backend.target)
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         if circuit.metadata['series'] == 1:
@@ -293,7 +285,6 @@ class CycledRepeatedCRRxScan(MapToPhysicalQubits, BaseExperiment):
         self,
         physical_qubits: Sequence[int],
         control_state: int,
-        rcr_type: int,
         schedule: Optional[ScheduleBlock] = None,
         angles: Optional[Sequence[float]] = None,
         backend: Optional[Backend] = None
@@ -308,7 +299,6 @@ class CycledRepeatedCRRxScan(MapToPhysicalQubits, BaseExperiment):
             self._angle_param = next(iter(schedule.parameters))
         else:
             self._angle_param = Parameter('angle')
-        self._cx_gate = QutritQubitCXGate.of_type(rcr_type)(params=[self._angle_param])
 
         self.analysis.set_options(
             fixed_parameters={'freq': 1. / twopi},
@@ -326,7 +316,7 @@ class CycledRepeatedCRRxScan(MapToPhysicalQubits, BaseExperiment):
             template.x(0)
         if self._control_state == 2:
             template.append(X12Gate(), [0])
-        template.append(self._cx_gate, [0, 1])
+        template.append(QutritQubitCXGate([self._angle_param]), [0, 1])
         if self._control_state == 2:
             template.append(X12Gate(), [0]) # restore qubit space
         template.measure(1, 0)
@@ -335,7 +325,8 @@ class CycledRepeatedCRRxScan(MapToPhysicalQubits, BaseExperiment):
             'control_state': self._control_state
         }
         if (sched := self.experiment_options.schedule) is not None:
-            template.add_calibration(self._cx_gate, self.physical_qubits, sched, [self._angle_param])
+            template.add_calibration(QutritQubitCXGate.gate_name, self.physical_qubits, sched,
+                                     [self._angle_param])
 
         circuits = []
         for angle in self.experiment_options.angles:
@@ -356,7 +347,6 @@ class CycledRepeatedCRRxOffsetAmpScan(BatchExperiment):
     def __init__(
         self,
         physical_qubits: Sequence[int],
-        rcr_type: int,
         cr_amps: Sequence[float],
         schedule: Optional[ScheduleBlock] = None,
         amp_param_name: Optional[str] = None,
@@ -371,8 +361,8 @@ class CycledRepeatedCRRxOffsetAmpScan(BatchExperiment):
             if sched_template is not None:
                 schedule = sched_template.assign_parameters({amp_param: amp_val})
             for control_state in range(2):
-                exp = CycledRepeatedCRRxScan(physical_qubits, control_state, rcr_type,
-                                             schedule=schedule, angles=angles, backend=backend)
+                exp = CycledRepeatedCRRxScan(physical_qubits, control_state, schedule=schedule,
+                                             angles=angles, backend=backend)
                 exp.set_experiment_options(
                     gate_params={'crp': [amp_val], 'crm': [amp_val]}
                 )
@@ -482,12 +472,10 @@ class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxO
                                                           schedule_name[0],
                                                           group=current_cal_group[0])
         cr_amps = np.linspace(current_cr_amp - 0.05, current_cr_amp + 0.05, 4)
-        rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
 
         super().__init__(
             calibrations,
             physical_qubits,
-            rcr_type,
             cr_amps,
             backend=backend,
             schedule_name=schedule_name,
@@ -499,7 +487,6 @@ class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxO
             calibration_qubit_index={(self._param_name[1], self._sched_name[1]): [1]}
         )
 
-        self._gate_name = QutritQubitCXGate.of_type(rcr_type).gate_name
         assign_keys = (
             (self._param_name[0], self.physical_qubits, self._sched_name[0]),
             (self._param_name[1], self.physical_qubits[1:], self._sched_name[1])
@@ -509,9 +496,8 @@ class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxO
             self._schedules.append([])
             for xval in self.component_experiment(0).experiment_options.angles:
                 assign_params = dict(zip(assign_keys, [aval, xval]))
-                sched = get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits,
-                                                        calibrations, target=backend.target,
-                                                        assign_params=assign_params)
+                sched = get_qutrit_qubit_cx_gate(physical_qubits, calibrations,
+                                                 target=backend.target, assign_params=assign_params)
                 self._schedules[-1].append(sched)
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
@@ -519,7 +505,7 @@ class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxO
         angles = self.component_experiment(0).experiment_options.angles
         xval = circuit.metadata['composite_metadata'][0]['xval']
         iangle = np.nonzero(np.isclose(angles, xval))[0][0]
-        circuit.add_calibration(self._gate_name, self.physical_qubits,
+        circuit.add_calibration(QutritQubitCXGate.gate_name, self.physical_qubits,
                                 self._schedules[iamp][iangle], params=[xval])
 
     def update_calibrations(self, experiment_data: ExperimentData):

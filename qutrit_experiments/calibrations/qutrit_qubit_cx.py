@@ -17,7 +17,7 @@ from ..gates import ParameterValueType
 from ..pulse_library import ModulatedGaussianSquare
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule
-from .util import get_default_ecr_schedule, get_operational_qubits
+from .util import get_default_ecr_schedule, get_operational_qubits, get_qutrit_qubit_composite_gate
 from .qubit import add_x, set_x_default
 
 logger = logging.getLogger(__name__)
@@ -376,3 +376,45 @@ def instantiate_qutrit_qubit_cx(
 
         calibrations.add_parameter_value(ParameterValue(0), cx_sign.name, qubits=control,
                                          schedule=geom_sched.name)
+
+
+def get_rcr_gate(
+    physical_qubits: Sequence[int],
+    calibrations: Calibrations,
+    freq_shift: Optional[float] = None,
+    target: Optional[Target] = None,
+    assign_params: Optional[dict[str, ParameterValueType]] = None,
+    group: str = 'default'
+) -> ScheduleBlock:
+    rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
+    return get_qutrit_qubit_composite_gate(f'rcr{rcr_type}', physical_qubits, calibrations,
+                                           freq_shift=freq_shift, target=target,
+                                           assign_params=assign_params, group=group)
+
+
+def get_crcr_gate(
+    physical_qubits: Sequence[int],
+    calibrations: Calibrations,
+    freq_shift: Optional[float] = None,
+    target: Optional[Target] = None,
+    assign_params: Optional[dict[str, ParameterValueType]] = None,
+    group: str = 'default'
+) -> ScheduleBlock:
+    rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
+    return get_qutrit_qubit_composite_gate(f'crcr{rcr_type}', physical_qubits, calibrations,
+                                           freq_shift=freq_shift, target=target,
+                                           assign_params=assign_params, group=group)
+
+
+def get_qutrit_qubit_cx_gate(
+    physical_qubits: Sequence[int],
+    calibrations: Calibrations,
+    freq_shift: Optional[float] = None,
+    target: Optional[Target] = None,
+    assign_params: Optional[dict[str, ParameterValueType]] = None,
+    group: str = 'default'
+) -> ScheduleBlock:
+    rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
+    return get_qutrit_qubit_composite_gate(f'qutrit_qubit_cx_rcr{rcr_type}', physical_qubits,
+                                           calibrations, freq_shift=freq_shift, target=target,
+                                           assign_params=assign_params, group=group)

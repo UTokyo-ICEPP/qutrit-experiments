@@ -27,8 +27,8 @@ def qutrit_toffoli_circuit(
     x12_duration = calibrations.get_schedule('x12', physical_qubits[1]).duration
     rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits[1:])
 
-    basis_gates = backend.basis_gates + ['rz12', 'x12', 'xplus', 'xminus',
-                                         QutritQubitCXGate.of_type(rcr_type).gate_name]
+    basis_gates = backend.basis_gates + ['rz12', 'x12', 'xplus', 'xminus', 'qutrit_qubit_cx']
+
     # Apply refocusing and DD
     instruction_durations = make_instruction_durations(backend, calibrations, physical_qubits)
     instruction_durations.update([

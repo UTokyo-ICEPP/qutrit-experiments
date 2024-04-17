@@ -12,7 +12,7 @@ from qiskit_experiments.calibration_management import (BaseCalibrationExperiment
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 
-from ...calibrations import get_qutrit_qubit_composite_gate
+from ...calibrations.qutrit_qubit_cx import get_rcr_gate, get_qutrit_qubit_cx_gate
 from ...gates import QutritQubitCXGate, RCRGate
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
@@ -95,14 +95,11 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomogra
         rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
         amp = Parameter('amp')
         sign_angle = Parameter('sign_angle')
-        gate = RCRGate.of_type(rcr_type)(params=[amp, sign_angle])
-
-        control_states = tuple(i for i in range(3) if i != rcr_type)
 
         super().__init__(
             calibrations,
             physical_qubits,
-            gate,
+            RCRGate(params=[amp, sign_angle]),
             amp.name,
             amplitudes,
             backend=backend,
@@ -111,11 +108,10 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomogra
             auto_update=auto_update,
             angle_param_name=sign_angle.name,
             measure_preparations=measure_preparations,
-            control_states=control_states,
+            control_states=tuple(i for i in range(3) if i != rcr_type),
             analysis_cls=MinimumYZRotaryAmplitudeAnalysis
         )
 
-        self._gate_name = gate.name
         assign_keys = (
             (self._param_name[0], self.physical_qubits, self._sched_name),
             (self._param_name[1], self.physical_qubits, self._sched_name)
@@ -128,8 +124,8 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomogra
                 assign_values = (-aval, np.pi)
             assign_params = dict(zip(assign_keys, assign_values))
             self._schedules.append(
-                get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits, calibrations,
-                                                target=backend.target, assign_params=assign_params)
+                get_rcr_gate(physical_qubits, calibrations, target=backend.target,
+                             assign_params=assign_params)
             )
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
@@ -139,7 +135,7 @@ class RepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomogra
             params = [aval, 0.]
         else:
             params = [-aval, np.pi]
-        circuit.add_calibration(self._gate_name, self.physical_qubits, self._schedules[iamp],
+        circuit.add_calibration(RCRGate.gate_name, self.physical_qubits, self._schedules[iamp],
                                 params=params)
 
     def update_calibrations(self, experiment_data: ExperimentData):
@@ -180,15 +176,13 @@ class CycledRepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, QutritQubitT
         if amplitudes is None:
             amplitudes = self._default_experiment_options().parameter_values[0]
 
-        rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
         amp = Parameter('amp')
         sign_angle = Parameter('sign_angle')
-        gate = QutritQubitCXGate.of_type(rcr_type)([amp, sign_angle])
 
         super().__init__(
             calibrations,
             physical_qubits,
-            gate,
+            QutritQubitCXGate([amp, sign_angle]),
             amp.name,
             amplitudes,
             backend=backend,
@@ -203,7 +197,6 @@ class CycledRepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, QutritQubitT
             calibration_qubit_index={(self._param_name[2], self._sched_name[2]): [1]}
         )
 
-        self._gate_name = gate.name
         assign_keys = (
             (self._param_name[0], self.physical_qubits, self._sched_name[0]),
             (self._param_name[1], self.physical_qubits, self._sched_name[1])
@@ -220,8 +213,8 @@ class CycledRepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, QutritQubitT
                 assign_values += (width,)
             assign_params = dict(zip(assign_keys, assign_values))
             self._schedules.append(
-                get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits, calibrations,
-                                                target=backend.target, assign_params=assign_params)
+                get_qutrit_qubit_cx_gate(physical_qubits, calibrations, target=backend.target,
+                                         assign_params=assign_params)
             )
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
@@ -231,8 +224,8 @@ class CycledRepeatedCRRotaryAmplitudeCal(BaseCalibrationExperiment, QutritQubitT
             params = [aval, 0.]
         else:
             params = [-aval, np.pi]
-        circuit.add_calibration(self._gate_name, self.physical_qubits, self._schedules[iamp],
-                                params=params)
+        circuit.add_calibration(QutritQubitCXGate.gate_name, self.physical_qubits,
+                                self._schedules[iamp], params=params)
 
     def update_calibrations(self, experiment_data: ExperimentData):
         amplitude = experiment_data.analysis_results('rotary_amp', block=False).value

@@ -10,8 +10,8 @@ from qiskit.pulse import ScheduleBlock
 from qiskit.transpiler import AnalysisPass, Target, TransformationPass, TranspilerError
 from qiskit_experiments.calibration_management import Calibrations
 
-from ..calibrations import (get_qutrit_freq_shift, get_qutrit_pulse_gate,
-                            get_qutrit_qubit_composite_gate)
+from ..calibrations import get_qutrit_freq_shift, get_qutrit_pulse_gate
+from ..calibrations.qutrit_qubit_cx import get_qutrit_qubit_cx_gate
 from ..constants import LO_SIGN
 from ..gates import (GateType, QutritGate, QutritQubitCXGate, RZ12Gate, SetF12Gate, SX12Gate,
                      X12Gate)
@@ -248,9 +248,8 @@ class AddQutritCalibrations(TransformationPass):
                     if (cal := dag.calibrations.get(node.op.name, {}).get(calib_key)) is None:
                         # If not found, get the schedule from calibrations if the gate is cx
                         if isinstance(node.op, QutritQubitCXGate):
-                            cal = get_qutrit_qubit_composite_gate(node.op.name, qubits,
-                                                                  self.calibrations,
-                                                                  freq_shift=freq_diffs[qubits[0]])
+                            cal = get_qutrit_qubit_cx_gate(qubits, self.calibrations,
+                                                           freq_shift=freq_diffs[qubits[0]])
                             dag.add_calibration(node.op.name, qubits, cal, node.op.params)
                             logger.debug('%s%s Adding calibration', node.op.name, qubits)
                         else:

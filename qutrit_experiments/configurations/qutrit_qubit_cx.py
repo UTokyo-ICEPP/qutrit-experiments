@@ -30,7 +30,8 @@ def unitaries(runner, gate, sched=None):
     if sched is None:
         if isinstance(gate, QutritGate):
             if gate.gate_type == GateType.COMPOSITE:
-                sched = get_qutrit_qubit_composite_gate(gate.name, runner.qubits, runner.calibrations,
+                sched = get_qutrit_qubit_composite_gate(gate.name, runner.qubits,
+                                                        runner.calibrations,
                                                         target=runner.backend.target)
             elif gate.gate_type == GateType.PULSE:
                 qutrit = np.array(runner.qubits)[list(gate.as_qutrit)][0]
@@ -66,20 +67,24 @@ def cr_unitaries(runner):
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def rcr_unitaries(runner):
-    rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits)
-    return unitaries(runner, RCRGate.of_type(rcr_type)())
+    from ..calibrations.qutrit_qubit_cx import get_rcr_gate
+    sched = get_rcr_gate(runner.qubits, runner.calibrations, target=runner.backend.target)
+    return unitaries(runner, RCRGate(), sched=sched)
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def crcr_unitaries(runner):
-    rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits)
-    return unitaries(runner, CRCRGate.of_type(rcr_type)())
+    from ..calibrations.qutrit_qubit_cx import get_crcr_gate
+    sched = get_crcr_gate(runner.qubits, runner.calibrations, target=runner.backend.target)
+    return unitaries(runner, CRCRGate(), sched=sched)
 
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
 def cx_unitaries(runner):
-    rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits)
-    return unitaries(runner, QutritQubitCXGate.of_type(rcr_type)())
+    from ..calibrations.qutrit_qubit_cx import get_qutrit_qubit_cx_gate
+    sched = get_qutrit_qubit_cx_gate(runner.qubits, runner.calibrations,
+                                     target=runner.backend.target)
+    return unitaries(runner, QutritQubitCXGate(), sched=sched)
 
 @register_exp
 def cr_initial_amp(runner):

@@ -12,7 +12,7 @@ from qiskit_experiments.calibration_management import (BaseCalibrationExperiment
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 
-from ...calibrations import get_qutrit_qubit_composite_gate
+from ...calibrations.qutrit_qubit_cx import get_rcr_gate
 from ...gates import RCRGate
 from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
@@ -110,11 +110,11 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
             amplitudes = np.linspace(current - 0.2, current + 0.05, 6)
 
         rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
-        gate = RCRGate.of_type(rcr_type)(params=[Parameter('amp')])
+
         super().__init__(
             calibrations,
             physical_qubits,
-            gate,
+            RCRGate(params=[Parameter('amp')]),
             'amp',
             backend=backend,
             schedule_name=schedule_name,
@@ -129,11 +129,10 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
                 calibration_qubit_index={(self._param_name[1], self._sched_name[1]): [1]}
             )
 
-        self._gate_name = gate.name
         assign_key = (cr_amp_param_name, self.physical_qubits, cr_amp_sched_name)
         self._schedules = [
-            get_qutrit_qubit_composite_gate(self._gate_name, physical_qubits, calibrations,
-                                            target=backend.target, assign_params={assign_key: aval})
+            get_rcr_gate(physical_qubits, calibrations, target=backend.target,
+                         assign_params={assign_key: aval})
             for aval in amplitudes
         ]
 
@@ -144,7 +143,7 @@ class CRRoughAmplitudeCal(BaseCalibrationExperiment, QutritQubitTomographyScan):
 
     def _attach_calibrations(self, circuit: QuantumCircuit):
         iamp = circuit.metadata['composite_index'][0]
-        circuit.add_calibration(self._gate_name, self.physical_qubits, self._schedules[iamp],
+        circuit.add_calibration(RCRGate.gate_name, self.physical_qubits, self._schedules[iamp],
                                 params=[self.experiment_options.parameter_values[0][iamp]])
 
     def update_calibrations(self, experiment_data: ExperimentData):
