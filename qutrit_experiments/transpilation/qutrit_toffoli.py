@@ -166,6 +166,7 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
                 break
         barriers.append(node)
         # Follow until the next barrier(2)
+        node = next(s for s in dag.successors(node) if t_qubit not in s.qargs)
         while True:
             if isinstance((node := next(dag.successors(node))).op, Barrier):
                 break
@@ -238,7 +239,7 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
             add_dd(f'c1_dd_{sequence}', 0, time, duration)
             add_dd(f't_dd_{sequence}', 2, time, duration)
         add_dd('t_dd_cx0', 2, node_start_time[barriers[1]],
-               node_start_time[barriers[2]] - node_start_time[barriers[1]])
+               node_start_time[barriers[2]] - node_start_time[barriers[1]], placement='right')
 
         insert_dd_to_dag(barriers[0])
 
