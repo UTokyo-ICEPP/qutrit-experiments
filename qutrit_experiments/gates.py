@@ -292,7 +292,7 @@ q = QuantumRegister(3, 'q')
 qasm_def = QuantumCircuit(q)
 for gate, qargs in [
     (Barrier(3), q),
-    (XminusGate(label='qutrit_toffoli_begin'), q[:1]),
+    (XminusGate(label='qutrit_toffoli_begin'), q[1:2]),
     (Barrier(2), q[:2]),
     (CXGate(), q[:2]),
     (Barrier(3), q),
@@ -300,7 +300,7 @@ for gate, qargs in [
     (Barrier(3), q),
     (CXGate(), q[:2]),
     (Barrier(2), q[:2]),
-    (XplusGate(label='qutrit_toffoli_end'), q[:1]),
+    (XplusGate(label='qutrit_toffoli_end'), q[1:2]),
     (Barrier(3), q)
 ]:
     qasm_def.append(gate, qargs)
