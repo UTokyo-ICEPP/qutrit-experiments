@@ -1,20 +1,19 @@
 """Utility functions for qutrit Toffoli."""
 from collections.abc import Sequence
 from qiskit import QuantumCircuit
-from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary as sel
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 from qiskit.providers import Backend
 from qiskit.transpiler import PassManager, StagedPassManager
-from qiskit.transpiler.passes import BasisTranslator
 from qiskit.transpiler.passes.scheduling import ALAPScheduleAnalysis
 from qiskit_experiments.calibration_management import Calibrations
 
-from ..transpilation.qutrit_toffoli import (QutritToffoliDecomposition, QutritToffoliRefocusing,
+from ..transpilation.qutrit_qubit_cx import ReverseCXDecomposition
+from ..transpilation.qutrit_toffoli import (QutritToffoliRefocusing,
                                             QutritToffoliDynamicalDecoupling)
 from ..transpilation.qutrit_transpiler import BASIS_GATES, make_instruction_durations
 from ..transpilation.layout_and_translation import (generate_layout_passmanager,
                                                     generate_translation_passmanager)
-from ..gates import QutritQubitCXGate, QutritToffoliGate
+from ..gates import QutritToffoliGate
 
 
 def qutrit_toffoli_circuit(
@@ -25,9 +24,6 @@ def qutrit_toffoli_circuit(
     physical_qubits = tuple(physical_qubits)
     x_duration = calibrations.get_schedule('x', physical_qubits[1]).duration
     x12_duration = calibrations.get_schedule('x12', physical_qubits[1]).duration
-    rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits[1:])
-
-    basis_gates = backend.basis_gates + ['rz12', 'x12', 'xplus', 'xminus', 'qutrit_qubit_cx']
 
     # Apply refocusing and DD
     instruction_durations = make_instruction_durations(backend, calibrations, physical_qubits)
@@ -37,14 +33,11 @@ def qutrit_toffoli_circuit(
         ('xminus', physical_qubits[1], x_duration + x12_duration),
     ])
 
-    # Decompose the Toffoli gate into high-level gates. Use the BasisTranslator to break down the
-    # standard CX
-    # If CX type is reverse, decompose into the gate sequence of refocusing (cycled) version
-    pretranslation_pm = PassManager()
-    decomp = QutritToffoliDecomposition(backend.target, instruction_durations)
-    decomp.calibrations = calibrations
-    pretranslation_pm.append(decomp)
-    pretranslation_pm.append(BasisTranslator(sel, basis_gates))
+    basis_gates = backend.basis_gates + ['rz12', 'x12', 'xplus', 'xminus', 'qutrit_qubit_cx']
+    pretranslation_pm = generate_translation_passmanager(basis_gates)
+    cx_decomp = ReverseCXDecomposition(instruction_durations)
+    cx_decomp.calibrations = calibrations
+    pretranslation_pm.append(cx_decomp)
 
     phase_corr_pm = PassManager()
     phase_corr_pm.append(ALAPScheduleAnalysis(instruction_durations))
