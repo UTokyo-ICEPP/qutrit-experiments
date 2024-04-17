@@ -5,7 +5,7 @@ from qiskit import QuantumCircuit, transpile
 from qiskit.circuit import Parameter
 
 from ..experiment_config import ExperimentConfig, register_exp
-from ..gates import QutritQubitCXGate, X12Gate, XminusGate, XplusGate
+from ..gates import QutritQubitCXType, QutritQubitCXGate, XminusGate, XplusGate
 from ..transpilation.layout_and_translation import generate_translation_passmanager
 from ..transpilation.qutrit_transpiler import BASIS_GATES, make_instruction_durations
 from ..transpilation.rz import ConsolidateRZAngle
@@ -74,7 +74,7 @@ def toffoli_qpt_bare(runner):
     # If CX gate is of reverse (t->c2) type, take it out from the basis gate list here to trigger
     # the decomposition into the compact (non-refocused) form
     basis_gates = runner.backend.basis_gates + [g.gate_name for g in BASIS_GATES]
-    if rcr_type == -1:
+    if rcr_type == QutritQubitCXType.REVERSE:
         basis_gates.remove('qutrit_qubit_cx')
     pm = generate_translation_passmanager(basis_gates)
     pm.append(ConsolidateRZAngle())

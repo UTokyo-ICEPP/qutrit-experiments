@@ -32,7 +32,7 @@ if __name__ == '__main__':
     import qutrit_experiments.configurations.toffoli
     from qutrit_experiments.experiment_config import ExperimentConfig, ParallelExperimentConfig, register_post
     from qutrit_experiments.experiments.readout_error import CorrelatedReadoutError
-    from qutrit_experiments.gates import QutritQubitCXGate
+    from qutrit_experiments.gates import QutritQubitCXType
     from qutrit_experiments.programs.common import (load_calibrations, setup_backend,
                                                     setup_data_dir, setup_runner)
     from qutrit_experiments.programs.single_qutrit_gates import calibrate_single_qutrit_gates
@@ -128,7 +128,7 @@ if __name__ == '__main__':
 
         cx_type = qutrit_qubit_cx_type(backend, toffoli_qubits[1:])
 
-        if cx_type == QutritQubitCXGate.TYPE_UNKNOWN:
+        if cx_type == QutritQubitCXType.CRCR:
             calibrate_qutrit_qubit_cx(runner, refresh_readout_error=False,
                                       qutrit_qubit_index=(1, 2))
         else:

@@ -2,10 +2,10 @@ import numpy as np
 from qiskit import QuantumRegister
 from qiskit.dagcircuit import DAGCircuit
 from qiskit.circuit import Barrier, Delay
-from qiskit.circuit.library import ECRGate, HGate, RZGate, XGate
+from qiskit.circuit.library import ECRGate, RZGate, SXGate, XGate
 from qiskit.transpiler import InstructionDurations, TransformationPass
 
-from ..gates import QutritQubitCXGate, RZ12Gate, X12Gate, XplusGate
+from ..gates import QutritQubitCXGate, QutritQubitCXType, RZ12Gate, X12Gate, XplusGate
 
 
 class ReverseCXDecomposition(TransformationPass):
@@ -22,7 +22,7 @@ class ReverseCXDecomposition(TransformationPass):
 
             qids = tuple(dag.find_bit(q).index for q in node.qargs)
             rcr_type = self.calibrations.get_parameter_value('rcr_type', qids)
-            if rcr_type != -1:
+            if rcr_type != QutritQubitCXType.REVERSE:
                   continue
 
             def dur(gate, *iqs):

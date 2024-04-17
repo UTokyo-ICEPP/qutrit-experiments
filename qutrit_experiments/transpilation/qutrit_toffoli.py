@@ -4,15 +4,13 @@ All passes in this module are meant to be run on a circuit that contains one Tof
 nothing else.
 """
 import logging
-import numpy as np
 from qiskit import QuantumRegister
 from qiskit.dagcircuit import DAGCircuit
 from qiskit.circuit import Barrier, Delay, Gate
-from qiskit.circuit.library import CXGate, ECRGate, HGate, RZGate, XGate
-from qiskit.transpiler import InstructionDurations, Target, TransformationPass, TranspilerError
+from qiskit.circuit.library import XGate
+from qiskit.transpiler import Target, TransformationPass, TranspilerError
 
-from ..calibrations import get_qutrit_qubit_composite_gate
-from ..gates import (QutritQubitCXGate, QutritToffoliGate, RZ12Gate, X12Gate, XplusGate, XminusGate)
+from ..gates import QutritQubitCXType, QutritQubitCXGate, XplusGate, XminusGate
 
 logger = logging.getLogger(__name__)
 
@@ -264,7 +262,7 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
         start_time = node_start_time.pop(barriers[2])
         start_times.append((node, start_time))
 
-        if rcr_type == QutritQubitCXGate.TYPE_REVERSE:
+        if rcr_type == QutritQubitCXType.REVERSE:
             ecr_duration = self.target['ecr'][(qids[2], qids[1])].calibration.duration
 
             time = start_time
@@ -284,7 +282,7 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
             cr_duration = self.calibrations.get_schedule('cr', qids[1:]).duration
             rx_duration = self.calibrations.get_schedule('cx_offset_rx', qids[2]).duration
             time = start_time
-            if rcr_type == QutritQubitCXGate.TYPE_CRCR_X:
+            if rcr_type == QutritQubitCXType.X:
                 for _ in range(3):
                     add_dd('c1_dd_cycle', 0, time, t_dd_duration)
                     time += t_dd_duration
@@ -309,7 +307,7 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
         insert_dd_to_dag(barriers[2])
 
         # T DD (during reverse qutrit-qubit CX)
-        if rcr_type == QutritQubitCXGate.TYPE_REVERSE:
+        if rcr_type == QutritQubitCXType.REVERSE:
             subdag, qreg, start_times = make_dd_subdag()
 
             cx_barrier = next(node for node in dag.named_nodes('barrier')

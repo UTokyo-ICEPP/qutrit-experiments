@@ -1,7 +1,7 @@
 """Qutrit gates."""
 
 from collections.abc import Sequence
-from enum import Enum, auto
+from enum import Enum, IntEnum, auto
 from typing import Optional, Union
 import numpy as np
 from qiskit import QuantumCircuit, QuantumRegister
@@ -180,11 +180,15 @@ class CrossResonanceMinusGate(CrossResonanceGate):
     gate_name = 'crm'
 
 
+class QutritQubitCXType(IntEnum):
+    X = 2
+    X12 = 0
+    REVERSE = -1
+    CRCR = -2
+
+
 class RCRGate(Gate):
     """Repeated cross resonance gate."""
-    TYPE_X = 2 # CRCR angle = 2 * (θ_0 + θ_1 - 2*θ_2)
-    TYPE_X12 = 0 # CRCR angle = 2 * (θ_1 + θ_2 - 2*θ_0)
-
     gate_name = 'rcr'
     gate_type = GateType.COMPOSITE
 
@@ -193,8 +197,8 @@ class CRCRGate(QutritQubitCompositeGate):
     """Cycled RCR gate.
 
     CRCR angles:
-    TYPE_X(2) -> 2 * (θ_0 + θ_1 - 2*θ_2)
-    TYPE_X12(0) -> 2 * (θ_1 + θ_2 - 2*θ_0)
+    Type X(2) -> 2 * (θ_0 + θ_1 - 2*θ_2)
+    Type X12(0) -> 2 * (θ_1 + θ_2 - 2*θ_0)
     """
     gate_name = 'crcr'
     def __init__(
