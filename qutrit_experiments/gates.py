@@ -6,7 +6,7 @@ from typing import Optional, Union
 import numpy as np
 from qiskit import QuantumCircuit, QuantumRegister
 from qiskit.circuit import Barrier, Gate, Parameter
-from qiskit.circuit.library import CXGate, ECRGate, HGate, RZGate, XGate
+from qiskit.circuit.library import ECRGate, HGate, RZGate, SXGate, XGate
 from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary as sel
 #from qiskit.circuit.parameterexpression import ParameterValueType
 # For some reason Pylance fails to recognize imported ParameterValueType as a valid type alias so
@@ -298,11 +298,21 @@ for gate, qargs in [
     (Barrier(3), q),
     (XminusGate(label='qutrit_toffoli_begin'), q[1:2]),
     (Barrier(2), q[:2]),
-    (CXGate(), q[:2]),
+    (RZGate(-np.pi / 2.), q[:1]),
+    (ECRGate(), q[:2]),
+    (XGate(), q[:1]),
+    (RZGate(-np.pi), q[1:2]),
+    (SXGate(), q[1:2]),
+    (RZGate(-np.pi), q[1:2]),
     (Barrier(3), q),
     (QutritQubitCXGate(), q[1:]),
     (Barrier(3), q),
-    (CXGate(), q[:2]),
+    (RZGate(-np.pi / 2.), q[:1]),
+    (ECRGate(), q[:2]),
+    (XGate(), q[:1]),
+    (RZGate(-np.pi), q[1:2]),
+    (SXGate(), q[1:2]),
+    (RZGate(-np.pi), q[1:2]),
     (Barrier(2), q[:2]),
     (XplusGate(label='qutrit_toffoli_end'), q[1:2]),
     (Barrier(3), q)
