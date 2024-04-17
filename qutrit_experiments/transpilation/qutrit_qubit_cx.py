@@ -33,7 +33,9 @@ class ReverseCXDecomposition(TransformationPass):
             subdag.add_qreg(qreg)
             t = 0
             subdag.apply_operation_back(XplusGate(), [qreg[0]])
-            subdag.apply_operation_back(HGate(), [qreg[1]])
+            subdag.apply_operation_back(RZGate(np.pi / 2.), [qreg[1]])
+            subdag.apply_operation_back(SXGate(), [qreg[1]])
+            subdag.apply_operation_back(RZGate(np.pi / 2.), [qreg[1]])
             subdag.apply_operation_back(XGate(), [qreg[1]])
             t += max(dur('xplus', 0), dur('sx', 1) + dur('x', 1))
             subdag.apply_operation_back(ECRGate(), [qreg[1], qreg[0]])
@@ -47,7 +49,9 @@ class ReverseCXDecomposition(TransformationPass):
             t += dur('ecr', 1, 0)
             subdag.apply_operation_back(X12Gate(), [qreg[0]]) # We need an X+ here but would like to insert a barrier in between
             subdag.apply_operation_back(RZGate(np.pi), [qreg[1]])
-            subdag.apply_operation_back(HGate(), [qreg[1]])
+            subdag.apply_operation_back(RZGate(np.pi / 2.), [qreg[1]])
+            subdag.apply_operation_back(SXGate(), [qreg[1]])
+            subdag.apply_operation_back(RZGate(np.pi / 2.), [qreg[1]])
             subdag.apply_operation_back(Barrier(2), qreg)
             subdag.apply_operation_back(XGate(), [qreg[0]])
             subdag.apply_operation_back(Delay(t - dur('xplus', 0)), [qreg[0]])
