@@ -132,6 +132,6 @@ if __name__ == '__main__':
             calibrate_qutrit_qubit_cx(runner, refresh_readout_error=False,
                                       qutrit_qubit_index=(1, 2))
         else:
-            calibrations.add_parameter_value('rcr_type', cx_type)
+            calibrations.add_parameter_value('rcr_type', cx_type, runner.qubits[1:])
 
         characterize_toffoli(runner, refresh_readout_error=False)
