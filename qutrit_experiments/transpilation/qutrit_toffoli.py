@@ -191,7 +191,7 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
             subdag.add_qreg(qreg)
             return subdag, qreg, []
 
-        def add_dd(name, qubit, start_time, duration, placement='left'):
+        def add_dd(qubit, start_time, duration, placement='left'):
             if duration < 2 * x_durations[qubit]:
                 return
             if (duration / 2) % self.target.pulse_alignment == 0:
@@ -212,11 +212,12 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
                     start_times.append((node, start_time))
                 return
 
-            if dag.calibrations.get(name, {}).get((qids[qubit],)) is None:
-                sched = self.calibrations.get_schedule(f'dd_{placement}', qids[qubit],
+            name = f'dd_{placement}'
+            if dag.calibrations.get(name, {}).get(((qids[qubit],), (duration,))) is None:
+                sched = self.calibrations.get_schedule(name, qids[qubit],
                                                        assign_params={'duration': duration})
-                dag.add_calibration(name, [qids[qubit]], sched)
-            node = subdag.apply_operation_back(Gate(name, 1, []), [qreg[qubit]])
+                dag.add_calibration(name, [qids[qubit]], sched, params=[duration])
+            node = subdag.apply_operation_back(Gate(name, 1, [duration]), [qreg[qubit]])
             start_times.append((node, start_time))
 
         def insert_dd_to_dag(node_to_replace):
@@ -230,15 +231,14 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
         node = subdag.apply_operation_back(Barrier(3), qreg)
         start_time = node_start_time.pop(barriers[0])
         start_times.append((node, start_time))
-        for sequence, time, duration in [
-            ('xplus', start_time, xplus_duration),
-            ('delay', start_time + xplus_duration,
-                      xplus_times[1] - (xplus_times[0] + xplus_duration)),
-            ('xplus', node_start_time[barriers[1]] - xplus_duration, xplus_duration)
+        for time, duration in [
+            (start_time, xplus_duration),
+            (start_time + xplus_duration, xplus_times[1] - (xplus_times[0] + xplus_duration)),
+            (node_start_time[barriers[1]] - xplus_duration, xplus_duration)
         ]:
-            add_dd(f'c1_dd_{sequence}', 0, time, duration)
-            add_dd(f't_dd_{sequence}', 2, time, duration)
-        add_dd('t_dd_cx0', 2, node_start_time[barriers[1]],
+            add_dd(0, time, duration)
+            add_dd(2, time, duration)
+        add_dd(2, node_start_time[barriers[1]],
                node_start_time[barriers[2]] - node_start_time[barriers[1]], placement='right')
 
         insert_dd_to_dag(barriers[0])
@@ -247,10 +247,9 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
         subdag, qreg, start_times = make_dd_subdag()
 
         start_time = node_start_time[barriers[-3]]
-        add_dd('t_dd_cx1', 2, start_time,
-               node_start_time[barriers[-2]] - start_time)
-        add_dd('c1_dd_xplus', 0, node_start_time[barriers[-2]], xplus_duration)
-        add_dd('t_dd_xplus', 2, node_start_time[barriers[-2]], xplus_duration)
+        add_dd(2, start_time, node_start_time[barriers[-2]] - start_time)
+        add_dd(0, node_start_time[barriers[-2]], xplus_duration)
+        add_dd(2, node_start_time[barriers[-2]], xplus_duration)
         node = subdag.apply_operation_back(Barrier(3), qreg)
         start_times.append((node, node_start_time.pop(barriers[-1])))
 
@@ -267,17 +266,17 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
             ecr_duration = self.target['ecr'][(qids[2], qids[1])].calibration.duration
 
             time = start_time
-            add_dd('c1_dd_xplus', 0, time, xplus_duration)
+            add_dd(0, time, xplus_duration)
             time += xplus_duration
-            add_dd('c1_dd_ecr', 0, time, ecr_duration + x_durations[2], 'right')
+            add_dd(0, time, ecr_duration + x_durations[2], 'right')
             time += ecr_duration + x_durations[2]
-            add_dd('c1_dd_ecr', 0, time, ecr_duration + x_durations[2], 'right')
+            add_dd(0, time, ecr_duration + x_durations[2], 'right')
             time += ecr_duration + x_durations[2]
             # From the X of second X+ to just before the X12 of the last X+
             end_time = node_start_time[barriers[3]] - xplus_duration
-            add_dd('c1_dd_cxdelay', 0, time, end_time - time)
+            add_dd(0, time, end_time - time)
             time = end_time
-            add_dd('c1_dd_xplus', 0, time, xplus_duration)
+            add_dd(0, time, xplus_duration)
         else:
             t_dd_duration = x_durations[2] * 2
             cr_duration = self.calibrations.get_schedule('cr', qids[1:]).duration
@@ -285,25 +284,25 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
             time = start_time
             if rcr_type == QutritQubitCXType.X:
                 for _ in range(3):
-                    add_dd('c1_dd_cycle', 0, time, t_dd_duration)
+                    add_dd(0, time, t_dd_duration)
                     time += t_dd_duration
-                    add_dd('c1_dd_cr', 0, time, cr_duration)
+                    add_dd(0, time, cr_duration)
                     time += cr_duration
-                    add_dd('c1_dd_cycle', 0, time, t_dd_duration)
+                    add_dd(0, time, t_dd_duration)
                     time += t_dd_duration
-                    add_dd('c1_dd_cr', 0, time, cr_duration)
+                    add_dd(0, time, cr_duration)
                     time += cr_duration
             else:
                 for _ in range(3):
-                    add_dd('c1_dd_cr', 0, time, cr_duration)
+                    add_dd(0, time, cr_duration)
                     time += cr_duration
-                    add_dd('c1_dd_cycle', 0, time, t_dd_duration)
+                    add_dd(0, time, t_dd_duration)
                     time += t_dd_duration
-                    add_dd('c1_dd_cr', 0, time, cr_duration)
+                    add_dd(0, time, cr_duration)
                     time += cr_duration
-                    add_dd('c1_dd_cycle', 0, time, t_dd_duration)
+                    add_dd(0, time, t_dd_duration)
                     time += t_dd_duration
-            add_dd('c1_dd_rx', 0, time, rx_duration)
+            add_dd(0, time, rx_duration)
 
         insert_dd_to_dag(barriers[2])
 
@@ -315,9 +314,9 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
                               if node.qargs == (c2_qubit, t_qubit))
             time = node_start_time[cx_barrier]
             end_time = node_start_time[barriers[3]] - xplus_duration
-            add_dd('t_dd_cxdelay', 2, time, end_time - time)
+            add_dd(2, time, end_time - time)
             time = end_time
-            add_dd('t_dd_xplus', 2, time, xplus_duration)
+            add_dd(2, time, xplus_duration)
             time += xplus_duration
             node = subdag.apply_operation_back(Barrier(3), qreg)
             start_times.append((node, time))

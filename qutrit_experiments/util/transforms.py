@@ -62,6 +62,9 @@ def circuit_to_matrix(
     for inst in circuit.data:
         if isinstance(inst.operation, (Barrier, Delay)):
             continue
+        if inst.operation.name in ('dd_left', 'dd_right'):
+            continue
+
         qubits = tuple(qubit_index[q] for q in inst.qubits)
         if len(qubits) == 1:
             dim = dims[qubits[0]]
@@ -121,10 +124,10 @@ def circuit_to_matrix(
                 raise RuntimeError(f'Unhandled instruction {inst.operation}')
         else:
             raise RuntimeError(f'Unhandled number of qubits {len(qubits)}')
-        
+
         matrix = np.moveaxis(np.tensordot(gate, matrix, (in_axes, qubits)),
                              tuple(range(len(qubits))), qubits)
-        
+
     return matrix
 
 
