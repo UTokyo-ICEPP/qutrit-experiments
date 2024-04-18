@@ -4,7 +4,9 @@ import logging
 from typing import Optional, Union
 import numpy as np
 import scipy
-from qiskit import pulse
+from qiskit import QuantumCircuit, pulse
+from qiskit.circuit import Barrier, Delay
+from qiskit.circuit.library import ECRGate, RZGate, SXGate, XGate
 from qiskit.providers import Backend
 from qiskit.providers.exceptions import BackendConfigurationError
 from qiskit.pulse import Schedule, ScheduleBlock
@@ -12,6 +14,7 @@ from qiskit.qobj.converters.pulse_instruction import ParametricPulseShapes
 from qiskit_experiments.calibration_management import Calibrations
 
 from ..calibrations import get_qutrit_freq_shift
+from ..gates import QutritQubitCXGate, RZ12Gate, SX12Gate, X12Gate
 
 logger = logging.getLogger(__name__)
 twopi = 2. * np.pi
@@ -40,21 +43,106 @@ def symbolic_pulse_to_waveform(schedule_block: ScheduleBlock):
             symbolic_pulse_to_waveform(block)
 
 
+def circuit_to_matrix(
+    circuit: QuantumCircuit,
+    qutrits: Sequence[int],
+    qubit_ids: Optional[Sequence[int]] = None
+) -> np.ndarray:
+    qubit_index = {}
+    if qubit_ids:
+        num_qubits = len(qubit_ids)
+        qubit_index = {circuit.qubits[idx]: iq for iq, idx in enumerate(qubit_ids)}
+    else:
+        num_qubits = circuit.num_qubits
+        qubit_index = {qubit: iq for iq, qubit in enumerate(circuit.qubits)}
+
+    dims = tuple(3 if iq in qutrits else 2 for iq in range(num_qubits))
+    matrix = np.eye(np.prod(dims), dtype=complex).reshape(dims + dims)
+
+    for inst in circuit.data:
+        if isinstance(inst.operation, (Barrier, Delay)):
+            continue
+        qubits = tuple(qubit_index[q] for q in inst.qubits)
+        if len(qubits) == 1:
+            dim = dims[qubits[0]]
+            in_axes = (1,)
+
+            if isinstance(inst.operation, SXGate):
+                if dim == 2:
+                    gate = np.array([[1.+1.j, 1.-1.j], [1.-1.j, 1.+1.j]]) / 2.
+                else:
+                    gate = np.array([[1.+1.j, 1.-1.j, 0.], [1.-1.j, 1.+1.j, 0.], [0., 0., 2.]]) / 2.
+            elif isinstance(inst.operation, XGate):
+                if dim == 2:
+                    gate = np.array([[0., 1.], [1., 0.]], dtype=complex)
+                else:
+                    gate = np.array([[0., 1., 0.], [1., 0., 0.], [0., 0., 1.]], dtype=complex)
+            elif isinstance(inst.operation, RZGate):
+                phase = inst.operation.params[0]
+                diag = [np.exp(-0.5j * phase), np.exp(0.5j * phase)]
+                if dim == 3:
+                    diag.append(1.)
+                gate = np.diagflat(diag)
+            elif isinstance(inst.operation, SX12Gate):
+                gate = np.array([[2., 0., 0.], [0., 1.+1.j, 1.-1.j], [0., 1.-1.j, 1.+1.j]],
+                                dtype=complex) / 2.
+            elif isinstance(inst.operation, X12Gate):
+                gate = np.array([[1., 0., 0.], [0., 0., 1.], [0., 1., 0.]], dtype=complex)
+            elif isinstance(inst.operation, RZ12Gate):
+                phase = inst.operation.params[0]
+                diag = [1., np.exp(-0.5j * phase), np.exp(0.5j * phase)]
+                gate = np.diagflat(diag)
+            else:
+                raise RuntimeError(f'Unhandled instruction {inst.operation}')
+        elif len(qubits) == 2:
+            dim = tuple(dims[iq] for iq in qubits)
+            in_axes = (2, 3)
+
+            if isinstance(inst.operation, ECRGate):
+                if dim == (2, 2):
+                    gate = np.array(
+                        [[[[0., 0.], [1., 1.j]],
+                          [[0., 0.], [1.j, 1.]]],
+                         [[[1., -1.j], [0., 0.]],
+                          [[-1.j, 1.], [0., 0.]]]]
+                    ) / np.sqrt(2.)
+                elif dim == (2, 3):
+                    gate = np.array(
+                        [[[[0., 0., 0.], [1., 1.j, 0.]],
+                          [[0., 0., 0.], [1.j, 1., 0.]],
+                          [[0., 0., 0.], [0., 0., np.sqrt(2.)]]],
+                         [[[1., -1.j, 0.], [0., 0., 0.]],
+                          [[-1.j, 1., 0.], [0., 0., 0.]],
+                          [[0., 0., np.sqrt(2.)], [0., 0., 0.]]]]
+                    ) / np.sqrt(2.)
+                else:
+                    raise RuntimeError(f'Unhandled dimension for ECRGate {dim}')
+            else:
+                raise RuntimeError(f'Unhandled instruction {inst.operation}')
+        else:
+            raise RuntimeError(f'Unhandled number of qubits {len(qubits)}')
+        
+        matrix = np.moveaxis(np.tensordot(gate, matrix, (in_axes, qubits)),
+                             tuple(range(len(qubits))), qubits)
+        
+    return matrix
+
+
 def schedule_to_matrix(
     schedule: Union[Schedule, ScheduleBlock],
     backend: Backend,
     calibrations: Calibrations,
     physical_qubits: Sequence[int],
-    qutrit_indices: Sequence[int],
+    qutrits: Sequence[int],
     qutrit_detunings: Optional[Sequence[float]] = None
-):
+) -> np.ndarray:
     """Compute the qubit-qutrit-qubit unitary matrix given by the schedule."""
     physical_qubits = tuple(physical_qubits)
     dims = np.full(len(physical_qubits), 2)
-    dims[qutrit_indices] = 3
+    dims[qutrits] = 3
     detuning = np.zeros(len(physical_qubits))
     if qutrit_detunings:
-        detuning[qutrit_indices] = qutrit_detunings
+        detuning[qutrits] = qutrit_detunings
 
     drive_channels = {backend.drive_channel(pq): iq for iq, pq in enumerate(physical_qubits)}
     control_channels = {}
@@ -72,12 +160,12 @@ def schedule_to_matrix(
 
     starks = {
         (iq, op): np.exp(-0.5j * calibrations.get_parameter_value(f'delta_{op}', physical_qubits[iq]))
-        for iq in qutrit_indices
+        for iq in qutrits
         for op in ['x', 'x12', 'sx', 'sx12']
     }
     qutrit_freq_shifts = {
         iq: get_qutrit_freq_shift(physical_qubits[iq], backend.target, calibrations)
-        for iq in qutrit_indices
+        for iq in qutrits
     }
 
     x3 = np.array([[0., 1., 0.], [1., 0., 0.], [0., 0., 0.]], dtype=complex)
