@@ -49,38 +49,43 @@ def insert_rz(
 def insert_dd(
     subdag: DAGCircuit,
     qubit: Qubit,
-    start_time: int,
     duration: int,
     x_duration: int,
     pulse_alignment: int,
-    node_start_times: list[tuple[DAGOpNode, int]],
+    start_time: Optional[int] = None,
     placement: str = 'left'
 ) -> bool:
     """Insert either two X gates or a generic gate named dd_left/right.
-    
+
     Returns True if the generic gate is inserted.
     """
+    start_times = None if start_time is None else []
+
     if duration < 2 * x_duration:
-        return False
+        return start_times
+
+    def add_op(gate, qargs, offset):
+        node = subdag.apply_operation_back(gate, qargs)
+        if start_time is not None:
+            start_times.append((node, start_time + offset))
+
     if (duration / 2) % pulse_alignment == 0:
         interval = duration // 2 - x_duration
+        offset = 0
         if placement == 'left':
-            node = subdag.apply_operation_back(XGate(), [qubit])
-            node_start_times.append((node, start_time))
+            add_op(XGate(), [qubit], 0)
+            offset += x_duration
         if interval != 0:
-            node = subdag.apply_operation_back(Delay(interval), [qubit])
-            node_start_times.append((node, start_time + x_duration))
-        node = subdag.apply_operation_back(XGate(), [qubit])
-        node_start_times.append((node, start_time + x_duration + interval))
+            add_op(Delay(interval), [qubit], offset)
+            offset += interval
+        add_op(XGate(), [qubit], offset)
+        offset += x_duration
         if interval != 0:
-            node = subdag.apply_operation_back(Delay(interval), [qubit])
-            node_start_times.append((node, start_time + 2 * x_duration + interval))
+            add_op(Delay(interval), [qubit], offset)
+            offset += interval
         if placement == 'right':
-            node = subdag.apply_operation_back(XGate(), [qubit])
-            node_start_times.append((node, start_time))
-        return False
+            add_op(XGate(), [qubit], offset)
+    else:
+        add_op(Gate(f'dd_{placement}', 1, [duration]), [qubit], 0)
 
-    name = f'dd_{placement}'
-    node = subdag.apply_operation_back(Gate(name, 1, [duration]), [qubit])
-    node_start_times.append((node, start_time))
-    return True
+    return start_times

@@ -8,7 +8,7 @@ from qiskit import QuantumRegister
 from qiskit.dagcircuit import DAGCircuit
 from qiskit.circuit import Barrier, Delay, Gate
 from qiskit.circuit.library import XGate
-from qiskit.transpiler import Target, TransformationPass, TranspilerError
+from qiskit.transpiler import InstructionDurations, Target, TransformationPass, TranspilerError
 
 from ..gates import QutritQubitCXType, QutritQubitCXGate, XplusGate, XminusGate
 from .util import insert_dd
@@ -37,9 +37,9 @@ class QutritToffoliRefocusing(TransformationPass):
     where α is the time between the first two X12s
 
     """
-    def __init__(self):
+    def __init__(self, instruction_durations: InstructionDurations):
         super().__init__()
-        self.calibrations = None
+        self.inst_durations = instruction_durations
 
     def run(self, dag: DAGCircuit) -> DAGCircuit:
         node_start_time = self.property_set['node_start_time']
@@ -85,11 +85,11 @@ class QutritToffoliRefocusing(TransformationPass):
             elif isinstance(node.op, QutritQubitCXGate):
                 cx_qubits = tuple(dag.find_bit(q).index for q in node.qargs)
 
-        x_duration = self.calibrations.get_schedule('x', qutrit).duration
-        x12_duration = self.calibrations.get_schedule('x12', qutrit).duration
+        x_duration = self.inst_durations.get('x', [qutrit])
+        x12_duration = self.inst_durations.get('x12', [qutrit])
         # Phase error due to f12 detuning (detuning factored out)
         if cx_qubits:
-            cr_duration = self.calibrations.get_schedule('cr', cx_qubits).duration
+            cr_duration = self.inst_durations.get('cr', cx_qubits)
             alpha = x_duration + x12_duration + 2. * cr_duration
         else:
             alpha = x_duration + x12_duration + cx_delay
@@ -113,10 +113,16 @@ class QutritToffoliRefocusing(TransformationPass):
 
 class QutritToffoliDynamicalDecoupling(TransformationPass):
     """Insert DD sequences to idle qubits. More aggressive than PadDynamicalDecoupling."""
-    def __init__(self, target: Target):
+    def __init__(
+        self,
+        target: Target,
+        instruction_durations: InstructionDurations,
+        rcr_types: dict[tuple[int, int], int]
+    ):
         super().__init__()
         self.target = target
-        self.calibrations = None
+        self.inst_durations = instruction_durations
+        self.rcr_types = dict(rcr_types)
 
     def run(self, dag: DAGCircuit) -> DAGCircuit:
         node_start_time = self.property_set["node_start_time"]
@@ -171,10 +177,9 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
         # Insert DD sequences
         qids = tuple(dag.find_bit(q).index for q in [c1_qubit, c2_qubit, t_qubit])
         logger.debug('qids %s', qids)
-        xplus_duration = sum(self.calibrations.get_schedule(gate, qids[1]).duration
-                             for gate in ['x', 'x12'])
-        x_durations = [self.target['x'][(qid,)].calibration.duration for qid in qids]
-        rcr_type = self.calibrations.get_parameter_value('rcr_type', qids[1:])
+        xplus_duration = self.inst_durations.get('xplus', [qids[1]])
+        x_durations = [self.inst_durations.get('x', [qid]) for qid in qids]
+        rcr_type = self.rcr_types[qids[1:]]
 
         def make_dd_subdag():
             subdag = DAGCircuit()
@@ -183,14 +188,10 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
             return subdag, qreg, []
 
         def add_dd(qubit, start_time, duration, placement='left'):
-            need_cal = insert_dd(subdag, qreg[qubit], start_time, duration, x_durations[qubit],
-                                 self.target.pulse_alignment, start_times, placement=placement)
-            if need_cal:
-                name = f'dd_{placement}'
-                if dag.calibrations.get(name, {}).get(((qids[qubit],), (duration,))) is None:
-                    sched = self.calibrations.get_schedule(name, qids[qubit],
-                                                           assign_params={'duration': duration})
-                    dag.add_calibration(name, [qids[qubit]], sched, params=[duration])
+            times = insert_dd(subdag, qreg[qubit], duration, x_durations[qubit],
+                              self.target.pulse_alignment, start_time=start_time,
+                              placement=placement)
+            start_times.extend(times)
 
         def insert_dd_to_dag(node_to_replace):
             subst_map = dag.substitute_node_with_dag(node_to_replace, subdag)
@@ -235,7 +236,7 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
         start_times.append((node, start_time))
 
         if rcr_type == QutritQubitCXType.REVERSE:
-            ecr_duration = self.target['ecr'][(qids[2], qids[1])].calibration.duration
+            ecr_duration = self.inst_durations.get('ecr', (qids[2], qids[1]))
 
             time = start_time
             add_dd(0, time, xplus_duration)
@@ -251,8 +252,8 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
             add_dd(0, time, xplus_duration)
         else:
             t_dd_duration = x_durations[2] * 2
-            cr_duration = self.calibrations.get_schedule('cr', qids[1:]).duration
-            rx_duration = self.calibrations.get_schedule('cx_offset_rx', qids[2]).duration
+            cr_duration = self.inst_durations.get('cr', qids[1:])
+            sx_duration = self.inst_durations.get('sx', [qids[2]])
             time = start_time
             if rcr_type == QutritQubitCXType.X:
                 for _ in range(3):
@@ -274,7 +275,7 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
                     time += cr_duration
                     add_dd(0, time, t_dd_duration)
                     time += t_dd_duration
-            add_dd(0, time, rx_duration)
+            add_dd(0, time, 2 * sx_duration) # cx_offset_rx duration
 
         insert_dd_to_dag(barriers[2])
 

@@ -11,10 +11,14 @@ from .util import insert_dd
 
 class ReverseCXDecomposition(TransformationPass):
     """Decompose QutritQubitCXGate to the double reverse ECR sequence with basis cycling."""
-    def __init__(self, instruction_durations: InstructionDurations):
+    def __init__(
+        self,
+        instruction_durations: InstructionDurations,
+        rcr_types: dict[tuple[int, int], int]
+    ):
         super().__init__()
         self.inst_durations = instruction_durations
-        self.calibrations = None
+        self.rcr_types = dict(rcr_types)
         self.dummy_circuit = False
 
     def run(self, dag: DAGCircuit) -> DAGCircuit:
@@ -23,8 +27,7 @@ class ReverseCXDecomposition(TransformationPass):
                 continue
 
             qids = tuple(dag.find_bit(q).index for q in node.qargs)
-            rcr_type = self.calibrations.get_parameter_value('rcr_type', qids)
-            if rcr_type != QutritQubitCXType.REVERSE:
+            if self.rcr_types[qids] != QutritQubitCXType.REVERSE:
                   continue
 
             def dur(gate, *iqs):
@@ -65,49 +68,30 @@ class ReverseCXDecomposition(TransformationPass):
 
 
 class ReverseCXDynamicalDecoupling(TransformationPass):
-    def __init__(self, target: Target):
+    def __init__(self, target: Target, instruction_durations: InstructionDurations):
         super().__init__()
         self.target = target
+        self.inst_durations = instruction_durations
 
     def run(self, dag: DAGCircuit) -> DAGCircuit:
-        node_start_time = self.property_set['node_start_time']
-
         for last_xplus in [node for node in dag.named_nodes('xplus')
                            if node.op.label == 'reverse_cx_end']:
             delay_node = next(dag.predecessors(last_xplus))
             x_node = next(dag.predecessors(delay_node))
             barrier_node = next(dag.predecessors(x_node))
             physical_qubits = tuple(dag.find_bit(q).index for q in barrier_node.qargs)
-            x_duration = self.target['x'][(physical_qubits[1],)].calibration.duration
-            xplus_duration = sum(self.calibrations.get_schedule(gate, physical_qubits[0]).duration
-                                 for gate in ['x', 'x12'])
+
+            x_duration = self.inst_durations.get('x', [physical_qubits[1]])
+            xplus_duration = self.inst_durations.get('xplus', [physical_qubits[0]])
 
             subdag = DAGCircuit()
-            start_times = []
-
             qreg = QuantumRegister(2)
             subdag.add_qreg(qreg)
 
-            def add_dd(start_time, duration, placement='left'):
-                need_cal = insert_dd(subdag, qreg[1], start_time, duration, x_duration,
-                                     self.target.pulse_alignment, start_times, placement=placement)
-                if need_cal:
-                    name = f'dd_{placement}'
-                    if dag.calibrations.get(name, {}).get(((physical_qubits[1],), (duration,))) is None:
-                        sched = self.calibrations.get_schedule(name, physical_qubits[1],
-                                                               assign_params={'duration': duration})
-                        dag.add_calibration(name, [physical_qubits[1]], sched, params=[duration])
+            subdag.apply_operation_back(Barrier(2), qreg)
+            for duration in [x_duration + delay_node.op.params[0], xplus_duration]:
+                insert_dd(subdag, qreg[1], duration, x_duration, self.target.pulse_alignment)
 
-            start_time = node_start_time[x_node]
-            duration = node_start_time[last_xplus] - start_time
-            node = subdag.apply_operation_back(Barrier(2), qreg)
-            start_times.append((node, start_time))
-            add_dd(start_time, duration)
-            add_dd(start_time + duration, xplus_duration)
-
-            node_start_time.pop(barrier_node)
-            subst_map = dag.substitute_node_with_dag(barrier_node, subdag)
-            for node, time in start_times:
-                node_start_time[subst_map[node._node_id]] = time
+            dag.substitute_node_with_dag(barrier_node, subdag)
 
         return dag
