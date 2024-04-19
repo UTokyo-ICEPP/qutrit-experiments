@@ -1,6 +1,7 @@
 """Utility functions for qutrit Toffoli."""
 from collections.abc import Sequence
 from qiskit import QuantumCircuit
+from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary as sel
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 from qiskit.providers import Backend
 from qiskit.transpiler import PassManager, StagedPassManager
@@ -11,9 +12,9 @@ from ..transpilation.qutrit_qubit_cx import ReverseCXDecomposition
 from ..transpilation.qutrit_toffoli import (QutritToffoliRefocusing,
                                             QutritToffoliDynamicalDecoupling)
 from ..transpilation.qutrit_transpiler import BASIS_GATES, make_instruction_durations
-from ..transpilation.layout_and_translation import (generate_layout_passmanager,
+from ..transpilation.layout_and_translation import (UndoLayout, TranslateAndClearTiming,
+                                                    generate_layout_passmanager,
                                                     generate_translation_passmanager)
-from ..transpilation.util import undo_layout
 from ..gates import QutritToffoliGate
 
 
@@ -49,11 +50,21 @@ def qutrit_toffoli_circuit(
     dd.calibrations = calibrations
     phase_corr_pm.append(dd)
 
+    # Need to translate + clear the node_start_time dict because transpiler passes try to save the
+    # node times to the output circuit at the end of each __call__ and translation of xplus corrupts
+    # this dictionary
+    basis_gates = backend.basis_gates + [g.gate_name for g in BASIS_GATES]
+    translation_pm = PassManager([TranslateAndClearTiming(sel, basis_gates)])
+
+    layin_pm = PassManager([UndoLayout(physical_qubits)])
+    
     pass_manager = StagedPassManager(
-        ['layout', 'pretranslation', 'phase_corr'],
+        ['layout', 'pretranslation', 'phase_corr', 'translation', 'layin'],
         layout=generate_layout_passmanager(physical_qubits, backend.coupling_map),
         pretranslation=pretranslation_pm,
-        phase_corr=phase_corr_pm
+        phase_corr=phase_corr_pm,
+        translation=translation_pm,
+        layin=layin_pm
     )
 
     # Run the PM
@@ -61,9 +72,4 @@ def qutrit_toffoli_circuit(
     circuit.append(QutritToffoliGate(), [0, 1, 2])
     circuit = pass_manager.run(circuit)
 
-    # Decompose xplus and xminus (need to run separately because node_start_time gets corrupt)
-    pm = generate_translation_passmanager(backend.basis_gates
-                                          + [g.gate_name for g in BASIS_GATES])
-    circuit = pm.run(circuit)
-
-    return undo_layout(circuit, physical_qubits)
+    return circuit

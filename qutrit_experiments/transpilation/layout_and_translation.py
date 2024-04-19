@@ -1,11 +1,13 @@
 """Transpilation with layout and translation."""
 from collections.abc import Sequence
 from typing import Union
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit, QuantumRegister
 from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary as sel
+from qiskit.dagcircuit import DAGCircuit
 from qiskit.providers import Backend
-from qiskit.transpiler import PassManager, StagedPassManager
+from qiskit.transpiler import PassManager, StagedPassManager, TransformationPass
 from qiskit.transpiler.coupling import CouplingMap
+from qiskit.transpiler.exceptions import TranspilerError
 from qiskit.transpiler.passes import (
     ApplyLayout,
     BasisTranslator,
@@ -60,6 +62,41 @@ def map_to_physical_qubits(
     return pass_manager.run(circuit)
 
 
+class UndoLayout(TransformationPass):
+    """Undo the layout to physical qubits.
+    
+    TODO This is probably doable without the original_qubits input (remove the register named
+    ancilla and use original_qubit_indices in the property set)
+    """
+    def __init__(self, original_qubits: Sequence[int]):
+        super().__init__()
+        self.original_qubits = tuple(original_qubits)
+
+    def run(self, dag: DAGCircuit):
+        q = QuantumRegister(len(self.original_qubits), 'q')
+        physical_to_virtual = {pq: q[iq] for iq, pq in enumerate(self.original_qubits)}
+        
+        new_dag = DAGCircuit()
+        new_dag.add_qreg(q)
+        new_dag.metadata = dag.metadata
+        new_dag.add_clbits(dag.clbits)
+        for creg in dag.cregs.values():
+            new_dag.add_creg(creg)
+        new_dag._global_phase = dag._global_phase
+
+        for node in dag.topological_op_nodes():
+            try:
+                qargs = [physical_to_virtual[dag.find_bit(q).index] for q in node.qargs]
+            except KeyError:
+                raise TranspilerError('Op node on unused qubit found')
+            new_dag.apply_operation_back(node.op, qargs, node.cargs, check=False)
+
+        self.property_set.pop('layout')
+        self.property_set.pop('original_qubit_indices')
+
+        return new_dag
+
+
 def generate_translation_passmanager(
     operation_names: list[str]
 ) -> PassManager:
@@ -93,3 +130,10 @@ def map_and_translate(
         layout=generate_layout_passmanager(physical_qubits, backend.coupling_map),
         translation=generate_translation_passmanager(backend.operation_names)
     ).run(circuit)
+
+
+class TranslateAndClearTiming(BasisTranslator):
+    def run(self, dag: DAGCircuit) -> DAGCircuit:
+        dag = super().run(dag)
+        self.property_set.pop('node_start_time')
+        return dag
