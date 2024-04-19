@@ -350,12 +350,13 @@ class RotaryQutritPhaseRotation(BasePhaseRotation):
     def __init__(
         self,
         physical_qubits: Sequence[int],
-        schedule: Union[Schedule, ScheduleBlock],
+        schedule: Optional[Union[Schedule, ScheduleBlock]] = None,
         phase_shifts: Optional[Sequence[float]] = None,
         backend: Optional[Backend] = None
     ):
         super().__init__(physical_qubits, phase_shifts=phase_shifts, backend=backend)
-        self.set_experiment_options(schedule=schedule)
+        if schedule:
+            self.set_experiment_options(schedule=schedule)
 
     def _phase_rotation_sequence(self) -> QuantumCircuit:
         rotary_gate = Gate('rotary', 1, [])
@@ -377,7 +378,7 @@ class RotaryQutritPhaseRotation(BasePhaseRotation):
 
 class RotaryStarkShiftPhaseCal(UpdateStarkDelta, RotaryQutritPhaseRotation):
     """Calibration experiment for RotaryQutritPhaseRotation."""
-    _cal_parameter_name_name = 'delta_rzx45p_rotary'
+    _cal_parameter_name = 'delta_rzx45p_rotary'
 
     def __init__(
         self,
@@ -390,6 +391,16 @@ class RotaryStarkShiftPhaseCal(UpdateStarkDelta, RotaryQutritPhaseRotation):
         schedule_name: Optional[str] = None,
         auto_update: bool = True
     ):
+        super().__init__(
+            physical_qubits,
+            calibrations,
+            phase_shifts=phase_shifts,
+            backend=backend,
+            cal_parameter_name=cal_parameter_name,
+            schedule_name=schedule_name,
+            auto_update=auto_update
+        )
+
         qubits = (control_qubit, physical_qubits[0])
         try:
             twoq_sched = backend.target['ecr'][qubits].calibration
@@ -400,16 +411,7 @@ class RotaryStarkShiftPhaseCal(UpdateStarkDelta, RotaryQutritPhaseRotation):
         with pulse.build(name='rotary') as sched:
             pulse.play(rotary.pulse, rotary.channel)
 
-        super().__init__(
-            physical_qubits,
-            calibrations,
-            sched,
-            phase_shifts=phase_shifts,
-            backend=backend,
-            cal_parameter_name=cal_parameter_name,
-            schedule_name=schedule_name,
-            auto_update=auto_update
-        )
+        self.set_experiment_options(schedule=sched)
 
     def _extract_delta(self, experiment_data: ExperimentData) -> float:
         """See the docstring of RotaryQutritPhaseRotation."""
