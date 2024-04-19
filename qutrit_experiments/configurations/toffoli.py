@@ -15,6 +15,16 @@ from .common import add_readout_mitigation
 
 @register_exp
 @add_readout_mitigation
+def c1c2_cr_rotary_delta(runner):
+    from ..experiments.single_qutrit.stark_shift_phase import RotaryStarkShiftPhaseCal
+    return ExperimentConfig(
+        RotaryStarkShiftPhaseCal,
+        runner.qubits[1:2],
+        args={'control_qubit': runner.qubits[0]}
+    )
+
+@register_exp
+@add_readout_mitigation
 def toffoli_qpt_default(runner):
     from ..experiments.process_tomography import CircuitTomography
 

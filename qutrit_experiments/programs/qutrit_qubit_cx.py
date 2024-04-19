@@ -16,12 +16,14 @@ from ..experiment_config import ExperimentConfig
 from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
 from ..calibrations import get_qutrit_pulse_gate
 from ..configurations.common import configure_readout_mitigation
+from ..gates import QutritQubitCXType
 
 logger = logging.getLogger(__name__)
 
 
 def calibrate_qutrit_qubit_cx(
     runner: ExperimentsRunner,
+    cx_type: int = QutritQubitCXType.CRCR,
     refresh_readout_error: bool = True,
     qutrit_qubit_index: Optional[tuple[int, int]] = None
 ):
@@ -32,6 +34,13 @@ def calibrate_qutrit_qubit_cx(
     if 'readout_assignment_matrices' not in runner.program_data:
         # Construct the error mitigation matrix and find the rough CR pulse width
         runner.run_experiment('qubits_assignment_error', force_resubmit=refresh_readout_error)
+
+    if cx_type == QutritQubitCXType.REVERSE:
+        calibrations.add_parameter_value('rcr_type', cx_type, runner.qubits[1:])
+        runner.run_experiment('tc2_cr_rotary_delta')
+        if qutrit_qubit_index is not None:
+            runner.qubits = runner_qubits
+        return
 
     # Find the amplitude that does not disrupt the |2> state too much
     runner.run_experiment('cr_initial_amp')

@@ -42,6 +42,7 @@ def make_qutrit_qubit_cx_calibrations(
     add_qutrit_qubit_cx(calibrations)
 
     calibrations._register_parameter(Parameter('rcr_type'), ())
+    calibrations._register_parameter(Parameter('delta_rzx45p_rotary'), ())
 
     if set_defaults:
         set_qutrit_qubit_cr_default(backend, calibrations, qubits=qubits)

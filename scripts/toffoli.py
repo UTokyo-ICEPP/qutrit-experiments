@@ -37,7 +37,7 @@ if __name__ == '__main__':
                                                     setup_data_dir, setup_runner)
     from qutrit_experiments.programs.single_qutrit_gates import calibrate_single_qutrit_gates
     from qutrit_experiments.programs.qutrit_qubit_cx import calibrate_qutrit_qubit_cx
-    from qutrit_experiments.programs.toffoli import characterize_toffoli
+    from qutrit_experiments.programs.toffoli import calibrate_toffoli, characterize_toffoli
     from qutrit_experiments.util.qutrit_qubit_cx_type import qutrit_qubit_cx_type
 
     # Create the data directory
@@ -128,10 +128,7 @@ if __name__ == '__main__':
 
         cx_type = qutrit_qubit_cx_type(backend, toffoli_qubits[1:])
 
-        if cx_type == QutritQubitCXType.CRCR:
-            calibrate_qutrit_qubit_cx(runner, refresh_readout_error=False,
-                                      qutrit_qubit_index=(1, 2))
-        else:
-            calibrations.add_parameter_value('rcr_type', cx_type, runner.qubits[1:])
-
+        calibrate_qutrit_qubit_cx(runner, cx_type=cx_type, refresh_readout_error=False,
+                                  qutrit_qubit_index=(1, 2))
+        calibrate_toffoli(runner, refresh_readout_error=False)
         characterize_toffoli(runner, refresh_readout_error=False)

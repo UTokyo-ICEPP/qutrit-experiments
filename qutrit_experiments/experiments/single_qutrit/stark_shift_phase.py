@@ -2,7 +2,7 @@
 from collections.abc import Sequence
 from typing import Any, Optional, Union
 import numpy as np
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit, pulse
 from qiskit.pulse import Schedule, ScheduleBlock
 from qiskit.circuit import Parameter, Gate
 from qiskit.providers import Backend
@@ -114,7 +114,6 @@ class BasePhaseRotation(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
 class UpdateStarkDelta(BaseCalibrationExperiment):
     """Mixin to calibrationize standard-gate BasePhaseRotation experiments."""
     _cal_parameter_name = 'delta'
-    _schedule_name = None
 
     def __init__(
         self,
@@ -128,8 +127,6 @@ class UpdateStarkDelta(BaseCalibrationExperiment):
     ):
         if not cal_parameter_name:
             cal_parameter_name = self._cal_parameter_name
-        if not schedule_name:
-            schedule_name = self._schedule_name
 
         super().__init__(
             calibrations,
@@ -338,15 +335,7 @@ class RotaryQutritPhaseRotation(BasePhaseRotation):
 
     .. math::
 
-        | \psi \rangle & = P0(\delta_{\Xi}/2) U_{\xi}(\pi; \delta_{\Xi})
-                           P2(\delta_X/2) U_{x}(\pi; \delta_X)
-                           P2(-\delta)
-                           P0(\delta_{S\Xi}'/2) U_{\xi}(\pi/2; \delta_{S\Xi})
-                           P2(\delta_X/2) U_{x}(\pi; \delta_X) | 0 \rangle \\
-                       & = P0(\delta_{\Xi}/2) U_{\xi}(\pi; \delta_{\Xi})
-                           P2(\delta_X/2) U_{x}(\pi; \delta_X)
-                           P2(-\delta)
-                           \left[-\frac{i}{\sqrt{2}} (| 1 \rangle - i| 2 \rangle) \right]
+        | \psi \rangle & = \Xi X P2(-\delta) S\Xi X | 0 \rangle \\
                        & ~ \frac{1}{\sqrt{2}} (|0\rangle
                                                - i e^{-i\delta}|1\rangle).
 
@@ -361,7 +350,7 @@ class RotaryQutritPhaseRotation(BasePhaseRotation):
     def __init__(
         self,
         physical_qubits: Sequence[int],
-        schedule: Optional[Union[Schedule, ScheduleBlock]] = None,
+        schedule: Union[Schedule, ScheduleBlock],
         phase_shifts: Optional[Sequence[float]] = None,
         backend: Optional[Backend] = None
     ):
@@ -388,30 +377,39 @@ class RotaryQutritPhaseRotation(BasePhaseRotation):
 
 class RotaryStarkShiftPhaseCal(UpdateStarkDelta, RotaryQutritPhaseRotation):
     """Calibration experiment for RotaryQutritPhaseRotation."""
-    _schedule_name = 'rzx45m_rotary'
+    _cal_parameter_name_name = 'delta_rzx45p_rotary'
 
     def __init__(
         self,
         physical_qubits: Sequence[int],
         calibrations: Calibrations,
+        control_qubit: int,
         phase_shifts: Optional[Sequence[float]] = None,
-        schedule_name: str = 'rzx45m_rotary',
         backend: Optional[Backend] = None,
-        cal_parameter_name: Optional[str] = 'delta',
+        cal_parameter_name: Optional[str] = None,
+        schedule_name: Optional[str] = None,
         auto_update: bool = True
     ):
+        qubits = (control_qubit, physical_qubits[0])
+        try:
+            twoq_sched = backend.target['ecr'][qubits].calibration
+        except KeyError:
+            twoq_sched = backend.target['cx'][qubits].calibration
+        rotary = next(inst for _, inst in twoq_sched.instructions
+                      if inst.name.startswith('CR90p_d'))
+        with pulse.build(name='rotary') as sched:
+            pulse.play(rotary.pulse, rotary.channel)
+
         super().__init__(
             physical_qubits,
             calibrations,
+            sched,
             phase_shifts=phase_shifts,
             backend=backend,
             cal_parameter_name=cal_parameter_name,
             schedule_name=schedule_name,
             auto_update=auto_update
         )
-        schedule = calibrations.get_schedule(schedule_name, physical_qubits,
-                                             assign_params={cal_parameter_name: 0.})
-        self.set_experiment_options(schedule=schedule)
 
     def _extract_delta(self, experiment_data: ExperimentData) -> float:
         """See the docstring of RotaryQutritPhaseRotation."""
