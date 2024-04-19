@@ -53,7 +53,7 @@ def insert_dd(
     duration: int,
     x_duration: int,
     pulse_alignment: int,
-    node_start_times: dict[DAGOpNode, int],
+    node_start_times: list[tuple[DAGOpNode, int]],
     placement: str = 'left'
 ) -> bool:
     """Insert either two X gates or a generic gate named dd_left/right.
