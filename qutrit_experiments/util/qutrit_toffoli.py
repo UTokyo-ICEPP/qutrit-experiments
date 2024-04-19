@@ -22,9 +22,12 @@ from ..gates import QutritQubitCXType, QutritToffoliGate
 def qutrit_toffoli_circuit(
     backend: Backend,
     calibrations: Calibrations,
-    physical_qubits: Sequence[int]
+    physical_qubits: Sequence[int],
+    do_phase_corr: bool = True,
+    do_dd: bool = True
 ) -> QuantumCircuit:
-    pm = qutrit_toffoli_translator(backend, calibrations, physical_qubits)
+    pm = qutrit_toffoli_translator(backend, calibrations, physical_qubits,
+                                   do_phase_corr=do_phase_corr, do_dd=do_dd)
     circuit = QuantumCircuit(3)
     circuit.append(QutritToffoliGate(), [0, 1, 2])
     return pm.run(circuit)

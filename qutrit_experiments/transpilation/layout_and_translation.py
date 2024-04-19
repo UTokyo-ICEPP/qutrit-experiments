@@ -2,6 +2,7 @@
 from collections.abc import Sequence
 from typing import Union
 from qiskit import QuantumCircuit, QuantumRegister
+from qiskit.circuit import Delay
 from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary as sel
 from qiskit.dagcircuit import DAGCircuit
 from qiskit.providers import Backend
@@ -88,11 +89,17 @@ class UndoLayout(TransformationPass):
             try:
                 qargs = [physical_to_virtual[dag.find_bit(q).index] for q in node.qargs]
             except KeyError:
+                if isinstance(node.op, Delay):
+                    continue
                 raise TranspilerError('Op node on unused qubit found')
             new_dag.apply_operation_back(node.op, qargs, node.cargs, check=False)
 
         self.property_set.pop('layout')
         self.property_set.pop('original_qubit_indices')
+        try:
+            self.property_set.pop('node_start_time')
+        except KeyError:
+            pass
 
         return new_dag
 
