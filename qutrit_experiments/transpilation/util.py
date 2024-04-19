@@ -1,7 +1,9 @@
 from collections.abc import Sequence
 from typing import Optional
 from qiskit import QuantumCircuit, QuantumRegister
-from qiskit.circuit.library import RZGate
+from qiskit.circuit import Delay, Gate, Qubit
+from qiskit.circuit.library import RZGate, XGate
+from qiskit.dagcircuit import DAGCircuit
 from qiskit.converters import circuit_to_dag, dag_to_circuit
 from qiskit.dagcircuit import DAGCircuit, DAGOpNode
 from qiskit.transpiler.basepasses import AnalysisPass
@@ -42,3 +44,43 @@ def insert_rz(
             node_start_time[subst_map[next(op_nodes)._node_id]] = start_time + op_duration
 
     return new_node
+
+
+def insert_dd(
+    subdag: DAGCircuit,
+    qubit: Qubit,
+    start_time: int,
+    duration: int,
+    x_duration: int,
+    pulse_alignment: int,
+    node_start_times: dict[DAGOpNode, int],
+    placement: str = 'left'
+) -> bool:
+    """Insert either two X gates or a generic gate named dd_left/right.
+    
+    Returns True if the generic gate is inserted.
+    """
+    if duration < 2 * x_duration:
+        return False
+    if (duration / 2) % pulse_alignment == 0:
+        interval = duration // 2 - x_duration
+        if placement == 'left':
+            node = subdag.apply_operation_back(XGate(), [qubit])
+            node_start_times.append((node, start_time))
+        if interval != 0:
+            node = subdag.apply_operation_back(Delay(interval), [qubit])
+            node_start_times.append((node, start_time + x_duration))
+        node = subdag.apply_operation_back(XGate(), [qubit])
+        node_start_times.append((node, start_time + x_duration + interval))
+        if interval != 0:
+            node = subdag.apply_operation_back(Delay(interval), [qubit])
+            node_start_times.append((node, start_time + 2 * x_duration + interval))
+        if placement == 'right':
+            node = subdag.apply_operation_back(XGate(), [qubit])
+            node_start_times.append((node, start_time))
+        return False
+
+    name = f'dd_{placement}'
+    node = subdag.apply_operation_back(Gate(name, 1, [duration]), [qubit])
+    node_start_times.append((node, start_time))
+    return True

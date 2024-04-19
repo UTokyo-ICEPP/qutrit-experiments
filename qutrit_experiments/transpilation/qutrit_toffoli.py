@@ -11,6 +11,7 @@ from qiskit.circuit.library import XGate
 from qiskit.transpiler import Target, TransformationPass, TranspilerError
 
 from ..gates import QutritQubitCXType, QutritQubitCXGate, XplusGate, XminusGate
+from .util import insert_dd
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +124,7 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
         # Analyze the gate structure (qargs) first
         first_barrier = next(node for node in dag.topological_op_nodes()
                              if isinstance(node.op, Barrier))
+        circuit_qargs = first_barrier.qargs
         barriers = [first_barrier]
         # Get the first X+
         node = next(s for s in dag.successors(first_barrier) if isinstance(s.op, XplusGate))
@@ -142,24 +144,13 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
                 break
         logger.debug('CX/ECR(0, 1) on %s found at t=%d', node.qargs, node_start_time[node])
         c1_qubit = node.qargs[0]
+        t_qubit = next(q for q in circuit_qargs if q not in [c2_qubit, c1_qubit])
         # Follow the graph until we hit a barrier before c2-t CX
         while True:
             if isinstance((node := next(dag.successors(node))).op, Barrier):
                 break
         barriers.append(node)
-        # Follow the graph until the next two-qubit gate between c2 and t
-        node = next(s for s in dag.successors(node) if c1_qubit not in s.qargs)
-        while True:
-            if len(node.qargs) == 2:
-                break
-            node = next(dag.successors(node))
-        if isinstance(node.op, QutritQubitCXGate):
-            logger.debug('CX(1, 2) on %s found at t=%d', node.qargs, node_start_time[node])
-            t_qubit = node.qargs[1]
-        else:
-            logger.debug('ECR(2, 1) on %s found at t=%d', node.qargs, node_start_time[node])
-            t_qubit = node.qargs[0]
-        # Follow the graph until the next barrier(3)
+        # Follow the graph (skip the c2-t CX) until the next Barrier(3)
         # (need qargs condition because reverse cx uses a Barrier(2) internally)
         while True:
             if isinstance((node := next(dag.successors(node))).op, Barrier) and len(node.qargs) == 3:
@@ -192,33 +183,14 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
             return subdag, qreg, []
 
         def add_dd(qubit, start_time, duration, placement='left'):
-            if duration < 2 * x_durations[qubit]:
-                return
-            if (duration / 2) % self.target.pulse_alignment == 0:
-                interval = duration // 2 - x_durations[qubit]
-                if placement == 'left':
-                    node = subdag.apply_operation_back(XGate(), [qreg[qubit]])
-                    start_times.append((node, start_time))
-                if interval != 0:
-                    node = subdag.apply_operation_back(Delay(interval), [qreg[qubit]])
-                    start_times.append((node, start_time + x_durations[qubit]))
-                node = subdag.apply_operation_back(XGate(), [qreg[qubit]])
-                start_times.append((node, start_time + x_durations[qubit] + interval))
-                if interval != 0:
-                    node = subdag.apply_operation_back(Delay(interval), [qreg[qubit]])
-                    start_times.append((node, start_time + 2 * x_durations[qubit] + interval))
-                if placement == 'right':
-                    node = subdag.apply_operation_back(XGate(), [qreg[qubit]])
-                    start_times.append((node, start_time))
-                return
-
-            name = f'dd_{placement}'
-            if dag.calibrations.get(name, {}).get(((qids[qubit],), (duration,))) is None:
-                sched = self.calibrations.get_schedule(name, qids[qubit],
-                                                       assign_params={'duration': duration})
-                dag.add_calibration(name, [qids[qubit]], sched, params=[duration])
-            node = subdag.apply_operation_back(Gate(name, 1, [duration]), [qreg[qubit]])
-            start_times.append((node, start_time))
+            need_cal = insert_dd(subdag, qreg[qubit], start_time, duration, x_durations[qubit],
+                                 self.target.pulse_alignment, start_times, placement=placement)
+            if need_cal:
+                name = f'dd_{placement}'
+                if dag.calibrations.get(name, {}).get(((qids[qubit],), (duration,))) is None:
+                    sched = self.calibrations.get_schedule(name, qids[qubit],
+                                                           assign_params={'duration': duration})
+                    dag.add_calibration(name, [qids[qubit]], sched, params=[duration])
 
         def insert_dd_to_dag(node_to_replace):
             subst_map = dag.substitute_node_with_dag(node_to_replace, subdag)
@@ -306,22 +278,22 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
 
         insert_dd_to_dag(barriers[2])
 
-        # T DD (during reverse qutrit-qubit CX)
-        if rcr_type == QutritQubitCXType.REVERSE:
-            subdag, qreg, start_times = make_dd_subdag()
+        # # T DD (during reverse qutrit-qubit CX)
+        # if rcr_type == QutritQubitCXType.REVERSE:
+        #     subdag, qreg, start_times = make_dd_subdag()
 
-            cx_barrier = next(node for node in dag.named_nodes('barrier')
-                              if node.qargs == (c2_qubit, t_qubit))
-            time = node_start_time[cx_barrier]
-            end_time = node_start_time[barriers[3]] - xplus_duration
-            add_dd(2, time, end_time - time)
-            time = end_time
-            add_dd(2, time, xplus_duration)
-            time += xplus_duration
-            node = subdag.apply_operation_back(Barrier(3), qreg)
-            start_times.append((node, time))
-            node_start_time.pop(barriers[3])
+        #     cx_barrier = next(node for node in dag.named_nodes('barrier')
+        #                       if node.qargs == (c2_qubit, t_qubit))
+        #     time = node_start_time[cx_barrier]
+        #     end_time = node_start_time[barriers[3]] - xplus_duration
+        #     add_dd(2, time, end_time - time)
+        #     time = end_time
+        #     add_dd(2, time, xplus_duration)
+        #     time += xplus_duration
+        #     node = subdag.apply_operation_back(Barrier(3), qreg)
+        #     start_times.append((node, time))
+        #     node_start_time.pop(barriers[3])
 
-            insert_dd_to_dag(barriers[3])
+        #     insert_dd_to_dag(barriers[3])
 
         return dag
