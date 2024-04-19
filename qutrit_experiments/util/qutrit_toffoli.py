@@ -23,6 +23,18 @@ def qutrit_toffoli_circuit(
     calibrations: Calibrations,
     physical_qubits: Sequence[int]
 ) -> QuantumCircuit:
+    pm = _qutrit_toffoli_translator(backend, calibrations, physical_qubits)
+    circuit = QuantumCircuit(3)
+    circuit.append(QutritToffoliGate(), [0, 1, 2])
+    return pm.run(circuit)
+
+
+def _qutrit_toffoli_translator(
+    backend: Backend,
+    calibrations: Calibrations,
+    physical_qubits: Sequence[int]
+) -> StagedPassManager:
+    """Return a pass manager to translate a qubit-qutrit-qubit circuit containing QutritToffoliGate or something similar."""
     physical_qubits = tuple(physical_qubits)
     x_duration = calibrations.get_schedule('x', physical_qubits[1]).duration
     x12_duration = calibrations.get_schedule('x12', physical_qubits[1]).duration
@@ -58,7 +70,7 @@ def qutrit_toffoli_circuit(
 
     layin_pm = PassManager([UndoLayout(physical_qubits)])
     
-    pass_manager = StagedPassManager(
+    return StagedPassManager(
         ['layout', 'pretranslation', 'phase_corr', 'translation', 'layin'],
         layout=generate_layout_passmanager(physical_qubits, backend.coupling_map),
         pretranslation=pretranslation_pm,
@@ -66,10 +78,3 @@ def qutrit_toffoli_circuit(
         translation=translation_pm,
         layin=layin_pm
     )
-
-    # Run the PM
-    circuit = QuantumCircuit(3)
-    circuit.append(QutritToffoliGate(), [0, 1, 2])
-    circuit = pass_manager.run(circuit)
-
-    return circuit
