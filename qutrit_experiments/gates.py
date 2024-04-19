@@ -192,6 +192,15 @@ class RCRGate(Gate):
     gate_name = 'rcr'
     gate_type = GateType.COMPOSITE
 
+    def __init__(
+        self,
+        params: list[ParameterValueType],
+        label: Optional[str] = None,
+        duration: Optional[int] = None,
+        unit: str = 'dt'
+    ):
+        super().__init__('rcr', 2, params, label=label, duration=duration, unit=unit)
+
 
 class CRCRGate(QutritQubitCompositeGate):
     """Cycled RCR gate.

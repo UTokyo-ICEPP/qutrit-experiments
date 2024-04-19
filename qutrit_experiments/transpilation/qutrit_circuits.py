@@ -81,7 +81,7 @@ class AddQutritCalibrations(TransformationPass):
 
         def get_rz_channels(qubit):
             if (channels := rz_channels.get(qubit)) is None:
-                sched = self.target['rz']((qubit,)).calibration
+                sched = self.target['rz'][(qubit,)].calibration
                 channels = set(inst.channel for _, inst in sched.instructions
                                if isinstance(inst, pulse.ShiftPhase))
                 rz_channels[qubit] = channels
