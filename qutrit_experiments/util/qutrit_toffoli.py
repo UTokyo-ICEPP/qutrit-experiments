@@ -10,7 +10,7 @@ from qiskit_experiments.calibration_management import Calibrations
 
 from ..transpilation.dynamical_decoupling import AddDDCalibration
 from ..transpilation.qutrit_qubit_cx import ReverseCXDecomposition, ReverseCXDynamicalDecoupling
-from ..transpilation.qutrit_toffoli import (QutritToffoliRefocusing,
+from ..transpilation.qutrit_toffoli import (ContainsQutritToffoli, QutritToffoliRefocusing,
                                             QutritToffoliDynamicalDecoupling)
 from ..transpilation.qutrit_transpiler import BASIS_GATES, make_instruction_durations
 from ..transpilation.layout_and_translation import (UndoLayout, TranslateAndClearTiming,
@@ -40,43 +40,49 @@ def qutrit_toffoli_translator(
     """Return a pass manager to translate a qubit-qutrit-qubit circuit containing QutritToffoliGate or something similar."""
     physical_qubits = tuple(physical_qubits)
 
-    rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits[1:])
-    rcr_types = {physical_qubits[1:]: rcr_type}
+    rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits[-2:])
+    rcr_types = {physical_qubits[-2:]: rcr_type}
 
-    x_duration = calibrations.get_schedule('x', physical_qubits[1]).duration
-    x12_duration = calibrations.get_schedule('x12', physical_qubits[1]).duration
+    x_duration = calibrations.get_schedule('x', physical_qubits[-2]).duration
+    x12_duration = calibrations.get_schedule('x12', physical_qubits[-2]).duration
     instruction_durations = make_instruction_durations(backend, calibrations, physical_qubits)
     instruction_durations.update([
-        ('xplus', physical_qubits[1], x_duration + x12_duration),
-        ('xminus', physical_qubits[1], x_duration + x12_duration),
+        ('xplus', physical_qubits[-2], x_duration + x12_duration),
+        ('xminus', physical_qubits[-2], x_duration + x12_duration),
     ])
     if rcr_type != QutritQubitCXType.REVERSE:
-        cr_duration = calibrations.get_schedule('cr', physical_qubits[1:]).duration
-        instruction_durations.update([('cr', physical_qubits[1:], cr_duration)])
+        cr_duration = calibrations.get_schedule('cr', physical_qubits[-2:]).duration
+        instruction_durations.update([('cr', physical_qubits[-2:], cr_duration)])
 
     pms = {}
 
     pms['layout'] = generate_layout_passmanager(physical_qubits, backend.coupling_map)
 
+    def contains_qutrit_toffoli(property_set):
+        return property_set.get('has_qutrit_toffoli', False)
+
     basis_gates = backend.basis_gates + ['rz12', 'x12', 'xplus', 'xminus', 'qutrit_qubit_cx']
-    pms['pretranslation'] = generate_translation_passmanager(basis_gates)
+    pms['pretranslation'] = PassManager(
+        [
+            ContainsQutritToffoli(),
+            BasisTranslator(sel, basis_gates)
+        ]
+    )
     pms['pretranslation'].append(ReverseCXDecomposition(instruction_durations, rcr_types))
     if do_dd:
         pms['pretranslation'].append(
             ReverseCXDynamicalDecoupling(backend.target, instruction_durations)
         )
-
     if do_phase_corr:
-        pms['phase_corr'] = PassManager(
-            [
-                ALAPScheduleAnalysis(instruction_durations),
-                QutritToffoliRefocusing(instruction_durations)
-            ]
-        )
+        toffoli_passes = [
+            ALAPScheduleAnalysis(instruction_durations),
+            QutritToffoliRefocusing(instruction_durations)
+        ]
         if do_dd:
-            pms['phase_corr'].append(
+            toffoli_passes.append(
                 QutritToffoliDynamicalDecoupling(backend.target, instruction_durations, rcr_types)
             )
+        pms['pretranslation'].append(toffoli_passes, condition=contains_qutrit_toffoli)
 
     translation_passes = []
     if do_dd:
@@ -87,10 +93,7 @@ def qutrit_toffoli_translator(
     # node times to the output circuit at the end of each __call__ and translation of xplus corrupts
     # this dictionary
     basis_gates = backend.basis_gates + [g.gate_name for g in BASIS_GATES]
-    if do_phase_corr:
-        translation_passes.append(TranslateAndClearTiming(sel, basis_gates))
-    else:
-        translation_passes.append(BasisTranslator(sel, basis_gates))
+    translation_passes.append(TranslateAndClearTiming(sel, basis_gates))
     pms['translation'] = PassManager(translation_passes)
     pms['layin'] = PassManager([UndoLayout(physical_qubits)])
 

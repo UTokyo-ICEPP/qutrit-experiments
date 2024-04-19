@@ -6,14 +6,23 @@ nothing else.
 import logging
 from qiskit import QuantumRegister
 from qiskit.dagcircuit import DAGCircuit
-from qiskit.circuit import Barrier, Delay, Gate
-from qiskit.circuit.library import XGate
-from qiskit.transpiler import InstructionDurations, Target, TransformationPass, TranspilerError
+from qiskit.circuit import Barrier, Delay
+from qiskit.transpiler import (AnalysisPass, InstructionDurations, Target, TransformationPass,
+                               TranspilerError)
 
-from ..gates import QutritQubitCXType, QutritQubitCXGate, XplusGate, XminusGate
+from ..gates import QutritQubitCXType, QutritQubitCXGate, QutritToffoliGate, XplusGate, XminusGate
 from .util import insert_dd
 
 logger = logging.getLogger(__name__)
+
+
+class ContainsQutritToffoli(AnalysisPass):
+    """Search the DAG circuit for qutrit Toffoli gates."""
+    def run(self, dag: DAGCircuit):
+        for node in dag.topological_op_nodes():
+            if isinstance(node.op, QutritToffoliGate):
+                self.property_set['has_qutrit_toffoli'] = True
+                return
 
 
 class QutritToffoliRefocusing(TransformationPass):
@@ -278,23 +287,5 @@ class QutritToffoliDynamicalDecoupling(TransformationPass):
             add_dd(0, time, 2 * sx_duration) # cx_offset_rx duration
 
         insert_dd_to_dag(barriers[2])
-
-        # # T DD (during reverse qutrit-qubit CX)
-        # if rcr_type == QutritQubitCXType.REVERSE:
-        #     subdag, qreg, start_times = make_dd_subdag()
-
-        #     cx_barrier = next(node for node in dag.named_nodes('barrier')
-        #                       if node.qargs == (c2_qubit, t_qubit))
-        #     time = node_start_time[cx_barrier]
-        #     end_time = node_start_time[barriers[3]] - xplus_duration
-        #     add_dd(2, time, end_time - time)
-        #     time = end_time
-        #     add_dd(2, time, xplus_duration)
-        #     time += xplus_duration
-        #     node = subdag.apply_operation_back(Barrier(3), qreg)
-        #     start_times.append((node, time))
-        #     node_start_time.pop(barriers[3])
-
-        #     insert_dd_to_dag(barriers[3])
 
         return dag
