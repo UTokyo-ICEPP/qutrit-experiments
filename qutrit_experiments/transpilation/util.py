@@ -1,7 +1,8 @@
 from collections.abc import Sequence
 from typing import Optional
-from qiskit import QuantumRegister
+from qiskit import QuantumCircuit, QuantumRegister
 from qiskit.circuit.library import RZGate
+from qiskit.converters import circuit_to_dag, dag_to_circuit
 from qiskit.dagcircuit import DAGCircuit, DAGOpNode
 
 
@@ -40,3 +41,18 @@ def insert_rz(
             node_start_time[subst_map[next(op_nodes)._node_id]] = start_time + op_duration
 
     return new_node
+
+
+def undo_layout(circuit: QuantumCircuit, physical_qubits: Sequence[int]):
+    """Undo layout to backend qubits."""
+    dag = circuit_to_dag(circuit)
+    subdag = next(d for d in dag.separable_circuits(remove_idle_qubits=True) if d.size() != 0)
+    subdag.calibrations = dag.calibrations
+    circuit = dag_to_circuit(subdag)
+
+    # Reorder the qubits if necessary (separable_circuits sorts the qreg with qubit index)
+    if (squbits := tuple(sorted(physical_qubits))) != tuple(physical_qubits):
+        perm = [physical_qubits.index(q) for q in squbits]
+        circuit = QuantumCircuit(len(physical_qubits)).compose(circuit, perm)
+
+    return circuit

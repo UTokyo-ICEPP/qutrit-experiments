@@ -13,6 +13,7 @@ from ..transpilation.qutrit_toffoli import (QutritToffoliRefocusing,
 from ..transpilation.qutrit_transpiler import BASIS_GATES, make_instruction_durations
 from ..transpilation.layout_and_translation import (generate_layout_passmanager,
                                                     generate_translation_passmanager)
+from ..transpilation.util import undo_layout
 from ..gates import QutritToffoliGate
 
 
@@ -65,15 +66,4 @@ def qutrit_toffoli_circuit(
                                           + [g.gate_name for g in BASIS_GATES])
     circuit = pm.run(circuit)
 
-    # Undo layout to backend qubits
-    dag = circuit_to_dag(circuit)
-    subdag = next(d for d in dag.separable_circuits(remove_idle_qubits=True) if d.size() != 0)
-    subdag.calibrations = dag.calibrations
-    circuit = dag_to_circuit(subdag)
-
-    # Reorder the qubits if necessary (separable_circuits sorts the qreg with qubit index)
-    if (squbits := tuple(sorted(physical_qubits))) != physical_qubits:
-        perm = [physical_qubits.index(q) for q in squbits]
-        circuit = QuantumCircuit(3).compose(circuit, perm)
-
-    return circuit
+    return undo_layout(circuit, physical_qubits)
