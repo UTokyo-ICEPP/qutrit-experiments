@@ -39,10 +39,12 @@ class PhaseTable(MapToPhysicalQubits, BaseExperiment):
         phi = Parameter('phi')
         for qubit in range(num_qubits):
             for init in range(2 ** (num_qubits - 1)):
-                bits = [iq for iq in range(num_qubits) if iq != qubit and (init >> iq) % 2 == 1]
+                bits = [(init >> iq) % 2 for iq in range(num_qubits - 1)]
+                bits.insert(qubit, 0)
                 template = QuantumCircuit(num_qubits)
-                if bits:
-                    template.x(bits)
+                for iq, bit in enumerate(bits):
+                    if bit == 1:
+                        template.x(iq)
                 template.sx(qubit)
                 template.barrier()
                 template.compose(self.experiment_options.circuit, inplace=True)
