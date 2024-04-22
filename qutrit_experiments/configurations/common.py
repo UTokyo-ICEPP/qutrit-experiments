@@ -30,15 +30,25 @@ def configure_readout_mitigation(runner, config, logical_qubits=None, expval=Fal
         logger.warning('MeasLevel is not CLASSIFIED; no readout mitigation. run_options=%s',
                        config.run_options)
         return
+    if (mitigator := runner.program_data.get('readout_mitigator')) is None:
+        logger.warning('Correlated readout mitigator is not set up.')
+        return
 
     if logical_qubits is not None:
         qubits = tuple(config.physical_qubits[q] for q in logical_qubits)
     else:
         qubits = tuple(config.physical_qubits)
 
-    if (matrix := runner.program_data.get('readout_assignment_matrices', {}).get(qubits)) is None:
-        logger.warning('Assignment matrix missing; no readout mitigation. qubits=%s', qubits)
-        return
+    # CorrelatedReadoutMitigator.assignment_matrix() implicitly sorts the qubits through the use of
+    # set, so we reorder the axes. Also note that unused qubits are assumed to be at |0> state
+    matrix = mitigator.assignment_matrix(qubits)
+    mitigator_qubits = mitigator.settings['qubits']
+    indices = list(reversed([mitigator_qubits.index(iq) for iq in qubits]))
+    sorted_indices = list(reversed(sorted(indices)))
+    if indices != sorted_indices:
+        transpose = [sorted_indices.index(i) for i in indices]
+        nq = len(indices)
+        matrix = matrix.reshape((2,) * (2 * nq)).transpose(transpose).reshape((2 ** nq,) * 2)
 
     if (processor := config.analysis_options.get('data_processor')) is None:
         nodes = [
@@ -65,11 +75,5 @@ def qubits_assignment_error(runner, qubits):
     )
 
 def qubits_assignment_error_post(runner, experiment_data):
-    qubits = tuple(experiment_data.metadata['physical_qubits'])
     mitigator = experiment_data.analysis_results('Correlated Readout Mitigator', block=False).value
-    prog_data = runner.program_data.setdefault('readout_assignment_matrices', {})
-    # All possible contiguous combinations
-    for num_qubits in range(1, len(qubits) + 1):
-        for ifirst in range(len(qubits) - num_qubits + 1):
-            combination = qubits[ifirst:ifirst + num_qubits]
-            prog_data[combination] = mitigator.assignment_matrix(combination)
+    runner.program_data['readout_mitigator'] = mitigator
