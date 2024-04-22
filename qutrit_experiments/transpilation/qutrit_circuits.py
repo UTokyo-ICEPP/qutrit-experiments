@@ -189,7 +189,7 @@ class AddQutritCalibrations(TransformationPass):
             elif isinstance(node.op, ECRGate) and qubits[1] in dag_qutrits:
                 # Corrections for Stark phase
                 # ECR = IP2(delta/2 * 2) U_zx(pi/4) XI U_zx(-pi/4)
-                delta = self.calibrations.get_parameter_value('delta_rzx45p_rotary', qubits[1])
+                delta = self.calibrations.get_parameter_value('delta_rzx45p_rotary', qubits)
                 cumul_angle_ef[qubits[1]] += delta
                 logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[1], delta)
 

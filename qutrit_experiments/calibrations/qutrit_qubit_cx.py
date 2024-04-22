@@ -147,7 +147,8 @@ def set_qutrit_qubit_cr_default(
             calibrations.add_parameter_value(ParameterValue(value), pname, qubits=(control, target),
                                              schedule='cr')
 
-        calibrations.add_parameter_value(ParameterValue(0.), 'delta_rzx45p_rotary', target)
+        calibrations.add_parameter_value(ParameterValue(0.), 'delta_rzx45p_rotary',
+                                         qubits=(control, target))
 
 
 def add_qutrit_qubit_rcr(
