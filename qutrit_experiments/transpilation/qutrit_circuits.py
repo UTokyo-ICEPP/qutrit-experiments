@@ -4,7 +4,7 @@ import logging
 import numpy as np
 from qiskit import pulse
 from qiskit.circuit import Parameter
-from qiskit.circuit.library import RZGate, SXGate, XGate
+from qiskit.circuit.library import ECRGate, RZGate, SXGate, XGate
 from qiskit.dagcircuit import DAGCircuit
 from qiskit.pulse import ScheduleBlock
 from qiskit.transpiler import AnalysisPass, Target, TransformationPass, TranspilerError
@@ -185,6 +185,13 @@ class AddQutritCalibrations(TransformationPass):
                 offset = delta / 2. - geom_phase
                 cumul_angle_ef[qubits[0]] += offset
                 logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[0], offset)
+
+            elif isinstance(node.op, ECRGate) and qubits[1] in dag_qutrits:
+                # Corrections for Stark phase
+                # ECR = IP2(delta/2 * 2) U_zx(pi/4) XI U_zx(-pi/4)
+                delta = self.calibrations.get_parameter_value('delta_rzx45p_rotary', qubits[1])
+                cumul_angle_ef[qubits[1]] += delta
+                logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[1], delta)
 
             elif isinstance(node.op, QutritGate):
                 logger.debug('%s[%s] at %d', node.op.name, qubits, node_start_time[node])
