@@ -120,7 +120,7 @@ class PhaseTable(BatchExperiment):
                                               backend=backend)
                 )
                 
-        super().__init__(physical_qubits, backend=backend,
+        super().__init__(experiments, backend=backend,
                          analysis=PhaseTableAnalysis([exp.analysis for exp in experiments]))
 
 
@@ -168,5 +168,6 @@ class PhaseTableAnalysis(CompoundAnalysis):
             ax.set_ylabel('Phase')
             ax.set_xticks(np.arange(num_states), labels=[f'{i}' for i in range(num_states)])
             ax.set_ylim(0., 2. * np.pi)
-            return analysis_results, [ax.get_figure()]
-        return analysis_results, []
+            figures.append(ax.get_figure())
+
+        return analysis_results, figures
