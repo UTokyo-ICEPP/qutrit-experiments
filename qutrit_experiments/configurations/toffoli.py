@@ -141,3 +141,17 @@ def ccz_truth_table(runner):
             'circuit': circuit
         }
     )
+
+@register_exp
+@add_readout_mitigation
+def ccz_phase_table(runner):
+    from qutrit_experiments.experiments.phase_table import PhaseTable
+    circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits,
+                                     gate=QutritCCZGate())
+    return ExperimentConfig(
+        PhaseTable,
+        runner.qubits,
+        args={
+            'circuit': circuit
+        }
+    )
