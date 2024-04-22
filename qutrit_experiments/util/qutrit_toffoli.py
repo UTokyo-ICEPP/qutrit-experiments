@@ -62,15 +62,19 @@ def qutrit_toffoli_translator(
         cr_duration = calibrations.get_schedule('cr', physical_qubits[-2:]).duration
         instruction_durations.update([('cr', physical_qubits[-2:], cr_duration)])
 
-    pms = {}
-
-    pms['layout'] = generate_layout_passmanager(physical_qubits, backend.coupling_map)
-
+    pms = {
+        'layout': generate_layout_passmanager(physical_qubits, backend.coupling_map)
+    }
+    
     def contains_qutrit_toffoli(property_set):
         return property_set.get('has_qutrit_mcgate', False)
 
-    basis_gates = backend.basis_gates + ['rz12', 'x12', 'xplus', 'xminus', 'qutrit_qubit_cx',
-                                         'qutrit_qubit_cz']
+    basis_gates = backend.basis_gates + ['rz12', 'x12', 'xplus', 'xminus']
+    if rcr_type == QutritQubitCXType.REVERSE:
+        basis_gates.append('qutrit_qubit_cz')
+    else:
+        basis_gates.append('qutrit_qubit_cx')
+                                         
     pms['pretranslation'] = PassManager(
         [
             ContainsQutritMCGate(),
