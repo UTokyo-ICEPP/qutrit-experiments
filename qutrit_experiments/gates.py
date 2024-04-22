@@ -6,7 +6,7 @@ from typing import Optional, Union
 import numpy as np
 from qiskit import QuantumCircuit, QuantumRegister
 from qiskit.circuit import Barrier, Gate, Parameter
-from qiskit.circuit.library import ECRGate, HGate, RZGate, SXGate, XGate
+from qiskit.circuit.library import ECRGate, HGate, RZGate, SXGate, XGate, ZGate
 from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary as sel
 #from qiskit.circuit.parameterexpression import ParameterValueType
 # For some reason Pylance fails to recognize imported ParameterValueType as a valid type alias so
@@ -229,12 +229,24 @@ class QutritQubitCXGate(QutritQubitCompositeGate):
         super().__init__(params, label=label)
 
 
-class QutritMCXGate(QutritCompositeGate):
+class QutritQubitCZGate(QutritQubitCompositeGate):
+    """CZ gate with a control qutrit and target qubit."""
+    gate_name = 'qutrit_qubit_cz'
+    def __init__(
+        self,
+        params: Optional[Sequence[ParameterValueType]] = None,
+        label: Optional[str] = None
+    ):
+        super().__init__(params, label=label)
+
+
+class QutritMCGate(QutritCompositeGate):
     """Multi-controlled gate using qutrits."""
     def __init__(
         self,
         name: str,
         num_controls: int,
+        target_gate: type[Gate],
         params: Optional[Sequence[ParameterValueType]] = None,
         label: Optional[str] = None
     ):
@@ -244,9 +256,10 @@ class QutritMCXGate(QutritCompositeGate):
             params = list(params)
         as_qutrit = (False,) + (True,) * (num_controls - 1) + (False,)
         super().__init__(name, as_qutrit, params, label=label)
+        self.target_gate = target_gate
 
 
-class QutritToffoliGate(QutritMCXGate):
+class QutritCCXGate(QutritMCGate):
     """Toffoli gate using qutrits."""
     gate_name = 'qutrit_toffoli'
 
@@ -255,7 +268,19 @@ class QutritToffoliGate(QutritMCXGate):
         params: Optional[Sequence[ParameterValueType]] = None,
         label: Optional[str] = None
     ):
-        super().__init__(self.gate_name, 2, params=params, label=label)
+        super().__init__(self.gate_name, 2, XGate, params=params, label=label)
+
+
+class QutritCCZGate(QutritMCGate):
+    """CCZ gate using qutrits."""
+    gate_name = 'qutrit_ccz'
+
+    def __init__(
+        self,
+        params: Optional[Sequence[ParameterValueType]] = None,
+        label: Optional[str] = None
+    ):
+        super().__init__(self.gate_name, 2, ZGate, params=params, label=label)
 
 
 q = QuantumRegister(1, 'q')
@@ -286,8 +311,18 @@ sel.add_equivalence(XminusGate(), qasm_def)
 q = QuantumRegister(2, 'q')
 qasm_def = QuantumCircuit(q)
 for gate, qargs in [
-    (XplusGate(), [0]),
     (HGate(), [1]),
+    (QutritQubitCZGate(), [0, 1]),
+    (HGate(), [1])
+]:
+    qasm_def.append(gate, qargs)
+sel.add_equivalence(QutritQubitCXGate(), qasm_def)
+
+# Compact version of reverse CZ
+q = QuantumRegister(2, 'q')
+qasm_def = QuantumCircuit(q)
+for gate, qargs in [
+    (XplusGate(), [0]),
     (XGate(), [1]),
     (ECRGate(), [1, 0]),
     (XGate(), [1]),
@@ -295,11 +330,10 @@ for gate, qargs in [
     (X12Gate(), [0]),
     (RZGate(np.pi / 3.), [0]),
     (RZ12Gate(-np.pi / 3.), [0]),
-    (RZGate(np.pi), [1]),
-    (HGate(), [1])
+    (RZGate(np.pi), [1])
 ]:
     qasm_def.append(gate, qargs)
-sel.add_equivalence(QutritQubitCXGate(), qasm_def)
+sel.add_equivalence(QutritQubitCZGate(), qasm_def)
 
 q = QuantumRegister(3, 'q')
 qasm_def = QuantumCircuit(q)
@@ -327,4 +361,32 @@ for gate, qargs in [
     (Barrier(3), q)
 ]:
     qasm_def.append(gate, qargs)
-sel.add_equivalence(QutritToffoliGate(), qasm_def)
+sel.add_equivalence(QutritCCXGate(), qasm_def)
+
+q = QuantumRegister(3, 'q')
+qasm_def = QuantumCircuit(q)
+for gate, qargs in [
+    (Barrier(3), q),
+    (XminusGate(label='qutrit_toffoli_begin'), q[1:2]),
+    (Barrier(2), q[:2]),
+    (RZGate(-np.pi / 2.), q[:1]),
+    (ECRGate(), q[:2]),
+    (XGate(), q[:1]),
+    (RZGate(-np.pi), q[1:2]),
+    (SXGate(), q[1:2]),
+    (RZGate(-np.pi), q[1:2]),
+    (Barrier(3), q),
+    (QutritQubitCZGate(), q[1:]),
+    (Barrier(3), q),
+    (XGate(), q[:1]),
+    (ECRGate(), q[:2]),
+    (RZGate(np.pi / 2.), q[:1]),
+    (RZGate(-np.pi / 3.), q[1:2]),
+    (RZ12Gate(-2. * np.pi / 3.), q[1:2]),
+    (SXGate(), q[1:2]),
+    (Barrier(2), q[:2]),
+    (XplusGate(label='qutrit_toffoli_end'), q[1:2]),
+    (Barrier(3), q)
+]:
+    qasm_def.append(gate, qargs)
+sel.add_equivalence(QutritCCZGate(), qasm_def)

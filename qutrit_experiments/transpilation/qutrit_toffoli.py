@@ -10,18 +10,19 @@ from qiskit.circuit import Barrier, Delay
 from qiskit.transpiler import (AnalysisPass, InstructionDurations, Target, TransformationPass,
                                TranspilerError)
 
-from ..gates import QutritQubitCXType, QutritQubitCXGate, QutritToffoliGate, XplusGate, XminusGate
+from ..gates import (QutritQubitCXType, QutritQubitCXGate, QutritMCGate, XplusGate,
+                     XminusGate)
 from .util import insert_dd
 
 logger = logging.getLogger(__name__)
 
 
-class ContainsQutritToffoli(AnalysisPass):
+class ContainsQutritMCGate(AnalysisPass):
     """Search the DAG circuit for qutrit Toffoli gates."""
     def run(self, dag: DAGCircuit):
         for node in dag.topological_op_nodes():
-            if isinstance(node.op, QutritToffoliGate):
-                self.property_set['has_qutrit_toffoli'] = True
+            if isinstance(node.op, QutritMCGate):
+                self.property_set['has_qutrit_mcgate'] = True
                 return
 
 
@@ -52,6 +53,7 @@ class QutritToffoliRefocusing(TransformationPass):
 
     def run(self, dag: DAGCircuit) -> DAGCircuit:
         node_start_time = self.property_set['node_start_time']
+        time_unit = self.property_set['time_unit']
 
         cx_qubits = None
         for node in dag.topological_op_nodes():
@@ -67,11 +69,18 @@ class QutritToffoliRefocusing(TransformationPass):
                     # Convert to X+-delay-X+
                     qutrit = dag.find_bit(node.qargs[0]).index
                     subdag = DAGCircuit()
+
+                    def add_gate(op):
+                        node = subdag.apply_operation_back(op, [qreg[0]])
+                        node.op = node.op.to_mutable()
+                        node.op.duration = self.inst_durations.get(node.op, [qutrit], unit=time_unit)
+                        node.op.unit = time_unit
+
                     qreg = QuantumRegister(1)
                     subdag.add_qreg(qreg)
-                    subdag.apply_operation_back(XplusGate(label='qutrit_toffoli_begin'), [qreg[0]])
-                    subdag.apply_operation_back((refocusing_delay := Delay(0)), [qreg[0]])
-                    subdag.apply_operation_back(XplusGate(), [qreg[0]])
+                    add_gate(XplusGate(label='qutrit_toffoli_begin'))
+                    add_gate((refocusing_delay := Delay(0)))
+                    add_gate(XplusGate())
                     subst_map = dag.substitute_node_with_dag(node, subdag)
 
                     # Save the first two nodes and assign the current start time to the last
