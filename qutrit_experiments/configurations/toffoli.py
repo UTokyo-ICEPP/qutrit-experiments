@@ -5,7 +5,7 @@ from qiskit import QuantumCircuit, transpile
 from qiskit.circuit import Parameter
 
 from ..experiment_config import ExperimentConfig, register_exp
-from ..gates import QutritQubitCXType, QutritQubitCXGate, XminusGate, XplusGate
+from ..gates import QutritCCZGate, QutritQubitCXType, QutritQubitCXGate, XminusGate, XplusGate
 from ..transpilation.layout_and_translation import generate_translation_passmanager
 from ..transpilation.qutrit_transpiler import BASIS_GATES, make_instruction_durations
 from ..transpilation.rz import ConsolidateRZAngle
@@ -119,10 +119,25 @@ def toffoli_qpt_bc(runner):
 @add_readout_mitigation
 def toffoli_truth_table(runner):
     from qutrit_experiments.experiments.truth_table import TruthTable
+    circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits)
     return ExperimentConfig(
         TruthTable,
         runner.qubits,
         args={
-            'circuit': qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits)
+            'circuit': circuit
+        }
+    )
+
+@register_exp
+@add_readout_mitigation
+def ccz_truth_table(runner):
+    from qutrit_experiments.experiments.truth_table import TruthTable
+    circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits,
+                                     gate=QutritCCZGate())
+    return ExperimentConfig(
+        TruthTable,
+        runner.qubits,
+        args={
+            'circuit': circuit
         }
     )
