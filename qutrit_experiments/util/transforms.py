@@ -12,6 +12,7 @@ from qiskit.providers.exceptions import BackendConfigurationError
 from qiskit.pulse import Schedule, ScheduleBlock
 from qiskit.qobj.converters.pulse_instruction import ParametricPulseShapes
 from qiskit_experiments.calibration_management import Calibrations
+from qiskit_experiments.exceptions import CalibrationError
 
 from ..calibrations import get_qutrit_freq_shift
 from ..gates import QutritQubitCXGate, RZ12Gate, SX12Gate, X12Gate
@@ -162,10 +163,22 @@ def schedule_to_matrix(
     channel_phases = {ch: 0. for ch in list(drive_channels.keys()) + list(control_channels.keys())}
 
     starks = {
-        (iq, op): np.exp(-0.5j * calibrations.get_parameter_value(f'delta_{op}', physical_qubits[iq]))
-        for iq in qutrits
+        op: {
+            iq: np.exp(-0.5j * calibrations.get_parameter_value(f'delta_{op}', physical_qubits[iq]))
+            for iq in qutrits
+        }
         for op in ['x', 'x12', 'sx', 'sx12']
     }
+    starks['rzx45p_rotary'] = {}
+    for qutrit in qutrits:
+        for qubit in [qutrit - 1, qutrit + 1]:
+            key = tuple(physical_qubits[iq] for iq in [qubit, qutrit])
+            try:
+                delta = calibrations.get_parameter_value('delta_rzx45p_rotary', key)
+            except CalibrationError:
+                continue
+            starks['rzx45p_rotary'][(qubit, qutrit)] = np.exp(-0.5j * delta)
+
     qutrit_freq_shifts = {
         iq: get_qutrit_freq_shift(physical_qubits[iq], backend.target, calibrations)
         for iq in qutrits
@@ -194,11 +207,14 @@ def schedule_to_matrix(
         'sx12': {
             3: np.array([[np.sqrt(2.), 0., 0.], [0., 1., -1.j], [0., -1.j, 1.]]) / np.sqrt(2.)
         },
-        'zx45p': {
+        'rzx45p': {
             (2, 3): block_matrix([[rx45p3, zero3], [zero3, rx45m3]])
         },
-        'zx45m': {
+        'rzx45m': {
             (2, 3): block_matrix([[rx45m3, zero3], [zero3, rx45p3]])
+        },
+        'rzx45p_rotary': {
+            3: np.array([[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]])
         }
     }
 
@@ -225,19 +241,29 @@ def schedule_to_matrix(
             bare_op = op_unitaries[gate_name][3].copy()
             phase = channel_phases[channel]
             if gate_name in ['x12', 'sx12']:
-                bare_op[0, 0] *= starks[(iq, gate_name)]
+                bare_op[0, 0] *= starks[gate_name][iq]
                 # x12 pulse at time t corresponds to a pi pulse with phase offset -freq_shift*t
                 # in the EF frame
                 phase -= (twopi * qutrit_freq_shifts[iq] - detuning[iq]) * time
                 subspace = 1
             else:
-                bare_op[2, 2] *= starks[(iq, gate_name)]
+                bare_op[2, 2] *= starks[gate_name][iq]
                 subspace = 0
             rz = phase_shift_op(phase, 3, subspace)
         else:
             bare_op = op_unitaries[gate_name][2].copy()
             rz = phase_shift_op(channel_phases[channel], 2)
 
+        return _embed_1q(iq, bare_op, rz)
+    
+    def embed_rotary(channel, control):
+        iq = drive_channels[channel]
+        bare_op = op_unitaries['rzx45p_rotary'][3].copy()
+        bare_op[2, 2] *= starks['rzx45p_rotary'][(control, iq)]
+        rz = phase_shift_op(channel_phases[channel], 3)
+        return _embed_1q(iq, bare_op, rz)
+
+    def _embed_1q(iq, bare_op, rz):
         matrix = np.eye(np.prod(dims[:iq]), dtype=complex)
         matrix = np.kron(matrix, rz.conjugate() @ bare_op @ rz)
         return np.kron(matrix, np.eye(np.prod(dims[iq + 1:]), dtype=complex))
@@ -296,14 +322,18 @@ def schedule_to_matrix(
                 op_unitary = embed_1q_gate('x', inst.channel, time)
                 op_unitary = op_unitary @ op_unitary
             elif inst.name.startswith('CR90p_d') or inst.name.startswith('CR90m_d'):
-                continue
+                control_channel_name = inst.name.split('_')[2]
+                control = control_channels[pulse.ControlChannel(int(control_channel_name[1:]))][0]
+                logger.debug('Rotary drive for CR%d->%d on %s', control,
+                             drive_channels[inst.channel], control_channel_name)
+                op_unitary = embed_rotary(inst.channel, control)
             else:
                 raise RuntimeError(f'Unhandled 1q drive {inst} at time {time}')
         elif isinstance(inst.channel, pulse.ControlChannel):
             if inst.name.startswith('CR90p_u'):
-                op_unitary = embed_2q_gate('zx45p', inst.channel)
+                op_unitary = embed_2q_gate('rzx45p', inst.channel)
             elif inst.name.startswith('CR90m_u'):
-                op_unitary = embed_2q_gate('zx45m', inst.channel)
+                op_unitary = embed_2q_gate('rzx45m', inst.channel)
             else:
                 raise RuntimeError(f'Unhandled control drive {inst} at time {time}')
         else:
