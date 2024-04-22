@@ -1,10 +1,9 @@
 """Measurement of AC Stark shift-induced delta parameters."""
 from collections.abc import Sequence
-from typing import Any, Optional, Union
+from typing import Any, Optional
 import numpy as np
-from qiskit import QuantumCircuit, pulse
-from qiskit.pulse import Schedule, ScheduleBlock
-from qiskit.circuit import Parameter, Gate
+from qiskit import QuantumCircuit
+from qiskit.circuit import Parameter
 from qiskit.providers import Backend
 from qiskit.result import Counts
 from qiskit_experiments.framework import BaseExperiment, Options, ExperimentData
@@ -41,12 +40,14 @@ class BasePhaseRotation(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
     @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
+        options.measured_logical_qubit = None
         options.phase_shifts = np.linspace(0., twopi, 16, endpoint=False)
         return options
 
     def __init__(
         self,
         physical_qubits: Sequence[int],
+        measured_logical_qubit: Optional[int] = None,
         phase_shifts: Optional[Sequence[float]] = None,
         backend: Optional[Backend] = None
     ):
@@ -54,6 +55,7 @@ class BasePhaseRotation(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
                          backend=backend)
 
         self.analysis.set_options(
+            outcome='1',
             result_parameters=[curve.ParameterRepr('phase', 'phase_offset')],
             bounds={'amp': (0., 1.)},
             fixed_parameters={'freq': 1. / (2. * np.pi)},
@@ -65,17 +67,20 @@ class BasePhaseRotation(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
             ylim=(-0.1, 1.1)
         )
 
+        if measured_logical_qubit is not None:
+            self.set_experiment_options(measured_logical_qubit=measured_logical_qubit)
         if phase_shifts is not None:
             self.set_experiment_options(phase_shifts=phase_shifts)
 
     def circuits(self) -> list[QuantumCircuit]:
         phi = Parameter('phi')
 
-        template = QuantumCircuit(1)
+        iq = self.experiment_options.measured_logical_qubit or 0
+        template = QuantumCircuit(len(self._physical_qubits), 1)
         template.compose(self._phase_rotation_sequence(), inplace=True)
-        template.rz(phi, 0)
-        template.sx(0)
-        template.measure_all()
+        template.rz(phi, iq)
+        template.sx(iq)
+        template.measure(iq, 0)
 
         template.metadata = {
             'qubits': self.physical_qubits
@@ -90,7 +95,7 @@ class BasePhaseRotation(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
         return circuits
 
     def _phase_rotation_sequence(self) -> QuantumCircuit:
-        return QuantumCircuit(1)
+        return QuantumCircuit(len(self._physical_qubits))
 
     def _metadata(self):
         metadata = super()._metadata()
@@ -312,107 +317,3 @@ class SXStarkShiftPhaseCal(UpdateStarkDelta, SXQutritPhaseRotation):
         """See the docstring of XQutritPhaseRotation."""
         return (-BaseUpdater.get_value(experiment_data, 'phase_offset')
                 + experiment_data.metadata['cal_param_value'])
-
-
-class RotaryQutritPhaseRotation(BasePhaseRotation):
-    r"""Experiment to measure the phase shift on :math:`|2\rangle` by the rotary tone of
-    qubit-qutrit CR.
-
-    The phase shift on :math:`|0\rangle` by X and X12 must be corrected already.
-
-    For
-
-    .. math::
-
-        U_{x}(\theta; \delta) =
-            \begin{pmatrix}
-            \cos \frac{\theta}{2}    & -i \sin \frac{\theta}{2} & 0 \\
-            -i \sin \frac{\theta}{2} & \cos \frac{\theta}{2} & 0 \\
-            0                        & 0                     & e^{-i\delta/2} \\
-            \end{pmatrix},
-
-    the gate sequence in this experiment yields
-
-    .. math::
-
-        | \psi \rangle & = \Xi X P2(-\delta) S\Xi X | 0 \rangle \\
-                       & ~ \frac{1}{\sqrt{2}} (|0\rangle
-                                               - i e^{-i\delta}|1\rangle).
-
-    Current correction is assumed to be always 0.
-    """
-    @classmethod
-    def _default_experiment_options(cls) -> Options:
-        options = super()._default_experiment_options()
-        options.schedule = None
-        return options
-
-    def __init__(
-        self,
-        physical_qubits: Sequence[int],
-        schedule: Optional[Union[Schedule, ScheduleBlock]] = None,
-        phase_shifts: Optional[Sequence[float]] = None,
-        backend: Optional[Backend] = None
-    ):
-        super().__init__(physical_qubits, phase_shifts=phase_shifts, backend=backend)
-        if schedule:
-            self.set_experiment_options(schedule=schedule)
-
-    def _phase_rotation_sequence(self) -> QuantumCircuit:
-        rotary_gate = Gate('rotary', 1, [])
-        template = QuantumCircuit(1)
-        template.x(0)
-        template.append(SX12Gate(), [0])
-        template.append(rotary_gate, [0])
-        template.rz(np.pi, 0)
-        template.append(rotary_gate, [0])
-        template.rz(-np.pi, 0)
-        template.x(0)
-        template.append(X12Gate(), [0])
-
-        template.add_calibration(rotary_gate, self.physical_qubits,
-                                 self.experiment_options.schedule)
-
-        return template
-
-
-class RotaryStarkShiftPhaseCal(UpdateStarkDelta, RotaryQutritPhaseRotation):
-    """Calibration experiment for RotaryQutritPhaseRotation."""
-    _cal_parameter_name = 'delta_rzx45p_rotary'
-
-    def __init__(
-        self,
-        physical_qubits: Sequence[int],
-        calibrations: Calibrations,
-        control_qubit: int,
-        phase_shifts: Optional[Sequence[float]] = None,
-        backend: Optional[Backend] = None,
-        cal_parameter_name: Optional[str] = None,
-        schedule_name: Optional[str] = None,
-        auto_update: bool = True
-    ):
-        super().__init__(
-            physical_qubits,
-            calibrations,
-            phase_shifts=phase_shifts,
-            backend=backend,
-            cal_parameter_name=cal_parameter_name,
-            schedule_name=schedule_name,
-            auto_update=auto_update
-        )
-
-        qubits = (control_qubit, physical_qubits[0])
-        try:
-            twoq_sched = backend.target['ecr'][qubits].calibration
-        except KeyError:
-            twoq_sched = backend.target['cx'][qubits].calibration
-        rotary = next(inst for _, inst in twoq_sched.instructions
-                      if inst.name.startswith('CR90p_d'))
-        with pulse.build(name='rotary') as sched:
-            pulse.play(rotary.pulse, rotary.channel)
-
-        self.set_experiment_options(schedule=sched)
-
-    def _extract_delta(self, experiment_data: ExperimentData) -> float:
-        """See the docstring of RotaryQutritPhaseRotation."""
-        return -BaseUpdater.get_value(experiment_data, 'phase_offset')

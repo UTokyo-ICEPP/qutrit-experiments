@@ -176,9 +176,9 @@ def crcr_fine_scanbased(runner):
 @register_exp
 @add_readout_mitigation
 def tc2_cr_rotary_delta(runner):
-    from ..experiments.single_qutrit.stark_shift_phase import RotaryStarkShiftPhaseCal
+    from ..experiments.qutrit_qubit.rotary_stark_shift import RotaryStarkShiftPhaseCal
     return ExperimentConfig(
         RotaryStarkShiftPhaseCal,
-        runner.qubits[:1],
-        args={'control_qubit': runner.qubits[1]}
+        tuple(reversed(runner.qubits)),
+        analysis_options={'outcome': '1'}
     )

@@ -16,11 +16,11 @@ from .common import add_readout_mitigation
 @register_exp
 @add_readout_mitigation
 def c1c2_cr_rotary_delta(runner):
-    from ..experiments.single_qutrit.stark_shift_phase import RotaryStarkShiftPhaseCal
+    from ..experiments.qutrit_qubit.rotary_stark_shift import RotaryStarkShiftPhaseCal
     return ExperimentConfig(
         RotaryStarkShiftPhaseCal,
-        runner.qubits[1:2],
-        args={'control_qubit': runner.qubits[0]}
+        runner.qubits[:2],
+        analysis_options={'outcome': '1'}
     )
 
 @register_exp
