@@ -69,7 +69,8 @@ def qutrit_toffoli_translator(
     def contains_qutrit_toffoli(property_set):
         return property_set.get('has_qutrit_mcgate', False)
 
-    basis_gates = backend.basis_gates + ['rz12', 'x12', 'xplus', 'xminus', 'qutrit_qubit_cx']
+    basis_gates = backend.basis_gates + ['rz12', 'x12', 'xplus', 'xminus', 'qutrit_qubit_cx',
+                                         'qutrit_qubit_cz']
     pms['pretranslation'] = PassManager(
         [
             ContainsQutritMCGate(),
@@ -86,10 +87,11 @@ def qutrit_toffoli_translator(
     if do_phase_corr:
         toffoli_passes.append(QutritToffoliRefocusing(instruction_durations))
     if do_dd:
+        qubits = list(physical_qubits)
+        qubits.pop(-2)
         toffoli_passes.append(
             PadDynamicalDecoupling(durations=instruction_durations, dd_sequence=[XGate(), XGate()],
-                                   qubits=physical_qubits,
-                                   spacing=[0.25, 0.5, 0.25],
+                                   qubits=qubits, spacing=[0.25, 0.5, 0.25],
                                    pulse_alignment=backend.target.pulse_alignment)
         )
     pms['pretranslation'].append(toffoli_passes, condition=contains_qutrit_toffoli)
