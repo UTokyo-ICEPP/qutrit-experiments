@@ -214,7 +214,7 @@ def schedule_to_matrix(
             (2, 3): block_matrix([[rx45m3, zero3], [zero3, rx45p3]])
         },
         'rzx45p_rotary': {
-            3: np.array([[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]])
+            3: np.array([[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]], dtype=complex)
         }
     }
 
