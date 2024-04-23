@@ -4,11 +4,12 @@ from qiskit import QuantumCircuit
 from qiskit_experiments.data_processing import DataProcessor
 
 from ..experiment_config import ExperimentConfig, register_exp
-from ..gates import QutritCCZGate, QutritQubitCXType, QutritQubitCXGate, XminusGate, XplusGate
+from ..gates import (QutritCCZGate, QutritQubitCXType, QutritQubitCXGate, QutritQubitCZGate,
+                     XminusGate, XplusGate)
 from ..transpilation.layout_and_translation import generate_translation_passmanager
 from ..transpilation.qutrit_transpiler import BASIS_GATES
 from ..transpilation.rz import ConsolidateRZAngle
-from ..util.qutrit_toffoli import qutrit_toffoli_circuit
+from ..util.qutrit_toffoli import qutrit_toffoli_circuit, qutrit_toffoli_translator
 from .common import add_readout_mitigation
 
 
@@ -167,6 +168,23 @@ def ccz_phase_table(runner):
     from qutrit_experiments.experiments.phase_table import PhaseTable
     circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits,
                                      gate=QutritCCZGate())
+    return ExperimentConfig(
+        PhaseTable,
+        runner.qubits,
+        args={
+            'circuit': circuit
+        }
+    )
+
+@register_exp
+@add_readout_mitigation
+def cz_phase_table(runner):
+    from qutrit_experiments.experiments.phase_table import PhaseTable
+    pm = qutrit_toffoli_translator(runner.backend, runner.calibrations, runner.qubits[1:])
+    circuit = QuantumCircuit(2)
+    circuit.append(QutritQubitCZGate(), [0, 1])
+    circuit = pm.run(circuit)
+
     return ExperimentConfig(
         PhaseTable,
         runner.qubits,
