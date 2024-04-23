@@ -18,6 +18,8 @@ from ..experiment_mixins import MapToPhysicalQubits
 from ..framework.compound_analysis import CompoundAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
 
+twopi = 2. * np.pi
+
 
 class DiagonalCircuitPhaseShift(MapToPhysicalQubits, BaseExperiment):
     """Measurement of the phase shift imparted by a diagonal circuit.
@@ -94,6 +96,7 @@ class DiagonalCircuitPhaseShift(MapToPhysicalQubits, BaseExperiment):
         metadata = super()._metadata()
         metadata['measured_logical_qubit'] = self.measured_logical_qubit
         metadata['state'] = list(self.state)
+        return metadata
 
 
 class PhaseTable(BatchExperiment):
@@ -154,9 +157,9 @@ class PhaseTableAnalysis(CompoundAnalysis):
         def fun(diagonals):
             phases = np.concatenate([[0], diagonals])
             return ((phases[idx_high] - phases[idx_low]) - phase_diffs) / errs
-        
-        result = least_squares(fun, np.zeros(2 ** (num_qubits - 1)))
-        diagonals = np.concatenate([[0.], result.x])
+
+        result = least_squares(fun, np.zeros(2 ** num_qubits - 1))
+        diagonals = np.concatenate([[0.], (result.x + np.pi) % twopi - np.pi])
 
         analysis_results.append(AnalysisResultData(name='phases', value=diagonals))
 
@@ -167,7 +170,18 @@ class PhaseTableAnalysis(CompoundAnalysis):
             ax.set_xlabel('State')
             ax.set_ylabel('Phase')
             ax.set_xticks(np.arange(num_states), labels=[f'{i}' for i in range(num_states)])
-            ax.set_ylim(0., 2. * np.pi)
+            ax.set_ylim(-np.pi, np.pi)
+            figures.append(ax.get_figure())
+
+            num_exps = len(phase_diffs)
+            ax = get_non_gui_ax()
+            ax.errorbar(np.arange(num_exps), phase_diffs, xerr=0.5, yerr=errs, fmt='none',
+                        label='observed')
+            ax.scatter(np.arange(num_exps), diagonals[idx_high] - diagonals[idx_low], c='#ff7f0e',
+                       label='fit')
+            ax.set_xticks(np.arange(num_exps),
+                          labels=[f'{high}-{low}' for high, low in zip(idx_high, idx_low)])
+            ax.legend()
             figures.append(ax.get_figure())
 
         return analysis_results, figures
