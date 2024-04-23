@@ -65,7 +65,7 @@ def qutrit_toffoli_translator(
     pms = {
         'layout': generate_layout_passmanager(physical_qubits, backend.coupling_map)
     }
-    
+
     def contains_qutrit_toffoli(property_set):
         return property_set.get('has_qutrit_mcgate', False)
 
@@ -74,7 +74,7 @@ def qutrit_toffoli_translator(
         basis_gates.append('qutrit_qubit_cz')
     else:
         basis_gates.append('qutrit_qubit_cx')
-                                         
+
     pms['pretranslation'] = PassManager(
         [
             ContainsQutritMCGate(),
@@ -82,23 +82,24 @@ def qutrit_toffoli_translator(
             ReverseCXDecomposition(instruction_durations, rcr_types)
         ]
     )
-    toffoli_passes = []
     if do_phase_corr or do_dd:
-        toffoli_passes += [
+        pms['pretranslation'].append([
             TimeUnitConversion(inst_durations=instruction_durations),
             ALAPScheduleAnalysis(instruction_durations)
-        ]
+        ])
     if do_phase_corr:
-        toffoli_passes.append(QutritToffoliRefocusing(instruction_durations))
+        pms['pretranslation'].append(
+            QutritToffoliRefocusing(instruction_durations),
+            condition=contains_qutrit_toffoli
+        )
     if do_dd:
         qubits = list(physical_qubits)
         qubits.pop(-2)
-        toffoli_passes.append(
+        pms['pretranslation'].append(
             PadDynamicalDecoupling(durations=instruction_durations, dd_sequence=[XGate(), XGate()],
                                    qubits=qubits, spacing=[0.25, 0.5, 0.25],
                                    pulse_alignment=backend.target.pulse_alignment)
         )
-    pms['pretranslation'].append(toffoli_passes, condition=contains_qutrit_toffoli)
 
     translation_passes = []
     # if do_dd:
