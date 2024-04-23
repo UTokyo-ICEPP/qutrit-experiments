@@ -158,10 +158,12 @@ class PhaseTableAnalysis(CompoundAnalysis):
         idx_high = []
         idx_low = []
         phase_diffs = []
+        exp_setups = []
         errs = []
         for child_data in experiment_data.child_data():
             logical_qubit = child_data.metadata['measured_logical_qubit']
             state = child_data.metadata['state']
+            exp_setups.append((logical_qubit, state))
             num_qubits = len(state) + 1
             idx_low.append(
                 sum((int(bit) << iq) for iq, bit in enumerate(state[:logical_qubit]))
@@ -177,9 +179,23 @@ class PhaseTableAnalysis(CompoundAnalysis):
 
         def fun(diagonals):
             phases = np.concatenate([[0], diagonals])
-            return ((phases[idx_high] - phases[idx_low]) - phase_diffs) / errs
+            test_diff = (phases[idx_high] - phases[idx_low] + np.pi) % twopi - np.pi
+            return ((test_diff - phase_diffs + np.pi) % twopi - np.pi) / errs
 
-        result = least_squares(fun, np.zeros(2 ** num_qubits - 1))
+        init = np.zeros(2 ** num_qubits - 1)
+        for idx in range(1, 2 ** num_qubits):
+            binary = ('{:0%db}' % num_qubits).format(idx)
+            while binary.count('1') != 0:
+                first_one = binary.index('1')
+                free_qubit = num_qubits - 1 - first_one
+                state = [b == '1' for b in binary[-1:first_one:-1]] + ([False] * first_one)
+                iexp = next(iexp for iexp, setup in enumerate(exp_setups)
+                            if setup == (free_qubit, state))
+                init[idx - 1] += phase_diffs[iexp]
+                binary = binary[:first_one] + '0' + binary[first_one + 1:]
+
+        print('init', init)
+        result = least_squares(fun, init)
         diagonals = np.concatenate([[0.], (result.x + np.pi) % twopi - np.pi])
 
         analysis_results.append(AnalysisResultData(name='phases', value=diagonals))
