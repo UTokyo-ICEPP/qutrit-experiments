@@ -46,8 +46,9 @@ def configure_readout_mitigation(runner, config, logical_qubits=None, expval=Fal
     indices = list(reversed([mitigator_qubits.index(iq) for iq in qubits]))
     sorted_indices = list(reversed(sorted(indices)))
     if indices != sorted_indices:
-        transpose = [sorted_indices.index(i) for i in indices]
         nq = len(indices)
+        transpose = [sorted_indices.index(i) for i in indices] # row reordering
+        transpose += [t + nq for t in transpose] # column reordering
         matrix = matrix.reshape((2,) * (2 * nq)).transpose(transpose).reshape((2 ** nq,) * 2)
 
     if (processor := config.analysis_options.get('data_processor')) is None:

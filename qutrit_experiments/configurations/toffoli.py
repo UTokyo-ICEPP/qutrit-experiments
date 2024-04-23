@@ -14,7 +14,7 @@ from .common import add_readout_mitigation
 
 
 @register_exp
-@add_readout_mitigation
+@add_readout_mitigation(logical_qubits=[1])
 def c1c2_cr_rotary_delta(runner):
     from ..experiments.qutrit_qubit.rotary_stark_shift import RotaryStarkShiftPhaseCal
     return ExperimentConfig(
@@ -143,7 +143,6 @@ def ccz_truth_table(runner):
     )
 
 @register_exp
-@add_readout_mitigation
 def ccz_phase_table(runner):
     from qutrit_experiments.experiments.phase_table import PhaseTable
     circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits,
@@ -153,5 +152,9 @@ def ccz_phase_table(runner):
         runner.qubits,
         args={
             'circuit': circuit
+        },
+        analysis_options={
+            'outcome': '1',
+            'readout_mitigator': runner.program_data.get('readout_mitigator')
         }
     )

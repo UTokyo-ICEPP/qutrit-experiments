@@ -23,8 +23,8 @@ def qutrit_qubit_cx_type(
         return QutritQubitCXType.REVERSE
 
     ecr_sched = get_default_ecr_schedule(backend, physical_qubits)
-    cr_inst = next(inst for inst in ecr_sched.instructions
-                    if isinstance(inst.channel, ControlChannel))
+    cr_inst = next(inst for _, inst in ecr_sched.instructions
+                   if isinstance(inst.channel, ControlChannel))
     if cr_inst.channel == control_channel:
         return QutritQubitCXType.UNKNOWN
     return QutritQubitCXType.REVERSE
