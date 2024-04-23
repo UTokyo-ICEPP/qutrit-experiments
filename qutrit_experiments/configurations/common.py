@@ -37,7 +37,7 @@ def configure_readout_mitigation(runner, config, logical_qubits=None, expval=Fal
         qubits = tuple(config.physical_qubits)
 
     for mitigator_qubits, mitigator in runner.program_data.get('readout_mitigator', {}).items():
-        if set(qubits) < set(mitigator_qubits):
+        if set(qubits) <= set(mitigator_qubits):
             break
     else:
         logger.warning('Correlated readout mitigator for qubits %s not found.', qubits)
