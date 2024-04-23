@@ -116,6 +116,22 @@ def toffoli_qpt_bc(runner):
 
 @register_exp
 @add_readout_mitigation
+def ccz_qpt_bc(runner):
+    from ..experiments.process_tomography import CircuitTomography
+    circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits,
+                                     gate=QutritCCZGate())
+    target_circuit = QuantumCircuit(3)
+    target_circuit.ccz(0, 1, 2)
+
+    return ExperimentConfig(
+        CircuitTomography,
+        runner.qubits,
+        args={'circuit': circuit, 'target_circuit': target_circuit},
+        run_options={'shots': 4000}
+    )
+
+@register_exp
+@add_readout_mitigation
 def toffoli_truth_table(runner):
     from qutrit_experiments.experiments.truth_table import TruthTable
     circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits)
