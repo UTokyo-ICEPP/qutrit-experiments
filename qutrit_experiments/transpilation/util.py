@@ -53,7 +53,7 @@ def insert_dd(
     x_duration: int,
     pulse_alignment: int,
     start_time: Optional[int] = None,
-    placement: str = 'left'
+    placement: str = 'symmetric'
 ) -> bool:
     """Insert either two X gates or a generic gate named dd_left/right.
 
@@ -69,7 +69,7 @@ def insert_dd(
         if start_time is not None:
             start_times.append((node, start_time + offset))
 
-    if (duration / 2) % pulse_alignment == 0:
+    if placement in ['left', 'right'] and (duration / 2) % pulse_alignment == 0:
         interval = duration // 2 - x_duration
         offset = 0
         if placement == 'left':
@@ -85,6 +85,18 @@ def insert_dd(
             offset += interval
         if placement == 'right':
             add_op(XGate(), [qubit], offset)
+    elif placement == 'symmetric' and (duration / 4 - x_duration / 2) % pulse_alignment == 0:
+        interval = int(duration / 4 - x_duration / 2)
+        offset = 0
+        add_op(Delay(interval), [qubit], offset)
+        offset += interval
+        add_op(XGate(), [qubit], offset)
+        offset += x_duration
+        add_op(Delay(interval * 2), [qubit], offset)
+        offset += interval * 2
+        add_op(XGate(), [qubit], offset)
+        offset += x_duration
+        add_op(Delay(interval), [qubit], offset)
     else:
         add_op(Gate(f'dd_{placement}', 1, [duration]), [qubit], 0)
 
