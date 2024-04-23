@@ -48,8 +48,12 @@ class UnitaryTomography(MapToPhysicalQubits, BaseExperiment):
             setups = product(['x', 'y', 'z'], ['x', 'y', 'z'])
 
         post_circuit = self.experiment_options.post_circuit
+        if post_circuit is None:
+            num_clbits = 1
+        else:
+            num_clbits = max(1, post_circuit.num_clbits)
 
-        template = QuantumCircuit(num_qubits, max(1, post_circuit.num_clbits))
+        template = QuantumCircuit(num_qubits, num_clbits)
         if (pre_circuit := self.experiment_options.pre_circuit) is not None:
             template.compose(pre_circuit, inplace=True)
 
