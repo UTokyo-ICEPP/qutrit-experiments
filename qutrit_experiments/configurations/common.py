@@ -60,10 +60,12 @@ def configure_readout_mitigation(runner, config, logical_qubits=None, expval=Fal
             nodes.append(BasisExpectationValue())
         config.analysis_options['data_processor'] = DataProcessor('counts', nodes)
     else:
-        for inode, node in enumerate(processor._nodes):
-            if isinstance(node, Probability):
-                processor._nodes.insert(inode, ReadoutMitigation(matrix))
-                break
+        try:
+            insert_pos = next(inode for inode, node in enumerate(processor._nodes)
+                              if isinstance(node, Probability))
+        except StopIteration:
+            insert_pos = 0
+        processor._nodes.insert(insert_pos, ReadoutMitigation(matrix))
 
 def qubits_assignment_error(runner, qubits):
     """Template configuration generator for CorrelatedReadoutError."""

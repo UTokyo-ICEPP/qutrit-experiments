@@ -6,6 +6,7 @@ import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.providers import Backend
 from qiskit.providers.options import Options
+from qiskit_experiments.data_processing import DataProcessor
 from qiskit_experiments.framework import (AnalysisResultData, BaseAnalysis, BaseExperiment,
                                           ExperimentData)
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
@@ -51,6 +52,7 @@ class TruthTableAnalysis(BaseAnalysis):
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
+        options.data_processor = DataProcessor('counts', [])
         options.plot = True
         return options
 
@@ -62,10 +64,12 @@ class TruthTableAnalysis(BaseAnalysis):
         num_states = 2 ** num_qubits
         truth_table = np.zeros((num_states, num_states))
 
-        for datum in experiment_data.data():
+        counts_arr = self.options.data_processor(experiment_data.data())
+
+        for counts, datum in zip(counts_arr, experiment_data.data()):
             init = datum['metadata']['init']
             shots = datum['shots']
-            for bstr, count in datum['counts'].items():
+            for bstr, count in counts.items():
                 truth_table[init, int(bstr, 2)] = count / shots
 
         analysis_results = [AnalysisResultData(name='truth_table', value=truth_table)]

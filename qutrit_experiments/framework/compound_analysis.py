@@ -1,6 +1,7 @@
 """CompositeAnalysis with additional analysis on top."""
 from abc import abstractmethod
 from collections.abc import Callable
+import copy
 import logging
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -25,7 +26,7 @@ class CompoundAnalysis(CompositeAnalysis):
         for key in self._propagated_option_keys():
             if (value := self.options.get(key)) is not None:
                 for analysis in self._analyses:
-                    analysis.set_options(**{key: value})
+                    analysis.set_options(**{key: copy.deepcopy(value)})
 
     @abstractmethod
     def _run_additional_analysis(
@@ -39,7 +40,7 @@ class CompoundAnalysis(CompositeAnalysis):
     _run_additional_analysis_threaded: Optional[Callable[['ExperimentData'], Any]] = None
     """Override this attribute as a method if a part of the additional analysis must be run in a
     thread of the main process (e.g. when making changes to the analysis object)."""
-    
+
     _run_additional_analysis_unthreaded: Optional[
         Callable[
             ['ExperimentData', list['AnalysisResultData'], list['Figure'], Any],

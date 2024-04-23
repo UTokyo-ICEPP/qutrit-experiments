@@ -1,8 +1,8 @@
 """Measurement of phase entries of a diagonal unitary."""
 from collections.abc import Sequence
+import logging
 from typing import Any, Optional
 from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import least_squares
 from qiskit import QuantumCircuit
@@ -10,8 +10,8 @@ from qiskit.circuit import Parameter
 from qiskit.providers import Backend
 from qiskit.providers.options import Options
 from qiskit_experiments.curve_analysis.standard_analysis import OscillationAnalysis
-from qiskit_experiments.framework import (AnalysisResultData, BaseAnalysis, BaseExperiment,
-                                          ExperimentData)
+from qiskit_experiments.data_processing import Probability
+from qiskit_experiments.framework import AnalysisResultData, BaseExperiment, ExperimentData
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 
 from ..experiment_mixins import MapToPhysicalQubits
@@ -19,11 +19,12 @@ from ..framework.compound_analysis import CompoundAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
 
 twopi = 2. * np.pi
+logger = logging.getLogger(__name__)
 
 
 class DiagonalCircuitPhaseShift(MapToPhysicalQubits, BaseExperiment):
     """Measurement of the phase shift imparted by a diagonal circuit.
-    
+
     In this experiment we fix the states of the spectator qubits to a specific computational basis
     and perform an SX-U-Rz-SX type sequence on the measured qubit. Assuming that U is diagonal and
     therefore acts as pure phases φ0 and φ1 to |0> and |1> of the measured qubit, respectively, the
@@ -58,7 +59,7 @@ class DiagonalCircuitPhaseShift(MapToPhysicalQubits, BaseExperiment):
 
         outcome_rev = list('1' if xup else '0' for xup in state)
         outcome_rev.insert(measured_logical_qubit, '1')
-        
+
         self.analysis.set_options(
             outcome=''.join(reversed(outcome_rev)),
             result_parameters=['phase'],
@@ -91,7 +92,7 @@ class DiagonalCircuitPhaseShift(MapToPhysicalQubits, BaseExperiment):
             circuits.append(circuit)
 
         return circuits
-    
+
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
         metadata['measured_logical_qubit'] = self.measured_logical_qubit
@@ -101,8 +102,8 @@ class DiagonalCircuitPhaseShift(MapToPhysicalQubits, BaseExperiment):
 
 class PhaseTable(BatchExperiment):
     """Measure the phase of diagonals of a unitary.
-    
-    Each of the N*(2**(N-1)) phase shift measurement results corresponds to a phase difference of 
+
+    Each of the N*(2**(N-1)) phase shift measurement results corresponds to a phase difference of
     specific diagonal entries of U with some redundancy. Perform a least-squares fit to obtain the
     2**N - 1 diagonals (entry 0 is fixed to 0).
     """
@@ -122,12 +123,32 @@ class PhaseTable(BatchExperiment):
                     DiagonalCircuitPhaseShift(physical_qubits, circuit, qubit, state,
                                               backend=backend)
                 )
-                
+
         super().__init__(experiments, backend=backend,
                          analysis=PhaseTableAnalysis([exp.analysis for exp in experiments]))
 
 
 class PhaseTableAnalysis(CompoundAnalysis):
+    @classmethod
+    def _default_options(cls) -> Options:
+        options = super()._default_options()
+        options.plot = True
+        return options
+
+    def _set_subanalysis_options(self, experiment_data: ExperimentData):
+        super()._set_subanalysis_options(experiment_data)
+        # Restore the probability outcome string if overwritten by the parent analysis
+        for analysis in self._analyses:
+            if analysis.options.data_processor is None:
+                continue
+            try:
+                prob = next(node for node in analysis.options.data_processor._nodes
+                            if isinstance(node, Probability))
+            except StopIteration:
+                continue
+            prob._outcome = analysis.options.outcome
+            analysis.set_options(data_processor=analysis.options.data_processor)
+
     def _run_additional_analysis(
         self,
         experiment_data: ExperimentData,

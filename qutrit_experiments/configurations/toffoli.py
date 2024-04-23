@@ -1,13 +1,12 @@
 # pylint: disable=import-outside-toplevel, function-redefined, unused-argument
 """Experiment configurations for Toffoli gate calibration."""
-import numpy as np
-from qiskit import QuantumCircuit, transpile
-from qiskit.circuit import Parameter
+from qiskit import QuantumCircuit
+from qiskit_experiments.data_processing import DataProcessor
 
 from ..experiment_config import ExperimentConfig, register_exp
 from ..gates import QutritCCZGate, QutritQubitCXType, QutritQubitCXGate, XminusGate, XplusGate
 from ..transpilation.layout_and_translation import generate_translation_passmanager
-from ..transpilation.qutrit_transpiler import BASIS_GATES, make_instruction_durations
+from ..transpilation.qutrit_transpiler import BASIS_GATES
 from ..transpilation.rz import ConsolidateRZAngle
 from ..util.qutrit_toffoli import qutrit_toffoli_circuit
 from .common import add_readout_mitigation
@@ -125,7 +124,9 @@ def toffoli_truth_table(runner):
         runner.qubits,
         args={
             'circuit': circuit
-        }
+        },
+        # next line required for add_readout_mitigation to work properly (we don't want Probability)
+        analysis_options={'data_processor': DataProcessor('counts', [])}
     )
 
 @register_exp
@@ -139,10 +140,13 @@ def ccz_truth_table(runner):
         runner.qubits,
         args={
             'circuit': circuit
-        }
+        },
+        # next line required for add_readout_mitigation to work properly (we don't want Probability)
+        analysis_options={'data_processor': DataProcessor('counts', [])}
     )
 
 @register_exp
+@add_readout_mitigation
 def ccz_phase_table(runner):
     from qutrit_experiments.experiments.phase_table import PhaseTable
     circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits,
@@ -152,9 +156,5 @@ def ccz_phase_table(runner):
         runner.qubits,
         args={
             'circuit': circuit
-        },
-        analysis_options={
-            'outcome': '1',
-            'readout_mitigator': runner.program_data.get('readout_mitigator')
         }
     )
