@@ -63,7 +63,7 @@ class DiagonalCircuitPhaseShift(MapToPhysicalQubits, BaseExperiment):
         self.analysis.set_options(
             outcome=''.join(reversed(outcome_rev)),
             result_parameters=['phase'],
-            fixed_parameters={'freq': 1.},
+            fixed_parameters={'freq': 1. / twopi},
             p0={'amp': 0.5, 'base': 0.5},
             bounds={'amp': (0., 1.), 'base': (0., 1.)}
         )
