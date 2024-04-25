@@ -24,15 +24,6 @@ def get_operational_qubits(
     return set(qubits) - faulty_qubits
 
 
-def get_default_ecr_schedule(backend: Backend, qubits: tuple[int, int]) -> Schedule:
-    for gate in ['cx', 'ecr']:
-        try:
-            return backend.defaults().instruction_schedule_map.get(gate, qubits)
-        except PulseError:
-            pass
-    return None
-
-
 def get_qutrit_freq_shift(
     qubit: int,
     target: Target,

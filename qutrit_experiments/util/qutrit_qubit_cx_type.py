@@ -4,7 +4,6 @@ from qiskit.providers import Backend
 from qiskit.providers.exceptions import BackendConfigurationError
 from qiskit.pulse import ControlChannel
 
-from ..calibrations.util import get_default_ecr_schedule
 from ..gates import QutritQubitCXType
 
 
@@ -22,7 +21,11 @@ def qutrit_qubit_cx_type(
     except BackendConfigurationError:
         return QutritQubitCXType.REVERSE
 
-    ecr_sched = get_default_ecr_schedule(backend, physical_qubits)
+    try:
+        ecr_sched = backend.target['cx'][physical_qubits].calibration
+    except KeyError:
+        ecr_sched = backend.target['ecr'][physical_qubits].calibration
+
     cr_inst = next(inst for _, inst in ecr_sched.instructions
                    if isinstance(inst.channel, ControlChannel))
     if cr_inst.channel == control_channel:

@@ -17,7 +17,7 @@ from ..gates import ParameterValueType
 from ..pulse_library import ModulatedGaussianSquare
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule
-from .util import get_default_ecr_schedule, get_operational_qubits, get_qutrit_qubit_composite_gate
+from .util import get_operational_qubits, get_qutrit_qubit_composite_gate
 from .qubit import add_x, set_x_default
 
 logger = logging.getLogger(__name__)
