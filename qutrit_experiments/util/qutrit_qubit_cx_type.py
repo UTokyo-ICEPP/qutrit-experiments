@@ -22,9 +22,13 @@ def qutrit_qubit_cx_type(
         return QutritQubitCXType.REVERSE
 
     try:
-        ecr_sched = backend.target['cx'][physical_qubits].calibration
+        gate_target = backend.target['cx']
     except KeyError:
-        ecr_sched = backend.target['ecr'][physical_qubits].calibration
+        gate_target = backend.target['ecr']
+    try:
+        ecr_sched = gate_target[physical_qubits].calibration
+    except KeyError:
+        return QutritQubitCXType.REVERSE
 
     cr_inst = next(inst for _, inst in ecr_sched.instructions
                    if isinstance(inst.channel, ControlChannel))
