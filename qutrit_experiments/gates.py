@@ -151,6 +151,14 @@ class XminusGate(OneQutritCompositeGate):
         super().__init__([], label=label)
 
 
+class P2Gate(OneQutritCompositeGate):
+    """P2 gate."""
+    gate_name = 'p2'
+    def __init__(self, phi: ParameterValueType, label: Optional[str] = None):
+        """Create new P2 gate."""
+        super().__init__([phi], label=label)
+
+
 class CrossResonanceGate(Gate):
     """CR gate with a control qutrit and target qubit."""
     gate_name = 'cr'
@@ -306,6 +314,13 @@ qasm_def = QuantumCircuit(q)
 qasm_def.x(0)
 qasm_def.append(X12Gate(), [0])
 sel.add_equivalence(XminusGate(), qasm_def)
+
+q = QuantumRegister(1, 'q')
+phi = Parameter('phi')
+qasm_def = QuantumCircuit(q)
+qasm_def.rz(phi * 2. / 3.)
+qasm_def.append(RZ12Gate(phi * 4. / 3.))
+sel.add_equivalence(P2Gate(phi), qasm_def)
 
 # Compact version of reverse CX
 q = QuantumRegister(2, 'q')
