@@ -340,6 +340,7 @@ class ExperimentsRunner:
         start = time.time()
         transpiled_circuits = transpile_qutrit_circuits(transpiled_circuits,
                                                         self._backend, self.calibrations,
+                                                        qubit_transpiled=True,
                                                         instruction_durations=instruction_durations,
                                                         options=self.qutrit_transpile_options)
         end = time.time()

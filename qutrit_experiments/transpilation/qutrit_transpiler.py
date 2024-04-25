@@ -2,20 +2,21 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Optional, Union
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit, transpile
 from qiskit.providers import Backend
-from qiskit.transpiler import InstructionDurations, PassManager
+from qiskit.transpiler import InstructionDurations, PassManager, TranspilerError
 from qiskit.transpiler.passes import ALAPScheduleAnalysis
 from qiskit_experiments.calibration_management import Calibrations
 from qiskit_experiments.exceptions import CalibrationError
 
 from ..constants import LO_SIGN
-from ..gates import GateType, QutritQubitCXGate, RZ12Gate, SetF12Gate, SX12Gate, X12Gate
+from ..gates import (GateType, QutritQubitCXGate, QutritQubitCXType, QutritQubitCZGate, RZ12Gate,
+                     SetF12Gate, SX12Gate, X12Gate)
 from .custom_pulses import ConvertCustomPulses, RemoveUnusedCalibrations
 from .qutrit_circuits import ContainsQutritInstruction, AddQutritCalibrations
 from .rz import CastRZToAngle, ConsolidateRZAngle, InvertRZSign
 
-BASIS_GATES = [RZ12Gate, SetF12Gate, SX12Gate, X12Gate, QutritQubitCXGate]
+BASIS_GATES = [RZ12Gate, SetF12Gate, SX12Gate, X12Gate, QutritQubitCXGate, QutritQubitCZGate]
 
 
 @dataclass
@@ -39,10 +40,38 @@ def make_instruction_durations(
     """Construct an InstructionDurations object including qutrit gate durations."""
     if qubits is None:
         qubits = set(range(backend.num_qubits)) - set(backend.properties().faulty_qubits())
+    else:
+        qubits = set(qubits)
 
-    instruction_durations = InstructionDurations(backend.instruction_durations, dt=backend.dt)
-    for inst in BASIS_GATES:
+    inst_dur = InstructionDurations(backend.instruction_durations, dt=backend.dt)
+
+    for inst in [QutritQubitCXGate, QutritQubitCZGate]:
         durations = []
+        for edge in backend.coupling_map.get_edges():
+            if not set(edge) <= qubits:
+                continue
+            try:
+                rcr_type = calibrations.get_parameter_value('rcr_type', edge)
+            except CalibrationError:
+                continue
+            if rcr_type == QutritQubitCXType.REVERSE:
+                x12_duration = calibrations.get_schedule('x12', edge[0]).duration
+                duration = 2 * (inst_dur.get('x', edge[1]) + inst_dur.get('ecr', edge[::-1]))
+                # Refocusing
+                duration *= 2
+                duration += x12_duration + inst_dur.get('x', edge[1])
+                if inst is QutritQubitCXGate:
+                    # Hadamard
+                    duration += inst_dur.get('sx', edge[1])
+            else:
+                sched_name = f'qutrit_qubit_cx_rcr{rcr_type}'
+                duration = calibrations.get_schedule(sched_name, edge).duration
+
+            durations.append((inst.gate_name, edge, duration))
+
+        inst_dur.update(durations)
+
+    for inst in set(BASIS_GATES) - set([QutritQubitCXGate, QutritQubitCZGate]):
         match (inst.gate_type, len(inst.as_qutrit)):
             case (GateType.PULSE, 1) | (GateType.COMPOSITE, 1):
                 for qubit in qubits:
@@ -52,19 +81,14 @@ def make_instruction_durations(
                         continue
                     durations.append((inst.gate_name, qubit, duration))
             case (GateType.PULSE, 2) | (GateType.COMPOSITE, 2):
-                if inst is QutritQubitCXGate:
-                    # rcr0 and rcr2 durations are identical
-                    sched_name = 'qutrit_qubit_cx_rcr0'
-                else:
-                    sched_name = inst.gate_name
-
                 for edge in backend.coupling_map.get_edges():
-                    if edge[0] in qubits and edge[1] in qubits:
-                        try:
-                            duration = calibrations.get_schedule(sched_name, edge).duration
-                        except CalibrationError:
-                            continue
-                        durations.append((inst.gate_name, edge, duration))
+                    if not set(edge) <= qubits:
+                        continue
+                    try:
+                        duration = calibrations.get_schedule(inst.gate_name, edge).duration
+                    except CalibrationError:
+                        continue
+                    durations.append((inst.gate_name, edge, duration))
             case (GateType.VIRTUAL, 1):
                 durations.extend((inst.gate_name, qubit, 0) for qubit in qubits)
             case (GateType.VIRTUAL, 2):
@@ -74,17 +98,19 @@ def make_instruction_durations(
             case _:
                 raise RuntimeError(f'Unhandled basis gate {inst}')
 
-        instruction_durations.update(durations)
+        inst_dur.update(durations)
 
-    return instruction_durations
+    return inst_dur
 
 
 def transpile_qutrit_circuits(
     circuits: Union[QuantumCircuit, list[QuantumCircuit]],
     backend: Backend,
     calibrations: Calibrations,
+    qubit_transpiled: bool = False,
     instruction_durations: Optional[InstructionDurations] = None,
-    options: Optional[QutritTranspileOptions] = None
+    options: Optional[QutritTranspileOptions] = None,
+    **transpiler_kwargs
 ) -> list[QuantumCircuit]:
     """Recompute the gate durations, calculate the phase shifts for all qutrit gates, and insert
     AC Stark shift corrections to qubit gates"""
@@ -92,6 +118,12 @@ def transpile_qutrit_circuits(
         instruction_durations = make_instruction_durations(backend, calibrations)
     if options is None:
         options = QutritTranspileOptions()
+
+    if not qubit_transpiled:
+        circuits = transpile(circuits, backend=backend,
+                             basis_gates=backend.basis_gates + [g.gate_name for g in BASIS_GATES],
+                             scheduling_method='alap', instruction_durations=instruction_durations,
+                             **transpiler_kwargs)
 
     def contains_qutrit_gate(property_set):
         return len(property_set['qutrits']) != 0
