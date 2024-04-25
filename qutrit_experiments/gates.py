@@ -318,8 +318,8 @@ sel.add_equivalence(XminusGate(), qasm_def)
 q = QuantumRegister(1, 'q')
 phi = Parameter('phi')
 qasm_def = QuantumCircuit(q)
-qasm_def.rz(phi * 2. / 3.)
-qasm_def.append(RZ12Gate(phi * 4. / 3.))
+qasm_def.rz(phi * 2. / 3., 0)
+qasm_def.append(RZ12Gate(phi * 4. / 3.), [0])
 sel.add_equivalence(P2Gate(phi), qasm_def)
 
 # Compact version of reverse CX
