@@ -1,5 +1,5 @@
 """Transpilation pass to convert calibrations with custom pulses to waveform-based ones."""
-from collections import defaultdict
+from collections.abc import Sequence
 from qiskit.dagcircuit import DAGCircuit
 from qiskit.transpiler import TransformationPass
 
@@ -29,5 +29,24 @@ class ConvertCustomPulses(TransformationPass):
         for instance_map in dag.calibrations.values():
             for sched in instance_map.values():
                 symbolic_pulse_to_waveform(sched)
+
+        return dag
+
+
+class AttachCalibration(TransformationPass):
+    """Attach a calibration of a given name to DAG."""
+    def __init__(self, gates: Sequence[str]):
+        self.gates = set(gates)
+        self.calibrations = None
+
+    def run(self, dag: DAGCircuit) -> DAGCircuit:
+        for node in dag.topological_op_nodes():
+            if not node.op.name in self.gates:
+                continue
+
+            qubits = tuple(dag.find_bit(q).index for q in node.qargs)
+            if dag.calibrations.get(node.op.name, {}).get((qubits, ())) is None:
+                sched = self.calibrations.get_schedule(node.op.name, qubits)
+                dag.add_calibration(node.op.name, qubits, sched)
 
         return dag
