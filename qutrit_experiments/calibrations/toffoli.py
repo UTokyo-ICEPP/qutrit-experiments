@@ -10,7 +10,7 @@ from qiskit_experiments.calibration_management import Calibrations, ParameterVal
 
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule
-from .qubit import add_dd, set_dd_default
+from .qubit import add_dd, add_ecr, add_x, set_dd_default, set_ecr_default, set_x_default
 
 
 logger = logging.getLogger(__name__)
@@ -29,8 +29,15 @@ def make_toffoli_calibrations(
 
     if not calibrations.has_template('dd_left'):
         add_dd(calibrations)
+    if 'ecr' not in backend.basis_gates:
+        if not calibrations.has_template('x'):
+            add_x(calibrations)
+        add_ecr(calibrations)
 
     if set_defaults:
         set_dd_default(backend, calibrations, qubits)
+        if 'ecr' not in backend.basis_gates:
+            set_x_default(backend, calibrations, qubits)
+            set_ecr_default(backend, calibrations, qubits)
 
     return calibrations

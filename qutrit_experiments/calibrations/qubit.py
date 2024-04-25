@@ -1,9 +1,11 @@
 from collections.abc import Sequence
 import logging
 from typing import Optional
+import numpy as np
 from qiskit import pulse
 from qiskit.providers import Backend
 from qiskit.circuit import Parameter
+from qiskit_experiments.exceptions import CalibrationError
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 
 from ..pulse_library import DoubleDrag
@@ -120,3 +122,74 @@ def set_dd_default(
                                              schedule='dd_right')
             calibrations.add_parameter_value(ParameterValue(value), pname, qubits=[qubit],
                                              schedule='dd_symmetric')
+
+
+def add_ecr(
+    calibrations: Calibrations
+) -> None:
+    """Add the ECR schedule for CX-based backends."""
+    duration = Parameter('duration')
+    sigma = Parameter('sigma')
+    width = Parameter('width')
+    cr_amp = Parameter('cr_amp')
+    cr_angle = Parameter('cr_angle')
+    rotary_amp = Parameter('rotary_amp')
+    rotary_angle = Parameter('rotary_angle')
+
+    with pulse.build(name='ecr') as sched:
+        pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=cr_amp,
+                                        angle=cr_angle, name='CR90p_u'),
+                   pulse.ControlChannel(Parameter('ch0.1')),
+                   name='CR90p_u')
+        pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=rotary_amp,
+                                        angle=rotary_angle, name='CR90p_d'),
+                   pulse.DriveChannel(Parameter('ch1')),
+                   name='CR90p_d')
+        pulse.reference('x', 'q0')
+        pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=cr_amp,
+                                        angle=cr_angle + np.pi, name='CR90m_u'),
+                   pulse.ControlChannel(Parameter('ch0.1')),
+                   name='CR90m_u')
+        pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=rotary_amp,
+                                        angle=rotary_angle + np.pi, name='CR90m_d'),
+                   pulse.DriveChannel(Parameter('ch1')),
+                   name='CR90m_d')
+    calibrations.add_schedule(sched, num_qubits=2)
+
+
+def set_ecr_default(
+    backend: Backend,
+    calibrations: Calibrations,
+    qubits: Optional[Sequence[int]] = None
+) -> None:
+    """Copy the background defaults CX parameter values into ECR."""
+    operational_qubits = get_operational_qubits(backend, qubits=qubits)
+    for qubits, cx_spec in backend.target['cx'].items():
+        if not set(qubits) <= operational_qubits:
+            continue
+
+        cx_sched = cx_spec.calibration
+        try:
+            cr_pulse = next(inst.pulse for _, inst in cx_sched.instructions
+                            if isinstance(inst, pulse.Play)
+                               and isinstance(inst.channel, pulse.ControlChannel)
+                               and inst.name.startswith('CR90p_u'))
+            rotary_pulse = next(inst.pulse for _, inst in cx_sched.instructions
+                            if isinstance(inst, pulse.Play)
+                               and isinstance(inst.channel, pulse.DriveChannel)
+                               and inst.name.startswith('CR90p_d'))
+        except StopIteration:
+            raise CalibrationError(f'Default ECR CR pulse not found for qubits {qubits}.')
+
+        pvalues = [
+            ('duration', cr_pulse.duration),
+            ('sigma', cr_pulse.sigma),
+            ('width', cr_pulse.width),
+            ('cr_amp', cr_pulse.amp),
+            ('cr_angle', cr_pulse.angle),
+            ('rotary_amp', rotary_pulse.amp),
+            ('rotary_angle', rotary_pulse.angle)
+        ]
+        for pname, value in pvalues:
+            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=qubits,
+                                             schedule='ecr')
