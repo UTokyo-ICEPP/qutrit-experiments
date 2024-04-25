@@ -102,18 +102,23 @@ def set_qutrit_qubit_cr_default(
 ) -> None:
     """Give default values to CR parameters."""
     operational_qubits = get_operational_qubits(backend, qubits=qubits)
+    try:
+        twoq_target = backend.target['cx']
+    except KeyError:
+        twoq_target = backend.target['ecr']
 
-    for (control, target), control_channels in backend.control_channels.items():
-        if len(set((control, target)) & operational_qubits) != 2:
+    for gate_qubits, gate_spec in twoq_target.items():
+        if not set(gate_qubits) <= operational_qubits:
             continue
-        control_channel = control_channels[0]
-        target_freq = backend.qubit_properties(target).frequency * backend.dt
-        ecr_sched = get_default_ecr_schedule(backend, (control, target))
-        control_instructions = [inst for _, inst in ecr_sched.instructions
+
+        twoq_sched = gate_spec.calibration
+        control_channel = backend.control_channel(gate_qubits)[0]
+        control_instructions = [inst for _, inst in twoq_sched.instructions
                                 if isinstance(inst, pulse.Play) and inst.channel == control_channel]
         if not control_instructions:
             # Reverse CR
             continue
+
         try:
             default_cr = next(inst.pulse for inst in control_instructions
                               if inst.name.startswith('CR90p'))
@@ -123,8 +128,10 @@ def set_qutrit_qubit_cr_default(
                                   if inst.name.startswith('CX'))
             except StopIteration as exc:
                 raise CalibrationError(
-                    f'No default CR instruction for qubits {(control, target)}'
+                    f'No default CR instruction for qubits {gate_qubits}'
                 ) from exc
+
+        target_freq = backend.qubit_properties(gate_qubits[0]).frequency * backend.dt
 
         param_defaults = [
             ('rsr', (default_cr.duration - default_cr.width) / 2. / default_cr.sigma),
@@ -144,11 +151,11 @@ def set_qutrit_qubit_cr_default(
             ('counter_stark_amp', 0.)
         ]
         for pname, value in param_defaults:
-            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=(control, target),
+            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=gate_qubits,
                                              schedule='cr')
 
         calibrations.add_parameter_value(ParameterValue(0.), 'delta_rzx45p_rotary',
-                                         qubits=(control, target))
+                                         qubits=gate_qubits)
 
 
 def add_qutrit_qubit_rcr(
@@ -333,28 +340,41 @@ def instantiate_qutrit_qubit_cx(
     calibrations: Calibrations,
     qubits: Optional[Sequence[int]] = None
 ) -> None:
-    inst_map = backend.defaults().instruction_schedule_map
+    """Instantiate the cx_offset_rx and cx_geometric_phase schedules for each qubit pair.
+
+    Since the last shift_phases are parts of Rz, which must be applied to variable number of
+    channels, we instantiate a full schedule for each qubit.
+    """
     operational_qubits = get_operational_qubits(backend, qubits=qubits)
 
-    # Since the last shift_phases are parts of Rz, which must be applied to variable number of
-    # channels, we instantiate a full schedule for each qubit.
-    for control, target in backend.control_channels.keys():
-        if len(set((control, target)) & operational_qubits) != 2:
+    try:
+        twoq_target = backend.target['cx']
+    except KeyError:
+        twoq_target = backend.target['ecr']
+
+    for gate_qubits in twoq_target.keys():
+        if not set(gate_qubits) <= operational_qubits:
             continue
-        sx_inst = inst_map.get('sx', target).instructions[0][1]
-        sx_pulse = sx_inst.pulse
-        drive_channel = sx_inst.channel
-        rz_channels = [inst.channel for _, inst in inst_map.get('rz', target).instructions]
-        rz_channels.remove(drive_channel)
 
         # Offset Rx
+        sx_inst = backend.target['sx'][gate_qubits[1:]].calibration.instructions[0][1]
+        sx_pulse = sx_inst.pulse
+        drive_channel = sx_inst.channel
+        rz_sched = backend.target['rz'][gate_qubits[1:]].calibration
+        rz_channels = [inst.channel for _, inst in rz_sched.instructions]
+        rz_channels.remove(drive_channel) # The template already has drive_channel
+
         rx_sched = calibrations.get_template('cx_offset_rx')
         angle = rx_sched.get_parameters('angle')[0]
         phase = LO_SIGN * angle
-        qubit_sched = rx_sched.append(pulse.ShiftPhase(phase, rz_channels[0]), inplace=False)
-        for channel in rz_channels[1:]:
-            qubit_sched.append(pulse.ShiftPhase(phase, channel))
-        calibrations.add_schedule(qubit_sched, qubits=[target])
+        qubit_sched = rx_sched
+        for channel in rz_channels:
+            # Managing backend configuration error: Seen a case where a ControlChannel included in
+            # the target calibration instructions is actually not valid in terms of coupling_map
+            if channel not in calibrations._controls_config_r:
+                continue
+            qubit_sched = qubit_sched.append(pulse.ShiftPhase(phase, channel), inplace=False)
+        calibrations.add_schedule(qubit_sched, qubits=gate_qubits[1:])
 
         param_defaults = [
             ('duration', sx_pulse.duration),
@@ -364,21 +384,29 @@ def instantiate_qutrit_qubit_cx(
             ('base_angle', sx_pulse.angle)
         ]
         for pname, value in param_defaults:
-            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=target,
+            calibrations.add_parameter_value(ParameterValue(value), pname, qubits=gate_qubits[1:],
                                              schedule=rx_sched.name)
-        calibrations.add_parameter_value(ParameterValue(0.), angle.name, qubits=target,
+        calibrations.add_parameter_value(ParameterValue(0.), angle.name, qubits=gate_qubits[1:],
                                          schedule=rx_sched.name)
 
         # Geometric phase
+        drive_channel = backend.target['x'][gate_qubits[:1]].calibration.instructions[0][1].channel
+        rz_sched = backend.target['rz'][gate_qubits[:1]].calibration
+        rz_channels = [inst.channel for _, inst in rz_sched.instructions]
+        rz_channels.remove(drive_channel) # Already in the template
+
         geom_sched = calibrations.get_template('cx_geometric_phase')
         cx_sign = geom_sched.get_parameters('cx_sign')[0]
         phase = LO_SIGN * cx_sign * np.pi / 2.
-        qubit_sched = geom_sched.append(pulse.ShiftPhase(phase, rz_channels[0]), inplace=False)
-        for channel in rz_channels[1:]:
-            qubit_sched.append(pulse.ShiftPhase(phase, channel))
-        calibrations.add_schedule(qubit_sched, qubits=[control])
+        qubit_sched = geom_sched
+        for channel in rz_channels:
+            # See above
+            if channel not in calibrations._controls_config_r:
+                continue
+            qubit_sched = qubit_sched.append(pulse.ShiftPhase(phase, channel), inplace=False)
+        calibrations.add_schedule(qubit_sched, qubits=gate_qubits[:1])
 
-        calibrations.add_parameter_value(ParameterValue(0), cx_sign.name, qubits=control,
+        calibrations.add_parameter_value(ParameterValue(0), cx_sign.name, qubits=gate_qubits[:1],
                                          schedule=geom_sched.name)
 
 
