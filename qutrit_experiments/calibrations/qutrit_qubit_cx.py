@@ -297,8 +297,10 @@ def add_qutrit_qubit_cx(
     # CX type X
     with pulse.build(name='qutrit_qubit_cx_rcr2', default_alignment='sequential') as sched:
         # [X12+DD][CR-][X+DD][CR-]
+        with pulse.align_left():
+            pulse.reference('x12', 'q0')
+            pulse.reference('cx_offset_rx', 'q1')
         with pulse.phase_offset(np.pi, control_channel):
-            x12_dd()
             with pulse.phase_offset(np.pi, target_drive_channel):
                 pulse.reference('cr', 'q0', 'q1')
             x_dd()
@@ -310,7 +312,6 @@ def add_qutrit_qubit_cx(
             x_dd()
             with pulse.phase_offset(np.pi, target_drive_channel):
                 pulse.reference('cr', 'q0', 'q1')
-        pulse.reference('cx_offset_rx', 'q1')
         pulse.reference('cx_geometric_phase', 'q0')
     calibrations.add_schedule(sched, num_qubits=2)
 
@@ -329,8 +330,9 @@ def add_qutrit_qubit_cx(
                 pulse.reference('cr', 'q0', 'q1')
             x12_dd()
             pulse.reference('cr', 'q0', 'q1')
-            x_dd()
-        pulse.reference('cx_offset_rx', 'q1')
+        with pulse.align_left():
+            pulse.reference('x', 'q0')
+            pulse.reference('cx_offset_rx', 'q1')
         pulse.reference('cx_geometric_phase', 'q0')
     calibrations.add_schedule(sched, num_qubits=2)
 
