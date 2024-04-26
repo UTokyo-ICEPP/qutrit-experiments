@@ -15,7 +15,7 @@ from qiskit_experiments.calibration_management import Calibrations
 from qiskit_experiments.exceptions import CalibrationError
 
 from ..calibrations import get_qutrit_freq_shift
-from ..gates import QutritQubitCXGate, RZ12Gate, SX12Gate, X12Gate
+from ..gates import P2Gate, RZ12Gate, SX12Gate, X12Gate
 
 logger = logging.getLogger(__name__)
 twopi = 2. * np.pi
@@ -95,6 +95,10 @@ def circuit_to_matrix(
             elif isinstance(inst.operation, RZ12Gate):
                 phase = inst.operation.params[0]
                 diag = [1., np.exp(-0.5j * phase), np.exp(0.5j * phase)]
+                gate = np.diagflat(diag)
+            elif isinstance(inst.operation, P2Gate):
+                phase = inst.operation.params[0]
+                diag = [1., 1., np.exp(1.j * phase)]
                 gate = np.diagflat(diag)
             else:
                 raise RuntimeError(f'Unhandled instruction {inst.operation}')
