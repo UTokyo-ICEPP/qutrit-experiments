@@ -135,24 +135,26 @@ def add_ecr(
     cr_angle = Parameter('cr_angle')
     rotary_amp = Parameter('rotary_amp')
     rotary_angle = Parameter('rotary_angle')
+    control_channel = pulse.ControlChannel(Parameter('ch0.1'))
+    drive_channel = pulse.DriveChannel(Parameter('ch1'))
 
     with pulse.build(name='ecr') as sched:
         pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=cr_amp,
                                         angle=cr_angle, name='CR90p_u'),
-                   pulse.ControlChannel(Parameter('ch0.1')),
+                   control_channel,
                    name='CR90p_u')
         pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=rotary_amp,
                                         angle=rotary_angle, name='CR90p_d'),
-                   pulse.DriveChannel(Parameter('ch1')),
+                   drive_channel,
                    name='CR90p_d')
         pulse.reference('x', 'q0')
         pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=cr_amp,
                                         angle=cr_angle + np.pi, name='CR90m_u'),
-                   pulse.ControlChannel(Parameter('ch0.1')),
+                   control_channel,
                    name='CR90m_u')
         pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=rotary_amp,
                                         angle=rotary_angle + np.pi, name='CR90m_d'),
-                   pulse.DriveChannel(Parameter('ch1')),
+                   drive_channel,
                    name='CR90m_d')
     calibrations.add_schedule(sched, num_qubits=2)
 
