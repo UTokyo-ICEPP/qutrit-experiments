@@ -16,7 +16,7 @@ from .custom_pulses import ConvertCustomPulses, RemoveUnusedCalibrations
 from .qutrit_circuits import ContainsQutritInstruction, AddQutritCalibrations
 from .rz import CastRZToAngle, ConsolidateRZAngle, InvertRZSign
 
-BASIS_GATES = [RZ12Gate, SetF12Gate, SX12Gate, X12Gate, QutritQubitCXGate, QutritQubitCZGate]
+BASIS_GATES = [RZ12Gate, SetF12Gate, SX12Gate, X12Gate, QutritQubitCXGate]
 
 
 @dataclass
@@ -45,31 +45,22 @@ def make_instruction_durations(
 
     inst_dur = InstructionDurations(backend.instruction_durations, dt=backend.dt)
 
-    for inst in [QutritQubitCXGate, QutritQubitCZGate]:
-        durations = []
-        for edge in backend.coupling_map.get_edges():
-            if not set(edge) <= qubits:
-                continue
-            try:
-                rcr_type = calibrations.get_parameter_value('rcr_type', edge)
-            except CalibrationError:
-                continue
-            if rcr_type == QutritQubitCXType.REVERSE:
-                x12_duration = calibrations.get_schedule('x12', edge[0]).duration
-                duration = 2 * (inst_dur.get('x', edge[1]) + inst_dur.get('ecr', edge[::-1]))
-                # Refocusing
-                duration *= 2
-                duration += x12_duration + inst_dur.get('x', edge[1])
-                if inst is QutritQubitCXGate:
-                    # Hadamard
-                    duration += inst_dur.get('sx', edge[1])
-            else:
-                sched_name = f'qutrit_qubit_cx_rcr{rcr_type}'
-                duration = calibrations.get_schedule(sched_name, edge).duration
+    # qutrit-qubit CX from calibrations
+    durations = []
+    for edge in backend.coupling_map.get_edges():
+        if not set(edge) <= qubits:
+            continue
+        try:
+            rcr_type = calibrations.get_parameter_value('rcr_type', edge)
+        except CalibrationError:
+            continue
+        if rcr_type == QutritQubitCXType.REVERSE:
+            continue
+        sched_name = f'qutrit_qubit_cx_rcr{rcr_type}'
+        duration = calibrations.get_schedule(sched_name, edge).duration
+        durations.append((QutritQubitCXGate.gate_name, edge, duration))
 
-            durations.append((inst.gate_name, edge, duration))
-
-        inst_dur.update(durations)
+    inst_dur.update(durations)
 
     for inst in set(BASIS_GATES) - set([QutritQubitCXGate, QutritQubitCZGate]):
         match (inst.gate_type, len(inst.as_qutrit)):
