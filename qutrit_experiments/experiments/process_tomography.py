@@ -46,7 +46,7 @@ class CircuitTomography(TomographyExperiment):
         basis_indices: Optional[Iterable[tuple[list[int], list[int]]]] = None,
         extra_metadata: Optional[dict[str, Any]] = None
     ):
-        if target_circuit:
+        if target_circuit is not None:
             target = Operator(target_circuit)
         else:
             target = None
