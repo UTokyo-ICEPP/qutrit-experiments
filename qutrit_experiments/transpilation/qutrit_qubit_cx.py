@@ -3,16 +3,24 @@ import numpy as np
 from qiskit import QuantumRegister
 from qiskit.dagcircuit import DAGCircuit
 from qiskit.circuit import Barrier, Delay
-from qiskit.circuit.library import ECRGate, RZGate, SXGate, XGate
+from qiskit.circuit.library import ECRGate, HGate, RZGate, SXGate, XGate
 from qiskit.transpiler import InstructionDurations, Target, TransformationPass, TranspilerError
 
-from ..gates import (QutritQubitCXGate, QutritQubitCXType, QutritQubitCZGate, RZ12Gate, X12Gate,
-                     XplusGate)
+from ..gates import P2Gate, QutritQubitCXGate, QutritQubitCXType, RZ12Gate, X12Gate, XplusGate
 from .util import insert_dd
 
 
 class ReverseCXDecomposition(TransformationPass):
-    """Decompose QutritQubitCXGate to the double reverse ECR sequence with basis cycling."""
+    """Decompose QutritQubitCXGate to the double reverse ECR sequence with basis cycling.
+    
+    The circuit for CZ with basis cycling is the following:
+         ┌─────┐┌─=─┐┌───────────┐┌───────────┐┌─======─┐┌─────┐┌───┐┌───────────────────┐┌─────┐┌───┐
+    q_0: ┤ X12 ├┤ X ├┤1          ├┤1          ├┤ Rx(-π) ├┤ X12 ├┤ X ├┤ Delay(delay2[dt]) ├┤ X12 ├┤ X ├
+         └─────┘└─=─┘│  Rzx(π/2) ││  Rzx(π/2) │├─======┬┘└─────┘└───┘└───────────────────┘└─────┘└───┘
+    q_1: ────────────┤0          ├┤0          ├┤ Rz(π) ├──────────────────────────────────────────────
+                     └───────────┘└───────────┘└───────┘                                              
+    where X and Rx(-π) cancel to P2(-π/2).
+    """
     def __init__(
         self,
         instruction_durations: InstructionDurations,
@@ -46,34 +54,30 @@ class ReverseCXDecomposition(TransformationPass):
                 subdag.apply_operation_back(op, [qreg[iq] for iq in qubits])
 
             if isinstance(node.op, QutritQubitCXGate):
-                add_op(RZGate(np.pi / 2.), 1)
-                add_op(SXGate(), 1)
+                add_op(HGate(), 1)
                 add_op(RZGate(np.pi / 2.), 1)
             add_op(X12Gate(), 0)
-            add_op(XGate(), 1)
+            add_op(P2Gate(-np.pi / 2.), 0)
             add_op(ECRGate(), 1, 0)
             add_op(XGate(), 1)
             add_op(ECRGate(), 1, 0)
-            add_op(RZGate(np.pi / 3.), 0) # Cancel the geometric phase correction
-            add_op(RZ12Gate(2. * np.pi / 3.), 0) # Cancel the geometric phase correction
+            add_op(XGate(), 1)
             add_op(XplusGate(), 0)
             add_op(RZGate(np.pi), 1)
-            delay = 2 * (dur('ecr', 1, 0) + dur('x', 1)) - dur('xplus', 0)
+            interval = dur('x12', 0) + 2 * dur('ecr', 1, 0) + dur('x', 1)
+            delay = interval - dur('xplus', 0)
             add_op(Delay(delay), 0)
-            q1_idle_duration = delay + 2 * dur('xplus', 0)
-            if isinstance(node.op, QutritQubitCXGate):
-                add_op(RZGate(np.pi / 2.), 1)
-                add_op(SXGate(), 1)
-                add_op(RZGate(np.pi / 2.), 1)
-                q1_idle_duration -= dur('sx', 1)
             if self.apply_dd:
-                delay = (q1_idle_duration - 2 * dur('x', 1)) // 2
-                delay = (delay // self.pulse_alignment) * self.pulse_alignment
+                delay = interval // 2 - dur('x', 1)
                 add_op(Delay(delay), 1)
                 add_op(XGate(), 1)
                 add_op(Delay(delay), 1)
                 add_op(XGate(), 1)
             add_op(XplusGate(label='reverse_cx_end'), 0)
+            if isinstance(node.op, QutritQubitCXGate):
+                add_op(HGate(), 1)
+            else:
+                add_op(Delay(dur('sx', 1)), 1)
             
             dag.substitute_node_with_dag(node, subdag)
 
