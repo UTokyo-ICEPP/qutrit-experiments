@@ -194,7 +194,6 @@ class PhaseTableAnalysis(CompoundAnalysis):
                 init[idx - 1] += phase_diffs[iexp]
                 binary = binary[:first_one] + '0' + binary[first_one + 1:]
 
-        print('init', init)
         result = least_squares(fun, init)
         diagonals = np.concatenate([[0.], (result.x + np.pi) % twopi - np.pi])
 
@@ -212,10 +211,11 @@ class PhaseTableAnalysis(CompoundAnalysis):
 
             num_exps = len(phase_diffs)
             ax = get_non_gui_ax()
-            ax.errorbar(np.arange(num_exps), phase_diffs, xerr=0.5, yerr=errs, fmt='none',
-                        label='observed')
-            ax.scatter(np.arange(num_exps), diagonals[idx_high] - diagonals[idx_low], c='#ff7f0e',
-                       label='fit')
+            ax.errorbar(np.arange(num_exps), (phase_diffs + np.pi) % twopi - np.pi, xerr=0.5,
+                        yerr=errs, fmt='none', label='observed')
+            ax.scatter(np.arange(num_exps),
+                       (diagonals[idx_high] - diagonals[idx_low] + np.pi) % twopi - np.pi,
+                       c='#ff7f0e', label='fit')
             ax.set_xticks(np.arange(num_exps),
                           labels=[f'{high}-{low}' for high, low in zip(idx_high, idx_low)])
             ax.legend()
