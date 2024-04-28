@@ -10,22 +10,25 @@ from ..experiment_config import ExperimentConfig
 logger = logging.getLogger(__name__)
 
 
-def add_readout_mitigation(gen=None, *, logical_qubits=None, expval=False):
+def add_readout_mitigation(gen=None, *, logical_qubits=None, probability=True, expval=False):
     """Decorator to add a readout error mitigation node to the DataProcessor."""
     if gen is None:
         def wrapper(gen):
-            return add_readout_mitigation(gen, logical_qubits=logical_qubits, expval=expval)
+            return add_readout_mitigation(gen, logical_qubits=logical_qubits,
+                                          probability=probability, expval=expval)
         return wrapper
 
     @wraps(gen)
     def converted_gen(runner, *args, **kwargs):
         config = gen(runner, *args, **kwargs)
-        configure_readout_mitigation(runner, config, logical_qubits=logical_qubits, expval=expval)
+        configure_readout_mitigation(runner, config, logical_qubits=logical_qubits,
+                                     probability=probability, expval=expval)
         return config
 
     return converted_gen
 
-def configure_readout_mitigation(runner, config, logical_qubits=None, expval=False):
+def configure_readout_mitigation(runner, config, logical_qubits=None, probability=True,
+                                 expval=False):
     if config.run_options.get('meas_level', MeasLevel.CLASSIFIED) != MeasLevel.CLASSIFIED:
         logger.warning('MeasLevel is not CLASSIFIED; no readout mitigation. run_options=%s',
                        config.run_options)
@@ -55,20 +58,14 @@ def configure_readout_mitigation(runner, config, logical_qubits=None, expval=Fal
         matrix = matrix.reshape((2,) * (2 * nq)).transpose(transpose).reshape((2 ** nq,) * 2)
 
     if (processor := config.analysis_options.get('data_processor')) is None:
-        nodes = [
-            ReadoutMitigation(matrix),
-            Probability(config.analysis_options.get('outcome', '1' * len(qubits)))
-        ]
+        nodes = [ReadoutMitigation(matrix)]
+        if probability:
+            nodes.append(Probability(config.analysis_options.get('outcome', '1' * len(qubits))))
         if expval:
             nodes.append(BasisExpectationValue())
         config.analysis_options['data_processor'] = DataProcessor('counts', nodes)
     else:
-        try:
-            insert_pos = next(inode for inode, node in enumerate(processor._nodes)
-                              if isinstance(node, Probability))
-        except StopIteration:
-            insert_pos = 0
-        processor._nodes.insert(insert_pos, ReadoutMitigation(matrix))
+        processor._nodes.insert(0, ReadoutMitigation(matrix))
 
 def qubits_assignment_error(runner, qubits):
     """Template configuration generator for CorrelatedReadoutError."""

@@ -24,7 +24,7 @@ def c1c2_cr_rotary_delta(runner):
     )
 
 @register_exp
-@add_readout_mitigation
+@add_readout_mitigation(probability=False)
 def toffoli_qpt_default(runner):
     from ..experiments.process_tomography import CircuitTomography
 
@@ -65,7 +65,7 @@ def toffoli_qpt_default(runner):
     )
 
 @register_exp
-@add_readout_mitigation
+@add_readout_mitigation(probability=False)
 def toffoli_qpt_bare(runner):
     from ..experiments.process_tomography import CircuitTomography
 
@@ -101,7 +101,7 @@ def toffoli_qpt_bare(runner):
     )
 
 @register_exp
-@add_readout_mitigation
+@add_readout_mitigation(probability=False)
 def toffoli_qpt_bc(runner):
     from ..experiments.process_tomography import CircuitTomography
     circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits)
@@ -116,7 +116,7 @@ def toffoli_qpt_bc(runner):
     )
 
 @register_exp
-@add_readout_mitigation
+@add_readout_mitigation(probability=False)
 def ccz_qpt_bc(runner):
     from ..experiments.process_tomography import CircuitTomography
     circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits,
@@ -132,7 +132,7 @@ def ccz_qpt_bc(runner):
     )
 
 @register_exp
-@add_readout_mitigation
+@add_readout_mitigation(probability=False)
 def toffoli_truth_table(runner):
     from qutrit_experiments.experiments.truth_table import TruthTable
     circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits)
@@ -141,13 +141,11 @@ def toffoli_truth_table(runner):
         runner.qubits,
         args={
             'circuit': circuit
-        },
-        # next line required for add_readout_mitigation to work properly (we don't want Probability)
-        analysis_options={'data_processor': DataProcessor('counts', [])}
+        }
     )
 
 @register_exp
-@add_readout_mitigation
+@add_readout_mitigation(probability=False)
 def ccz_truth_table(runner):
     from qutrit_experiments.experiments.truth_table import TruthTable
     circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits,
@@ -157,9 +155,7 @@ def ccz_truth_table(runner):
         runner.qubits,
         args={
             'circuit': circuit
-        },
-        # next line required for add_readout_mitigation to work properly (we don't want Probability)
-        analysis_options={'data_processor': DataProcessor('counts', [])}
+        }
     )
 
 @register_exp
