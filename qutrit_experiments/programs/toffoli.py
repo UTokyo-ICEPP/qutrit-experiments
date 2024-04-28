@@ -9,7 +9,7 @@ def calibrate_toffoli(
         # Construct the error mitigation matrix and find the rough CR pulse width
         runner.run_experiment('qubits_assignment_error', force_resubmit=refresh_readout_error)
 
-    runner.run_experiment('c1c2_rotary_delta')
+    runner.run_experiment('c1c2_cr_rotary_delta')
 
 
 def characterize_ccz(
