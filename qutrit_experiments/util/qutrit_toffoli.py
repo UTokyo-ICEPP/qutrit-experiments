@@ -98,9 +98,9 @@ def qutrit_toffoli_translator(
         pms['pretranslation'].append([
             TimeUnitConversion(inst_durations=instruction_durations),
             ALAPScheduleAnalysis(instruction_durations),
-            QutritToffoliRefocusing(instruction_durations, rcr_types, backend.target.pulse_alignment)
+            QutritToffoliRefocusing(instruction_durations, rcr_types, do_dd,
+                                    backend.target.pulse_alignment)
         ])
-
     translation_passes = []
     # if do_dd:
     #     add_dd = AddDDCalibration()
