@@ -131,8 +131,8 @@ class QutritMCGateDecomposition(TransformationPass):
                 subdag.apply_operation_back(op, [qreg[iq] for iq in qubits])
 
             if is_reverse == is_ccx:
-                add_op(dur('sx', 2), 0)
-                add_op(dur('sx', 2), 1)
+                add_op(Delay(dur('sx', 2)), 0)
+                add_op(Delay(dur('sx', 2)), 1)
                 add_op(HGate(), 2)
 
             add_op(XplusGate(label='qutrit_toffoli_begin'), 1)
@@ -322,8 +322,8 @@ class QutritToffoliRefocusing(TransformationPass):
 
             if any((isinstance(node, DAGOpNode) and isinstance(node.op, HGate))
                    for node in dag.ancestors(barrier)):
-                add_op(dur('sx', 2), 0)
-                add_op(dur('sx', 2), 1)
+                add_op(Delay(dur('sx', 2)), 0)
+                add_op(Delay(dur('sx', 2)), 1)
                 add_op(HGate(), 2)
 
             if self.rcr_types[qids[1:]] == QutritQubitCXType.REVERSE:

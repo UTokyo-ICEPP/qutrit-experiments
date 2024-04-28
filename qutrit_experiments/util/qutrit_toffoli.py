@@ -65,10 +65,12 @@ def qutrit_toffoli_translator(
         cr_duration = calibrations.get_schedule('cr', physical_qubits[-2:]).duration
         instruction_durations.update([('cr', physical_qubits[-2:], cr_duration)])
     if not ecr_based:
+        ecrs = []
         for name, qubits in instruction_durations.duration_by_name_qubits.keys():
-            if name == 'cx':
+            if name == 'cx' and set(qubits) <= set(physical_qubits):
                 ecr_duration = calibrations.get_schedule('ecr', qubits).duration
-                instruction_durations.update([('ecr', qubits, ecr_duration)])
+                ecrs.append(('ecr', qubits, ecr_duration))
+        instruction_durations.update(ecrs)
 
     pms = {
         'layout': generate_layout_passmanager(physical_qubits, backend.coupling_map)

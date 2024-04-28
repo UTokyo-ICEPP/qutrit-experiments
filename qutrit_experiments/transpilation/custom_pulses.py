@@ -36,6 +36,7 @@ class ConvertCustomPulses(TransformationPass):
 class AttachCalibration(TransformationPass):
     """Attach a calibration of a given name to DAG."""
     def __init__(self, gates: Sequence[str]):
+        super().__init__()
         self.gates = set(gates)
         self.calibrations = None
 

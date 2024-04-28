@@ -109,7 +109,7 @@ class RotaryStarkShiftPhaseCal(UpdateStarkDelta, RotaryQutritPhaseRotation):
         except KeyError:
             twoq_sched = backend.target['cx'][qubits].calibration
         rotary = next(inst for _, inst in twoq_sched.instructions
-                      if inst.name.startswith('CR90p_d'))
+                      if isinstance(inst, pulse.Play) and inst.name.startswith('CR90p_d'))
         with pulse.build(name='rotary') as sched:
             pulse.play(rotary.pulse, rotary.channel)
 
