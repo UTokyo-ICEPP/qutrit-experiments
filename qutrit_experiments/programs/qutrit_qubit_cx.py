@@ -31,12 +31,12 @@ def calibrate_qutrit_qubit_cx(
         runner_qubits = tuple(runner.qubits)
         runner.qubits = [runner.qubits[idx] for idx in qutrit_qubit_index]
 
-    if 'readout_assignment_matrices' not in runner.program_data:
+    if 'readout_mitigator' not in runner.program_data:
         # Construct the error mitigation matrix and find the rough CR pulse width
         runner.run_experiment('qubits_assignment_error', force_resubmit=refresh_readout_error)
 
     if cx_type == QutritQubitCXType.REVERSE:
-        calibrations.add_parameter_value(int(cx_type), 'rcr_type', runner.qubits)
+        runner.calibrations.add_parameter_value(int(cx_type), 'rcr_type', runner.qubits)
         runner.run_experiment('tc2_cr_rotary_delta')
         if qutrit_qubit_index is not None:
             runner.qubits = runner_qubits

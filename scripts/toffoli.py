@@ -26,11 +26,12 @@ if __name__ == '__main__':
     from qutrit_experiments.calibrations import (make_single_qutrit_gate_calibrations,
                                                  make_qutrit_qubit_cx_calibrations,
                                                  make_toffoli_calibrations)
-    from qutrit_experiments.configurations.common import (qubits_assignment_error,
-                                                          qubits_assignment_error_post)
+    from qutrit_experiments.configurations.common import (qubits_assignment_error as _assign_error,
+                                                          qubits_assignment_error_post as _assign_post)
     import qutrit_experiments.configurations.qutrit_qubit_cx
     import qutrit_experiments.configurations.toffoli
-    from qutrit_experiments.experiment_config import ExperimentConfig, ParallelExperimentConfig, register_post
+    from qutrit_experiments.experiment_config import (ExperimentConfig, ParallelExperimentConfig,
+                                                      experiments, register_exp, register_post)
     from qutrit_experiments.experiments.readout_error import CorrelatedReadoutError
     from qutrit_experiments.gates import QutritQubitCXType
     from qutrit_experiments.programs.common import (load_calibrations, setup_backend,
@@ -52,38 +53,44 @@ if __name__ == '__main__':
 
     if len(all_qubits) == 3:
         # Single Toffoli gate calibration
-        qubits_assignment_error = 'qubits_assignment_error'
-
         import qutrit_experiments.configurations.single_qutrit
         qutrit_runner_cls = None
         qutrits = [all_qubits[1]]
+
+        # Overwrite qubits_assignment_error registration
+        @register_exp
+        def qubits_assignment_error(runner):
+            return _assign_error(runner, all_qubits)
+
     else:
         # Multiple Toffoli gates calibration (serial)
-        # Readout mitigation in groups of three
-        config = ParallelExperimentConfig(
-            run_options={'shots': 10000},
-            exp_type='qubits_assignment_error_parallel'
-        )
-        for ic1 in range(0, len(all_qubits), 3):
-            qubits = all_qubits[ic1:ic1 + 3]
-            subconf = ExperimentConfig(
-                CorrelatedReadoutError,
-                qubits,
-                exp_type=f'qubits_assignment_error-{"_".join(map(str, qubits))}'
-            )
-            config.subexperiments.append(subconf)
-
-        qubits_assignment_error = config
-
-        @register_post
-        def qubits_assignment_error_parallel(runner, data):
-            for ibatch in range(len(all_qubits) // 3):
-                qubits_assignment_error_post(runner, data.child_data(ibatch))
-
         import qutrit_experiments.configurations.full_backend_qutrits
         from qutrit_experiments.runners.parallel_runner import ParallelRunner
         qutrit_runner_cls = ParallelRunner
         qutrits = all_qubits[1::3]
+
+        @register_exp
+        def qubits_assignment_error(runner):
+            # Readout mitigation in groups of three
+            config = ParallelExperimentConfig(
+                run_options={'shots': 10000},
+                exp_type='qubits_assignment_error_parallel'
+            )
+            for ic1 in range(0, len(all_qubits), 3):
+                qubits = all_qubits[ic1:ic1 + 3]
+                subconf = ExperimentConfig(
+                    CorrelatedReadoutError,
+                    qubits,
+                    exp_type=f'qubits_assignment_error-{"_".join(map(str, qubits))}'
+                )
+                config.subexperiments.append(subconf)
+
+            return config
+
+        @register_post
+        def qubits_assignment_error(runner, data):
+            for ibatch in range(len(all_qubits) // 3):
+                _assign_post(runner, data.child_data(ibatch))
 
     # Define all schedules to be calibrated
     calibrations = make_single_qutrit_gate_calibrations(backend, qubits=qutrits)
@@ -94,7 +101,7 @@ if __name__ == '__main__':
     runner = setup_runner(backend, program_config, calibrations=calibrations)
     runner.job_retry_interval = 120
 
-    runner.run_experiment(qubits_assignment_error,
+    runner.run_experiment('qubits_assignment_error',
                           force_resubmit=program_config['refresh_readout'])
 
     # Load the calibrations if source is specified in program_config

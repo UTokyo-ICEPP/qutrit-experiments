@@ -42,7 +42,7 @@ def calibrate_single_qutrit_gates(
         runner_qubits = list(runner.qubits)
         runner.qubits = [runner.qubits[idx] for idx in qutrit_index]
 
-    if 'readout_assignment_matrices' not in runner.program_data:
+    if 'readout_mitigator' not in runner.program_data:
         # Construct the error mitigation matrix and find the rough CR pulse width
         _run_experiment(runner, 'qubits_assignment_error', is_calibration=False,
                         force_resubmit=refresh_readout_error)
