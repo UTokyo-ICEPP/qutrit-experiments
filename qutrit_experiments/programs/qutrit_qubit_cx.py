@@ -36,7 +36,7 @@ def calibrate_qutrit_qubit_cx(
         runner.run_experiment('qubits_assignment_error', force_resubmit=refresh_readout_error)
 
     if cx_type == QutritQubitCXType.REVERSE:
-        calibrations.add_parameter_value('rcr_type', cx_type, runner.qubits[1:])
+        calibrations.add_parameter_value(int(cx_type), 'rcr_type', runner.qubits)
         runner.run_experiment('tc2_cr_rotary_delta')
         if qutrit_qubit_index is not None:
             runner.qubits = runner_qubits
