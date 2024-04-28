@@ -243,7 +243,7 @@ class CircuitTomography(TomographyExperiment):
         return data
 
 
-class CircuitTomographyAnalysis(ProcessTomographyAnalysis, ThreadedAnalysis):
+class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
     """ProcessTomographyAnalysis with an optional fit to a unitary when number of qubits is 1."""
     @classmethod
     def _default_options(cls) -> Options:
