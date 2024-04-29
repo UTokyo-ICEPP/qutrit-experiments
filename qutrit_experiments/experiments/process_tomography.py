@@ -272,7 +272,7 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
             for datum, ydatum in zip(experiment_data.data(), processed_ydata):
                 datum['counts'] = ydatum
 
-        analysis_results, figures = super()._run_analysis(experiment_data)
+        analysis_results, figures = super(ThreadedAnalysis, self)._run_analysis(experiment_data)
 
         if self.options.data_processor:
             logger.debug('Restoring counts.')
