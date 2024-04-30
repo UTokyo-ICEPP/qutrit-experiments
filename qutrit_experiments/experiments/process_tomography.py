@@ -7,13 +7,15 @@ import numpy as np
 from qiskit import QuantumCircuit, ClassicalRegister
 from qiskit.providers import Backend
 from qiskit.quantum_info import Operator
-from qiskit.result import Counts
+from qiskit.result import Counts, CorrelatedReadoutMitigator, LocalReadoutMitigator
+from qiskit_experiments.data_processing import DataProcessor, Probability, BasisExpectationValue
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 from qiskit_experiments.library.tomography import basis, ProcessTomographyAnalysis
 from qiskit_experiments.library.tomography.fitters.cvxpy_utils import cvxpy
 from qiskit_experiments.library.tomography.tomography_experiment import TomographyExperiment
 
 from ..constants import DEFAULT_SHOTS
+from ..data_processing import ReadoutMitigation
 from ..framework.threaded_analysis import NO_THREAD, ThreadedAnalysis
 from ..transpilation import map_to_physical_qubits, map_and_translate, translate_to_basis
 from ..util.unitary_fit import fit_unitary, plot_unitary_fit
@@ -248,7 +250,7 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
-        options.data_processor = None
+        options.readout_mitigator = None
         options.plot = True
         return options
 
@@ -256,7 +258,18 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
         num_qubits = len(experiment_data.metadata['m_qubits'])
         num_qubits *= len(experiment_data.metadata['p_qubits'])
         if num_qubits == 1:
-            return fit_unitary(experiment_data.data(), self.options.data_processor)
+            if self.options.readout_mitigator is not None:
+                nodes = [
+                    ReadoutMitigation(readout_mitigator=self.options.readout_mitigator,
+                                      physical_qubits=self.physical_qubits),
+                    Probability('1'),
+                    BasisExpectationValue()
+                ]
+                data_processor = DataProcessor('counts', nodes)
+            else:
+                data_processor = None
+
+            return fit_unitary(experiment_data.data(), data_processor)
         else:
             return None
 
@@ -265,19 +278,30 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
         experiment_data: ExperimentData,
         thread_output: Any
     ) -> tuple[list[AnalysisResultData, list[Figure]]]:
-        if self.options.data_processor:
+        if isinstance(self.options.readout_mitigator, LocalReadoutMitigator):
+            readout_mitigator = self.options.readout_mitigator
+        elif isinstance(self.options.readout_mitigator, CorrelatedReadoutMitigator):
+            matrices = [self.options.readout_mitigator.assignment_matrix(qubit)
+                        for qubit in self.physical_qubits]
+            readout_mitigator = LocalReadoutMitigator(matrices, self.physical_qubits)
+
             logger.debug('Overwriting counts using the output of the DataProcessor.')
             processed_ydata = self.options.data_processor(experiment_data.data())
             original_counts = [datum['counts'] for datum in experiment_data.data()]
             for datum, ydatum in zip(experiment_data.data(), processed_ydata):
                 datum['counts'] = ydatum
+        else:
+            readout_mitigator = None
+
+        mmt_basis = self.options.measurement_basis
+        if readout_mitigator is not None:
+            self.set_options(
+                measurement_basis=basis.PauliMeasurementBasis(mitigator=readout_mitigator)
+            )
 
         analysis_results, figures = super(ThreadedAnalysis, self)._run_analysis(experiment_data)
 
-        if self.options.data_processor:
-            logger.debug('Restoring counts.')
-            for datum, counts in zip(experiment_data.data(), original_counts):
-                datum['counts'] = counts
+        self.set_options(measurement_basis=mmt_basis)
 
         if thread_output:
             popt_ufloats, state, expvals_pred, fit_input = thread_output
