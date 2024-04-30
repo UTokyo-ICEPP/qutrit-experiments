@@ -278,26 +278,10 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
         experiment_data: ExperimentData,
         thread_output: Any
     ) -> tuple[list[AnalysisResultData, list[Figure]]]:
-        if isinstance(self.options.readout_mitigator, LocalReadoutMitigator):
-            readout_mitigator = self.options.readout_mitigator
-        elif isinstance(self.options.readout_mitigator, CorrelatedReadoutMitigator):
-            matrices = [self.options.readout_mitigator.assignment_matrix(qubit)
-                        for qubit in self.physical_qubits]
-            readout_mitigator = LocalReadoutMitigator(matrices, self.physical_qubits)
-
-            logger.debug('Overwriting counts using the output of the DataProcessor.')
-            processed_ydata = self.options.data_processor(experiment_data.data())
-            original_counts = [datum['counts'] for datum in experiment_data.data()]
-            for datum, ydatum in zip(experiment_data.data(), processed_ydata):
-                datum['counts'] = ydatum
-        else:
-            readout_mitigator = None
-
         mmt_basis = self.options.measurement_basis
-        if readout_mitigator is not None:
-            self.set_options(
-                measurement_basis=basis.PauliMeasurementBasis(mitigator=readout_mitigator)
-            )
+        self.set_options(
+            measurement_basis=basis.PauliMeasurementBasis(mitigator=self.options.readout_mitigator)
+        )
 
         analysis_results, figures = super(ThreadedAnalysis, self)._run_analysis(experiment_data)
 

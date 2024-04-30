@@ -2,6 +2,7 @@ from functools import wraps
 import logging
 import numpy as np
 from qiskit.qobj.utils import MeasLevel
+from qiskit.result import LocalReadoutMitigator
 from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 
 from ..data_processing import ReadoutMitigation
@@ -64,7 +65,9 @@ def add_qpt_readout_mitigation(gen):
         config = gen(runner)
         for mitigator_qubits, mitigator in runner.program_data.get('readout_mitigator', {}).items():
             if set(config.physical_qubits) <= set(mitigator_qubits):
-                config.analysis_options['readout_mitigator'] = mitigator
+                matrices = [mitigator.assignment_matrix(qubit) for qubit in config.physical_qubits]
+                local_mitigator = LocalReadoutMitigator(matrices, config.physical_qubits)
+                config.analysis_options['readout_mitigator'] = local_mitigator
                 break
         else:
             logger.warning('Correlated readout mitigator for qubits %s not found.',
