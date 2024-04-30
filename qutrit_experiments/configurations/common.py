@@ -58,6 +58,21 @@ def configure_readout_mitigation(runner, config, logical_qubits=None, probabilit
     else:
         processor._nodes.insert(0, mit_node)
 
+def add_qpt_readout_mitigation(gen):
+    @wraps(gen)
+    def converted_gen(runner):
+        config = gen(runner)
+        for mitigator_qubits, mitigator in runner.program_data.get('readout_mitigator', {}).items():
+            if set(config.physical_qubits) <= set(mitigator_qubits):
+                config.analysis_options['readout_mitigator'] = mitigator
+                break
+        else:
+            logger.warning('Correlated readout mitigator for qubits %s not found.',
+                           config.physical_qubits)
+        return config
+
+    return converted_gen
+
 def qubits_assignment_error(runner, qubits):
     """Template configuration generator for CorrelatedReadoutError."""
     from ..experiments.readout_error import CorrelatedReadoutError

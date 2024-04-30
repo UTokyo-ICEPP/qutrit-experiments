@@ -10,7 +10,7 @@ from ..transpilation.layout_and_translation import generate_translation_passmana
 from ..transpilation.qutrit_transpiler import BASIS_GATES
 from ..transpilation.rz import ConsolidateRZAngle
 from ..util.qutrit_toffoli import qutrit_toffoli_circuit, qutrit_toffoli_translator
-from .common import add_readout_mitigation
+from .common import add_readout_mitigation, add_qpt_readout_mitigation
 
 
 @register_exp
@@ -24,7 +24,7 @@ def c1c2_cr_rotary_delta(runner):
     )
 
 @register_exp
-@add_readout_mitigation(probability=False)
+@add_qpt_readout_mitigation
 def toffoli_qpt_default(runner):
     from ..experiments.process_tomography import CircuitTomography
 
@@ -65,7 +65,7 @@ def toffoli_qpt_default(runner):
     )
 
 @register_exp
-@add_readout_mitigation(probability=False)
+@add_qpt_readout_mitigation
 def toffoli_qpt_bare(runner):
     from ..experiments.process_tomography import CircuitTomography
 
@@ -101,7 +101,7 @@ def toffoli_qpt_bare(runner):
     )
 
 @register_exp
-@add_readout_mitigation(probability=False)
+@add_qpt_readout_mitigation
 def toffoli_qpt_bc(runner):
     from ..experiments.process_tomography import CircuitTomography
     circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits)
@@ -112,11 +112,11 @@ def toffoli_qpt_bc(runner):
         CircuitTomography,
         runner.qubits,
         args={'circuit': circuit, 'target_circuit': target_circuit},
-        run_options={'shots': 4000}
+        run_options={'shots': 2000, 'rep_delay': runner.backend.configuration().rep_delay_range[1]}
     )
 
 @register_exp
-@add_readout_mitigation(probability=False)
+@add_qpt_readout_mitigation
 def ccz_qpt_bc(runner):
     from ..experiments.process_tomography import CircuitTomography
     circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits,
@@ -128,6 +128,27 @@ def ccz_qpt_bc(runner):
         CircuitTomography,
         runner.qubits,
         args={'circuit': circuit, 'target_circuit': target_circuit},
+        experiment_options={'max_circuits': 100},
+        run_options={'shots': 2000}
+    )
+
+@register_exp
+@add_qpt_readout_mitigation
+def cz_qpt_bc(runner):
+    from ..experiments.process_tomography import CircuitTomography
+    pm = qutrit_toffoli_translator(runner.backend, runner.calibrations, runner.qubits[1:])
+    circuit = QuantumCircuit(2)
+    circuit.append(QutritQubitCZGate(), [0, 1])
+    circuit = pm.run(circuit)
+
+    target_circuit = QuantumCircuit(2)
+    target_circuit.cz(0, 1)
+
+    return ExperimentConfig(
+        CircuitTomography,
+        runner.qubits[1:],
+        args={'circuit': circuit, 'target_circuit': target_circuit},
+        experiment_options={'max_circuits': 100},
         run_options={'shots': 4000}
     )
 
