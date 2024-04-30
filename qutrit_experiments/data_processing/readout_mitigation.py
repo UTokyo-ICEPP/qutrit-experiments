@@ -38,7 +38,7 @@ class ReadoutMitigation(CountsAction):
             # CorrelatedReadoutMitigator.assignment_matrix() implicitly sorts the qubits through the
             # use of set, so we reorder the axes. Also note that unused qubits are assumed to be at
             # |0> state.
-            indices = list(reversed([readout_mitigator._qubit_index(iq) for iq in physical_qubits]))
+            indices = list(reversed([readout_mitigator._qubit_index[iq] for iq in physical_qubits]))
             sorted_indices = list(reversed(sorted(indices)))
             if indices != sorted_indices:
                 nq = len(indices)
