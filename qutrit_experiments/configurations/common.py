@@ -46,26 +46,17 @@ def configure_readout_mitigation(runner, config, logical_qubits=None, probabilit
         logger.warning('Correlated readout mitigator for qubits %s not found.', qubits)
         return
 
-    # CorrelatedReadoutMitigator.assignment_matrix() implicitly sorts the qubits through the use of
-    # set, so we reorder the axes. Also note that unused qubits are assumed to be at |0> state
-    matrix = mitigator.assignment_matrix(qubits)
-    indices = list(reversed([mitigator_qubits.index(iq) for iq in qubits]))
-    sorted_indices = list(reversed(sorted(indices)))
-    if indices != sorted_indices:
-        nq = len(indices)
-        transpose = [sorted_indices.index(i) for i in indices] # row reordering
-        transpose += [t + nq for t in transpose] # column reordering
-        matrix = matrix.reshape((2,) * (2 * nq)).transpose(transpose).reshape((2 ** nq,) * 2)
+    mit_node = ReadoutMitigation(readout_mitigator=mitigator, physical_qubits=qubits)
 
     if (processor := config.analysis_options.get('data_processor')) is None:
-        nodes = [ReadoutMitigation(matrix)]
+        nodes = [mit_node]
         if probability:
             nodes.append(Probability(config.analysis_options.get('outcome', '1' * len(qubits))))
         if expval:
             nodes.append(BasisExpectationValue())
         config.analysis_options['data_processor'] = DataProcessor('counts', nodes)
     else:
-        processor._nodes.insert(0, ReadoutMitigation(matrix))
+        processor._nodes.insert(0, mit_node)
 
 def qubits_assignment_error(runner, qubits):
     """Template configuration generator for CorrelatedReadoutError."""
