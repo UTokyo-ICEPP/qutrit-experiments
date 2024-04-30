@@ -61,4 +61,4 @@ if __name__ == '__main__':
 
     calibrate_single_qutrit_gates(runner, refresh_readout_error=program_config['refresh_readout'],
                                   calibrated=calibrated)
-    characterize_qutrit(runner)
+    characterize_qutrit(runner, refresh_readout_error=program_config['refresh_readout'])

@@ -42,6 +42,11 @@ def calibrate_qutrit_qubit_cx(
             runner.qubits = runner_qubits
         return
 
+    qubits = runner.qubits
+    runner.qubits = [qubits[0]]
+    runner.run_experiment('qutrit_assignment_error', force_resubmit=refresh_readout_error)
+    runner.qubits = qubits
+
     # Find the amplitude that does not disrupt the |2> state too much
     runner.run_experiment('cr_initial_amp')
 

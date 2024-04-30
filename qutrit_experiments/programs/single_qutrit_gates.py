@@ -67,17 +67,21 @@ def calibrate_single_qutrit_gates(
         if exp_type not in calibrated:
             _run_experiment(runner, exp_type)
 
-    _run_experiment(runner, 'qutrit_assignment_error', is_calibration=False,
-                    force_resubmit=refresh_readout_error)
-
     if qutrit_index is not None:
         runner.qubits = runner_qubits
 
 
-def characterize_qutrit(runner: ExperimentsRunner, qutrit_index: Optional[Sequence[int]] = None):
+def characterize_qutrit(
+    runner: ExperimentsRunner,
+    refresh_readout_error: bool = True,
+    qutrit_index: Optional[Sequence[int]] = None
+):
     if qutrit_index is not None:
         runner_qubits = list(runner.qubits)
         runner.qubits = [runner.qubits[idx] for idx in qutrit_index]
+
+    _run_experiment(runner, 'qutrit_assignment_error', is_calibration=False,
+                    force_resubmit=refresh_readout_error)
 
     _run_experiment(runner, 'qutrit_t1', is_calibration=False)
 
