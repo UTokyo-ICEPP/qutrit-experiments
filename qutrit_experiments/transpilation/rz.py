@@ -199,7 +199,9 @@ class CastRZToAngle(TransformationPass):
             # Cache the result
             self._sched_cache.setdefault(name, {})[key] = (schedule, angles, from_cal)
 
-        return schedule.assign_parameters(dict(zip(angles, phases)), inplace=False), from_cal
+        schedule = schedule.assign_parameters(dict(zip(angles, phases)), inplace=False)
+        self.wrap_angles(schedule)
+        return schedule, from_cal
 
     def parametrize_instructions(
         self,
@@ -237,3 +239,28 @@ class CastRZToAngle(TransformationPass):
 
         # Not all parameters may have been used
         return list(set(angles) & set(schedule_block.parameters))
+
+    def wrap_angles(
+        self,
+        schedule_block: ScheduleBlock
+    ):
+        """Wrap the angles post-assignment because ParameterExpression does not support the % op."""
+        replacements = []
+        for block in schedule_block.blocks:
+            if not isinstance(block, pulse.Play):
+                if isinstance(block, ScheduleBlock):
+                    self.wrap_angles(block)
+                continue
+
+            if not isinstance(block.pulse, ScalableSymbolicPulse):
+                raise TranspilerError(f'Pulse {block.pulse} is not a ScalableSymbolicPulse')
+            
+            if 0. <= block.pulse.angle < twopi:
+                continue
+            
+            new_inst = pulse.Play(copy.deepcopy(block.pulse), block.channel, name=block.name)
+            new_inst.pulse._params['angle'] = block.pulse._params['angle'] % twopi
+            replacements.append((block, new_inst))
+
+        for old, new in replacements:
+            schedule_block.replace(old, new)
