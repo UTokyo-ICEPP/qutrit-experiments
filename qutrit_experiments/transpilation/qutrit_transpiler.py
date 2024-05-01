@@ -129,12 +129,12 @@ def transpile_qutrit_circuits(
     pm.append([scheduling, add_cal], condition=contains_qutrit_gate)
     if LO_SIGN > 0.:
         pm.append(InvertRZSign())
-    if options.consolidate_rz:
-        pm.append(ConsolidateRZAngle())
     if options.rz_casted_gates:
         pm.append(CastRZToAngle(backend.configuration().channels,
                                 backend.target.instruction_schedule_map(),
                                 options.rz_casted_gates))
+    if options.consolidate_rz:
+        pm.append(ConsolidateRZAngle())
     if options.remove_unused_calibrations:
         pm.append(RemoveUnusedCalibrations())
     if options.use_waveform:
