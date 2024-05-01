@@ -1,7 +1,6 @@
 # pylint: disable=import-outside-toplevel, function-redefined, unused-argument
 """Experiment configurations for Toffoli gate calibration."""
 from qiskit import QuantumCircuit
-from qiskit_experiments.data_processing import DataProcessor
 
 from ..experiment_config import ExperimentConfig, register_exp
 from ..gates import (QutritCCZGate, QutritQubitCXType, QutritQubitCXGate, QutritQubitCZGate,
@@ -10,6 +9,7 @@ from ..transpilation.layout_and_translation import generate_translation_passmana
 from ..transpilation.qutrit_transpiler import BASIS_GATES
 from ..transpilation.rz import ConsolidateRZAngle
 from ..util.qutrit_toffoli import qutrit_toffoli_circuit, qutrit_toffoli_translator
+from ..util.transforms import circuit_to_pulse_circuit
 from .common import add_readout_mitigation, add_qpt_readout_mitigation
 
 
@@ -25,7 +25,7 @@ def c1c2_cr_rotary_delta(runner):
 
 @register_exp
 @add_qpt_readout_mitigation
-def toffoli_qpt_default(runner):
+def qpt_toffoli_default(runner):
     from ..experiments.process_tomography import CircuitTomography
 
     # 8CX decomposition in Duckering et al. ASPLOS 2021 (cited by 2109.00558)
@@ -66,7 +66,7 @@ def toffoli_qpt_default(runner):
 
 @register_exp
 @add_qpt_readout_mitigation
-def toffoli_qpt_bare(runner):
+def qpt_toffoli_bare(runner):
     from ..experiments.process_tomography import CircuitTomography
 
     rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits[1:])
@@ -102,7 +102,7 @@ def toffoli_qpt_bare(runner):
 
 @register_exp
 @add_qpt_readout_mitigation
-def toffoli_qpt_bc(runner):
+def qpt_toffoli_bc(runner):
     from ..experiments.process_tomography import CircuitTomography
     circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits)
     target_circuit = QuantumCircuit(3)
@@ -117,7 +117,7 @@ def toffoli_qpt_bc(runner):
 
 @register_exp
 @add_qpt_readout_mitigation
-def ccz_qpt_bc(runner):
+def qpt_ccz_bc(runner):
     from ..experiments.process_tomography import CircuitTomography
     circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits,
                                      gate=QutritCCZGate())
@@ -134,7 +134,26 @@ def ccz_qpt_bc(runner):
 
 @register_exp
 @add_qpt_readout_mitigation
-def cz_qpt_bc(runner):
+def qpt_ccz_bc_fullsched(runner):
+    from ..experiments.process_tomography import CircuitTomography
+    circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits,
+                                     gate=QutritCCZGate())
+    circuit = circuit_to_pulse_circuit(circuit, runner.backend, runner.calibrations, runner.qubits,
+                                       qutrit_transpile_options={'rz_casted_gates': 'all'})
+    target_circuit = QuantumCircuit(3)
+    target_circuit.ccz(0, 1, 2)
+
+    return ExperimentConfig(
+        CircuitTomography,
+        runner.qubits,
+        args={'circuit': circuit, 'target_circuit': target_circuit},
+        experiment_options={'max_circuits': 100},
+        run_options={'shots': 2000}
+    )
+
+@register_exp
+@add_qpt_readout_mitigation
+def qpt_cz_bc(runner):
     from ..experiments.process_tomography import CircuitTomography
     pm = qutrit_toffoli_translator(runner.backend, runner.calibrations, runner.qubits[1:])
     circuit = QuantumCircuit(2)
@@ -154,7 +173,7 @@ def cz_qpt_bc(runner):
 
 @register_exp
 @add_readout_mitigation(probability=False)
-def toffoli_truth_table(runner):
+def truthtable_toffoli(runner):
     from qutrit_experiments.experiments.truth_table import TruthTable
     circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits)
     return ExperimentConfig(
@@ -167,7 +186,7 @@ def toffoli_truth_table(runner):
 
 @register_exp
 @add_readout_mitigation(probability=False)
-def ccz_truth_table(runner):
+def truthtable_ccz(runner):
     from qutrit_experiments.experiments.truth_table import TruthTable
     circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits,
                                      gate=QutritCCZGate())
@@ -180,8 +199,23 @@ def ccz_truth_table(runner):
     )
 
 @register_exp
+@add_qpt_readout_mitigation
+def truthtable_ccz_fullsched(runner):
+    from qutrit_experiments.experiments.truth_table import TruthTable
+    circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits,
+                                     gate=QutritCCZGate())
+    circuit = circuit_to_pulse_circuit(circuit, runner.backend, runner.calibrations, runner.qubits,
+                                       qutrit_transpile_options={'rz_casted_gates': 'all'})
+
+    return ExperimentConfig(
+        TruthTable,
+        runner.qubits,
+        args={'circuit': circuit}
+    )
+
+@register_exp
 @add_readout_mitigation
-def ccz_phase_table(runner):
+def phasetable_ccz(runner):
     from qutrit_experiments.experiments.phase_table import PhaseTable
     circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits,
                                      gate=QutritCCZGate())
@@ -195,7 +229,23 @@ def ccz_phase_table(runner):
 
 @register_exp
 @add_readout_mitigation
-def cz_phase_table(runner):
+def phasetable_ccz_fullsched(runner):
+    from qutrit_experiments.experiments.phase_table import PhaseTable
+    circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits,
+                                     gate=QutritCCZGate())
+    circuit = circuit_to_pulse_circuit(circuit, runner.backend, runner.calibrations, runner.qubits,
+                                       qutrit_transpile_options={'rz_casted_gates': 'all'})
+    return ExperimentConfig(
+        PhaseTable,
+        runner.qubits,
+        args={
+            'circuit': circuit
+        }
+    )
+
+@register_exp
+@add_readout_mitigation
+def phasetable_cz(runner):
     from qutrit_experiments.experiments.phase_table import PhaseTable
     pm = qutrit_toffoli_translator(runner.backend, runner.calibrations, runner.qubits[1:])
     circuit = QuantumCircuit(2)

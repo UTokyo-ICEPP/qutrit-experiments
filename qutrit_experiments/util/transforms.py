@@ -4,8 +4,8 @@ import logging
 from typing import Optional, Union
 import numpy as np
 import scipy
-from qiskit import QuantumCircuit, pulse
-from qiskit.circuit import Barrier, Delay
+from qiskit import QuantumCircuit, pulse, schedule
+from qiskit.circuit import Barrier, Delay, Gate
 from qiskit.circuit.library import ECRGate, RZGate, SXGate, XGate
 from qiskit.providers import Backend
 from qiskit.providers.exceptions import BackendConfigurationError
@@ -21,15 +21,15 @@ logger = logging.getLogger(__name__)
 twopi = 2. * np.pi
 
 
-def schedule_to_block(schedule: Schedule):
+def schedule_to_block(schedule: Schedule, name: Optional[str] = None) -> ScheduleBlock:
     """Convert a Schedule to ScheduleBlock. Am I sure this doesn't exist in Qiskit proper?"""
     # Convert to ScheduleBlock
-    with pulse.build(name=schedule.name) as schedule_block:
+    with pulse.build(name=(name or schedule.name)) as schedule_block:
         pulse.call(schedule)
     return schedule_block
 
 
-def symbolic_pulse_to_waveform(schedule_block: ScheduleBlock):
+def symbolic_pulse_to_waveform(schedule_block: ScheduleBlock) -> None:
     """Replace custom pulses to waveforms in place."""
     # .blocks returns a new container so we don't need to wrap the result further
     for block in schedule_block.blocks:
@@ -363,3 +363,35 @@ def schedule_to_matrix(
     sched_unitary.imag = np.where(np.abs(sched_unitary.imag) < 1.e-8, 0., sched_unitary.imag)
 
     return sched_unitary
+
+
+def circuit_to_pulse_circuit(
+    circuits: Union[QuantumCircuit, list[QuantumCircuit]],
+    backend: Backend,
+    calibrations: Calibrations,
+    physical_qubits: Sequence[int],
+    qutrit_transpile_options: Optional[dict] = None
+) -> Union[QuantumCircuit, list[QuantumCircuit]]:
+    from ..transpilation.qutrit_transpiler import transpile_qutrit_circuits
+
+    list_input = isinstance(circuits, list)
+    if not list_input:
+        circuits = [circuits]
+
+    schedules = schedule(
+        transpile_qutrit_circuits(circuits, backend, calibrations, options=qutrit_transpile_options,
+                                  initial_layout=physical_qubits, optimization_level=0),
+        backend=backend
+    )
+
+    pulse_circuits = []
+    for circ, sched in zip(circuits, schedules):
+        circuit = circ.copy_empty_like()
+        # Attaching as a single-qubit gate because >= 3q gate triggers unrolling
+        circuit.append(Gate('full_schedule', len(physical_qubits), []), range(len(physical_qubits)))
+        circuit.add_calibration('full_schedule', physical_qubits,
+                                schedule_to_block(sched, name='full_schedule'))
+
+        pulse_circuits.append(circuit)
+    
+    return pulse_circuits if list_input else pulse_circuits[0]
