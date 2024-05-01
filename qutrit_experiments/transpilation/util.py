@@ -31,17 +31,18 @@ def insert_rz(
         if angle:
             subdag.apply_operation_back(RZGate(angle), [qubit])
     subst_map = dag.substitute_node_with_dag(node, subdag)
+    op_nodes = list(subdag.topological_op_nodes())
+    new_node_idx = sum(1 for angle in pre_angles if angle)
+    new_node = subst_map[op_nodes[new_node_idx]._node_id]
+
     # Update the node_start_time map
-    start_time = node_start_time.pop(node)
-    op_nodes = iter(subdag.topological_op_nodes())
-    for angle in pre_angles:
-        if angle:
-            node_start_time[subst_map[next(op_nodes)._node_id]] = start_time
-    new_node = subst_map[next(op_nodes)._node_id]
-    node_start_time[new_node] = start_time
-    for angle in post_angles:
-        if angle:
-            node_start_time[subst_map[next(op_nodes)._node_id]] = start_time + op_duration
+    if node_start_time:
+        start_time = node_start_time.pop(node)
+        node_start_time[new_node] = start_time
+        for node in op_nodes[:new_node_idx]:
+            node_start_time[subst_map[node._node_id]] = start_time
+        for node in op_nodes[new_node_idx + 1:]:
+            node_start_time[subst_map[node._node_id]] = start_time + op_duration
 
     return new_node
 
