@@ -173,7 +173,8 @@ def schedule_to_matrix(
         }
         for op in ['x', 'x12', 'sx', 'sx12']
     }
-    starks['rzx45p_rotary'] = {}
+    for op in ['rzx45p_rotary', 'rzx45m_rotary']:
+        starks[op] = {}
     for qutrit in qutrits:
         for qubit in [qutrit - 1, qutrit + 1]:
             key = tuple(physical_qubits[iq] for iq in [qubit, qutrit])
@@ -182,6 +183,7 @@ def schedule_to_matrix(
             except CalibrationError:
                 continue
             starks['rzx45p_rotary'][(qubit, qutrit)] = np.exp(-0.5j * delta)
+            starks['rzx45m_rotary'][(qubit, qutrit)] = np.exp(-0.5j * delta)
 
     qutrit_freq_shifts = {
         iq: get_qutrit_freq_shift(physical_qubits[iq], backend.target, calibrations)
@@ -219,8 +221,43 @@ def schedule_to_matrix(
         },
         'rzx45p_rotary': {
             3: np.array([[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]], dtype=complex)
+        },
+        'rzx45m_rotary': {
+            3: np.array([[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]], dtype=complex)
         }
     }
+
+    reference_angles = {}
+    for gate in ['x', 'sx']:
+        angles = {}
+        for iq, pq in enumerate(physical_qubits):
+            angles[iq] = backend.target[gate][(pq,)].calibration.instructions[0][1].pulse.angle
+        reference_angles[gate] = angles
+    for gate in ['x12', 'sx12']:
+        angles = {}
+        for qutrit in qutrits:
+            pq = physical_qubits[qutrit]
+            angles[qutrit] = calibrations.get_parameter_value('angle', pq, gate)
+        reference_angles[gate] = angles
+    for gate in ['rzx45p', 'rzx45m', 'rzx45p_rotary', 'rzx45m_rotary']:
+        reference_angles[gate] = {}
+    for iqc, iqt in control_channels.values():
+        pqc = physical_qubits[iqc]
+        pqt = physical_qubits[iqt]
+        try:
+            sched = backend.target['ecr'][(pqc, pqt)].calibration
+        except KeyError:
+            continue
+        for _, inst in sched.instructions:
+            if isinstance(inst, pulse.Play):
+                if inst.name.startswith('CR90p_u'):
+                    reference_angles['rzx45p'][(iqc, iqt)] = inst.pulse.angle
+                elif inst.name.startswith('CR90m_u'):
+                    reference_angles['rzx45m'][(iqc, iqt)] = inst.pulse.angle
+                elif inst.name.startswith('CR90p_d'):
+                    reference_angles['rzx45p_rotary'][iqt] = inst.pulse.angle
+                elif inst.name.startswith('CR90m_d'):
+                    reference_angles['rzx45m_rotary'][iqt] = inst.pulse.angle
 
     def phase_shift_op(phase, dim, subspace=0):
         match (dim, subspace):
@@ -239,11 +276,11 @@ def schedule_to_matrix(
                      [0., 0., np.exp(1.j * phase)]]
                 )
 
-    def embed_1q_gate(gate_name, channel, time):
+    def embed_1q_gate(gate_name, channel, angle, time):
         iq = drive_channels[channel]
+        phase = angle - reference_angles[gate_name][iq] + channel_phases[channel]
         if dims[iq] == 3:
             bare_op = op_unitaries[gate_name][3].copy()
-            phase = channel_phases[channel]
             if gate_name in ['x12', 'sx12']:
                 bare_op[0, 0] *= starks[gate_name][iq]
                 # x12 pulse at time t corresponds to a pi pulse with phase offset -freq_shift*t
@@ -253,45 +290,47 @@ def schedule_to_matrix(
             else:
                 bare_op[2, 2] *= starks[gate_name][iq]
                 subspace = 0
-            rz = phase_shift_op(phase, 3, subspace)
+            zrot = phase_shift_op(phase, 3, subspace)
         else:
             bare_op = op_unitaries[gate_name][2].copy()
-            rz = phase_shift_op(channel_phases[channel], 2)
+            zrot = phase_shift_op(phase, 2)
 
-        return _embed_1q(iq, bare_op, rz)
+        return _embed_1q(iq, bare_op, zrot)
     
-    def embed_rotary(channel, control):
+    def embed_rotary(gate_name, channel, control, angle):
         iq = drive_channels[channel]
-        bare_op = op_unitaries['rzx45p_rotary'][3].copy()
-        bare_op[2, 2] *= starks['rzx45p_rotary'][(control, iq)]
-        rz = phase_shift_op(channel_phases[channel], 3)
-        return _embed_1q(iq, bare_op, rz)
+        phase = angle - reference_angles[gate_name][iq] + channel_phases[channel]
+        bare_op = op_unitaries[gate_name][3].copy()
+        bare_op[2, 2] *= starks[gate_name][(control, iq)]
+        zrot = phase_shift_op(phase, 3)
+        return _embed_1q(iq, bare_op, zrot)
 
-    def _embed_1q(iq, bare_op, rz):
+    def _embed_1q(iq, bare_op, zrot):
         matrix = np.eye(np.prod(dims[:iq]), dtype=complex)
-        matrix = np.kron(matrix, rz.conjugate() @ bare_op @ rz)
-        return np.kron(matrix, np.eye(np.prod(dims[iq + 1:]), dtype=complex))
+        matrix = np.kron(zrot.conjugate() @ bare_op @ zrot, matrix)
+        return np.kron(np.eye(np.prod(dims[iq + 1:]), dtype=complex), matrix)
 
-    def embed_2q_gate(gate_name, channel):
+    def embed_2q_gate(gate_name, channel, angle):
         iqc, iqt = control_channels[channel]
+        phase = angle - reference_angles[gate_name][(iqc, iqt)] + channel_phases[channel]
         bare_op = op_unitaries[gate_name][(dims[iqc], dims[iqt])].copy()
-        block_rz = phase_shift_op(channel_phases[channel], dims[iqt])
+        block_zrot = phase_shift_op(phase, dims[iqt])
         blocks = np.zeros((dims[iqc], dims[iqc], dims[iqt], dims[iqt]), dtype=complex)
-        blocks[np.arange(dims[iqc]), np.arange(dims[iqc])] = block_rz
-        rz = block_matrix(blocks)
-        op = rz.conjugate() @ bare_op @ rz
-        if iqc > iqt:
+        blocks[np.arange(dims[iqc]), np.arange(dims[iqc])] = block_zrot
+        zrot = block_matrix(blocks)
+        op = zrot.conjugate() @ bare_op @ zrot
+        if iqc < iqt:
             op = op.reshape((dims[iqc], dims[iqt], dims[iqc], dims[iqt])).transpose((1, 0, 3, 2))
             op = op.reshape((dims[iqc] * dims[iqt], dims[iqc] * dims[iqt]))
-            low = iqt
-            high = iqc
-        else:
             low = iqc
             high = iqt
+        else:
+            low = iqt
+            high = iqc
 
         matrix = np.eye(np.prod(dims[:low]), dtype=complex)
-        matrix = np.kron(matrix, op)
-        return np.kron(matrix, np.eye(np.prod(dims[high + 1:]), dtype=complex))
+        matrix = np.kron(op, matrix)
+        return np.kron(np.eye(np.prod(dims[high + 1:]), dtype=complex), matrix)
 
     tmax = 0
 
@@ -315,29 +354,32 @@ def schedule_to_matrix(
 
         if isinstance(inst.channel, pulse.DriveChannel):
             if inst.name.startswith('Xp'):
-                op_unitary = embed_1q_gate('x', inst.channel, time)
+                op_unitary = embed_1q_gate('x', inst.channel, inst.pulse.angle, time)
             elif inst.name.startswith('X90p'):
-                op_unitary = embed_1q_gate('sx', inst.channel, time)
+                op_unitary = embed_1q_gate('sx', inst.channel, inst.pulse.angle, time)
             elif inst.name.startswith('Ξp'):
-                op_unitary = embed_1q_gate('x12', inst.channel, time)
+                op_unitary = embed_1q_gate('x12', inst.channel, inst.pulse.angle, time)
             elif inst.name.startswith('Ξ90p'):
-                op_unitary = embed_1q_gate('sx12', inst.channel, time)
+                op_unitary = embed_1q_gate('sx12', inst.channel, inst.pulse.angle, time)
             elif inst.name == 'DD':
-                op_unitary = embed_1q_gate('x', inst.channel, time)
+                op_unitary = embed_1q_gate('x', inst.channel, inst.pulse.angle, time)
                 op_unitary = op_unitary @ op_unitary
             elif inst.name.startswith('CR90p_d') or inst.name.startswith('CR90m_d'):
                 control_channel_name = inst.name.split('_')[2]
                 control = control_channels[pulse.ControlChannel(int(control_channel_name[1:]))][0]
                 logger.debug('Rotary drive for CR%d->%d on %s', control,
                              drive_channels[inst.channel], control_channel_name)
-                op_unitary = embed_rotary(inst.channel, control)
+                if inst.name.startswith('CR90p_d'):
+                    op_unitary = embed_rotary('rzx45p_rotary', inst.channel, control, inst.pulse.angle)
+                else:
+                    op_unitary = embed_rotary('rzx45m_rotary', inst.channel, control, inst.pulse.angle)
             else:
                 raise RuntimeError(f'Unhandled 1q drive {inst} at time {time}')
         elif isinstance(inst.channel, pulse.ControlChannel):
             if inst.name.startswith('CR90p_u'):
-                op_unitary = embed_2q_gate('rzx45p', inst.channel)
+                op_unitary = embed_2q_gate('rzx45p', inst.channel, inst.pulse.angle)
             elif inst.name.startswith('CR90m_u'):
-                op_unitary = embed_2q_gate('rzx45m', inst.channel)
+                op_unitary = embed_2q_gate('rzx45m', inst.channel, inst.pulse.angle)
             else:
                 raise RuntimeError(f'Unhandled control drive {inst} at time {time}')
         else:
@@ -346,18 +388,18 @@ def schedule_to_matrix(
         logger.debug('%d, %s\n%s', time, inst, op_unitary)
         sched_unitary = op_unitary @ sched_unitary
 
-    rzs = [None] * len(physical_qubits)
+    zrots = [None] * len(physical_qubits)
     for channel, phase in channel_phases.items():
         if isinstance(channel, pulse.DriveChannel):
             logger.debug('Channel %s final phase %f', channel, phase)
             iq = drive_channels[channel]
-            rzs[iq] = phase_shift_op(phase, dims[iq])
+            zrots[iq] = phase_shift_op(phase, dims[iq])
 
-    final_rz = np.ones(1, dtype=complex)
-    for rz in rzs:
-        final_rz = np.kron(final_rz, rz)
-    logger.debug('Final Rz\n%s', final_rz)
-    sched_unitary = final_rz @ sched_unitary
+    final_zrot = np.eye(1, dtype=complex)
+    for zrot in zrots:
+        final_zrot = np.kron(zrot, final_zrot)
+    logger.debug('Final Zrot\n%s', final_zrot)
+    sched_unitary = final_zrot @ sched_unitary
 
     sched_unitary.real = np.where(np.abs(sched_unitary.real) < 1.e-8, 0., sched_unitary.real)
     sched_unitary.imag = np.where(np.abs(sched_unitary.imag) < 1.e-8, 0., sched_unitary.imag)
