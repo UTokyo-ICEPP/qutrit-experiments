@@ -99,6 +99,8 @@ class CastRZToAngle(TransformationPass):
     This pass tracks the cumulative Rz angle per qubit and converts specified gates with pulse
     schedules. Here we are dealing with "physical RZ" i.e. instructions that get scheduled as
     ShiftPhase(-phi).
+
+    This pass invalidates node_start_time if it is set.
     """
     def __init__(
         self,
@@ -117,7 +119,10 @@ class CastRZToAngle(TransformationPass):
         self._sched_cache = {} # Container for schedules cache
 
     def run(self, dag: DAGCircuit) -> DAGCircuit:
-        node_start_time = self.property_set.get('node_start_time')
+        try:
+            node_start_time = self.property_set.pop('node_start_time')
+        except KeyError:
+            node_start_time = None
         self._sched_cache = {} # Clear the cache
         replaced_calibrations = set()
 
@@ -162,6 +167,10 @@ class CastRZToAngle(TransformationPass):
                 insert_rz(dag, node, pre_angles=angles, post_angles=-angles,
                           node_start_time=node_start_time)
                 # op_duration missing; it's likely OK because this should be one of the last passes
+        
+        for qubit, phase in cumul_phase.items():
+            if phase != 0.:
+                node = dag.apply_operation_back(RZGate(phase), [dag.qubits[qubit]])
 
         for name, qubits, params in replaced_calibrations:
             # Remove the original calibrations
@@ -175,7 +184,7 @@ class CastRZToAngle(TransformationPass):
         dag: DAGCircuit,
         gate: Gate,
         qubits: tuple[int, ...],
-        phases: Sequence[float]
+        phases: tuple[float, ...]
     ) -> tuple[ScheduleBlock, bool]:
         name = gate.name
         key = (qubits, tuple(gate.params))
@@ -199,7 +208,8 @@ class CastRZToAngle(TransformationPass):
             # Cache the result
             self._sched_cache.setdefault(name, {})[key] = (schedule, angles, from_cal)
 
-        schedule = schedule.assign_parameters(dict(zip(angles, phases)), inplace=False)
+        assign_params = {angle: phases[qubits.index(qubit)] for qubit, angle in angles.items()}
+        schedule = schedule.assign_parameters(assign_params, inplace=False)
         self.wrap_angles(schedule)
         return schedule, from_cal
 
@@ -207,10 +217,10 @@ class CastRZToAngle(TransformationPass):
         self,
         schedule_block: ScheduleBlock,
         qubits: Sequence[int],
-        angles: Union[Sequence[Parameter], None] = None
-    ):
+        angles: Union[dict[int, Parameter], None] = None
+    ) -> dict[int, Parameter]:
         if angles is None:
-            angles = [Parameter(f'angle{i}') for i in range(len(qubits))]
+            angles = {q: Parameter(f'angle{q}') for q in qubits}
 
         replacements = []
         for block in schedule_block.blocks:
@@ -224,21 +234,22 @@ class CastRZToAngle(TransformationPass):
 
             channel_spec = self._channel_map[block.channel.name]
             if isinstance(block.channel, pulse.DriveChannel):
-                iq = qubits.index(channel_spec['operates']['qubits'][0])
+                qubit = channel_spec['operates']['qubits'][0]
             elif isinstance(block.channel, pulse.ControlChannel):
-                iq = qubits.index(channel_spec['operates']['qubits'][1])
+                qubit = channel_spec['operates']['qubits'][1]
             else:
                 raise RuntimeError(f'Unhandled instruction channel: {block}')
 
             new_inst = pulse.Play(copy.deepcopy(block.pulse), block.channel, name=block.name)
-            new_inst.pulse._params['angle'] = block.pulse._params['angle'] + angles[iq]
+            new_inst.pulse._params['angle'] = block.pulse._params['angle'] + angles[qubit]
             replacements.append((block, new_inst))
 
         for old, new in replacements:
             schedule_block.replace(old, new)
 
         # Not all parameters may have been used
-        return list(set(angles) & set(schedule_block.parameters))
+        used_params = set(schedule_block.parameters)
+        return {q: angles[q] for q in qubits if angles[q] in used_params}
 
     def wrap_angles(
         self,
