@@ -100,7 +100,7 @@ def transpile_qutrit_circuits(
     calibrations: Calibrations,
     qubit_transpiled: bool = False,
     instruction_durations: Optional[InstructionDurations] = None,
-    options: Optional[QutritTranspileOptions] = None,
+    options: Optional[Union[QutritTranspileOptions, dict]] = None,
     **transpiler_kwargs
 ) -> list[QuantumCircuit]:
     """Recompute the gate durations, calculate the phase shifts for all qutrit gates, and insert
@@ -109,6 +109,8 @@ def transpile_qutrit_circuits(
         instruction_durations = make_instruction_durations(backend, calibrations)
     if options is None:
         options = QutritTranspileOptions()
+    elif isinstance(options, dict):
+        options = QutritTranspileOptions(**options)
 
     if not qubit_transpiled:
         circuits = transpile(circuits, backend=backend,
@@ -127,12 +129,12 @@ def transpile_qutrit_circuits(
     pm.append([scheduling, add_cal], condition=contains_qutrit_gate)
     if LO_SIGN > 0.:
         pm.append(InvertRZSign())
+    if options.consolidate_rz:
+        pm.append(ConsolidateRZAngle())
     if options.rz_casted_gates:
         pm.append(CastRZToAngle(backend.configuration().channels,
                                 backend.target.instruction_schedule_map(),
                                 options.rz_casted_gates))
-    if options.consolidate_rz:
-        pm.append(ConsolidateRZAngle())
     if options.remove_unused_calibrations:
         pm.append(RemoveUnusedCalibrations())
     if options.use_waveform:
