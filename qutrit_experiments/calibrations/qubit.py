@@ -138,24 +138,26 @@ def add_ecr(
     control_channel = pulse.ControlChannel(Parameter('ch0.1'))
     drive_channel = pulse.DriveChannel(Parameter('ch1'))
 
-    with pulse.build(name='ecr') as sched:
-        pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=cr_amp,
-                                        angle=cr_angle, name='CR90p_u'),
-                   control_channel,
-                   name='CR90p_u')
-        pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=rotary_amp,
-                                        angle=rotary_angle, name='CR90p_d'),
-                   drive_channel,
-                   name='CR90p_d')
+    with pulse.build(name='ecr', default_alignment='sequential') as sched:
+        with pulse.align_left():
+            pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=cr_amp,
+                                            angle=cr_angle, name='CR90p_u'),
+                    control_channel,
+                    name='CR90p_u')
+            pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=rotary_amp,
+                                            angle=rotary_angle, name='CR90p_d'),
+                    drive_channel,
+                    name='CR90p_d')
         pulse.reference('x', 'q0')
-        pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=cr_amp,
-                                        angle=cr_angle + np.pi, name='CR90m_u'),
-                   control_channel,
-                   name='CR90m_u')
-        pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=rotary_amp,
-                                        angle=rotary_angle + np.pi, name='CR90m_d'),
-                   drive_channel,
-                   name='CR90m_d')
+        with pulse.align_left():
+            pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=cr_amp,
+                                            angle=cr_angle + np.pi, name='CR90m_u'),
+                    control_channel,
+                    name='CR90m_u')
+            pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=rotary_amp,
+                                            angle=rotary_angle + np.pi, name='CR90m_d'),
+                    drive_channel,
+                    name='CR90m_d')
     calibrations.add_schedule(sched, num_qubits=2)
 
 
