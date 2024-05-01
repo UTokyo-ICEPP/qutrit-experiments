@@ -40,6 +40,7 @@ class TruthTable(MapToPhysicalQubits, BaseExperiment):
             circuit = QuantumCircuit(num_qubits)
             if bits:
                 circuit.x(bits)
+            circuit.barrier()
             circuit.compose(self.experiment_options.circuit, inplace=True)
             circuit.measure_all()
             circuit.metadata = {'init': init}
