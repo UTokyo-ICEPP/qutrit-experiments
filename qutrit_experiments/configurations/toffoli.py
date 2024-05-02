@@ -199,7 +199,7 @@ def truthtable_ccz(runner):
     )
 
 @register_exp
-@add_qpt_readout_mitigation
+@add_readout_mitigation(probability=False)
 def truthtable_ccz_fullsched(runner):
     from qutrit_experiments.experiments.truth_table import TruthTable
     circuit = qutrit_toffoli_circuit(runner.backend, runner.calibrations, runner.qubits,
@@ -235,23 +235,6 @@ def phasetable_ccz_fullsched(runner):
                                      gate=QutritCCZGate())
     circuit = circuit_to_pulse_circuit(circuit, runner.backend, runner.calibrations, runner.qubits,
                                        qutrit_transpile_options={'rz_casted_gates': 'all'})
-    return ExperimentConfig(
-        PhaseTable,
-        runner.qubits,
-        args={
-            'circuit': circuit
-        }
-    )
-
-@register_exp
-@add_readout_mitigation
-def phasetable_cz(runner):
-    from qutrit_experiments.experiments.phase_table import PhaseTable
-    pm = qutrit_toffoli_translator(runner.backend, runner.calibrations, runner.qubits[1:])
-    circuit = QuantumCircuit(2)
-    circuit.append(QutritQubitCZGate(), [0, 1])
-    circuit = pm.run(circuit)
-
     return ExperimentConfig(
         PhaseTable,
         runner.qubits,
