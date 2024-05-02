@@ -69,10 +69,10 @@ class ReverseCXDecomposition(TransformationPass):
             add_op(XplusGate(), 0)
 
             if self.apply_dd:
-                dd_unit = (interval + dur('xplus', 0) - 2 * dur('x', 1)) // 4
+                dd_unit = (interval + 2 * dur('x', 0) - 2 * dur('x', 1)) // 4
                 add_op(Delay(dd_unit), 1)
                 add_op(XGate(), 1)
-                add_op(Delay(2 * dd_unit), 1)
+                add_op(Delay(2 * dd_unit - dur('x', 1)), 1)
                 add_op(XGate(), 1)
                 add_op(Delay(dd_unit), 1)
 
