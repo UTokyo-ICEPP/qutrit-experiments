@@ -17,12 +17,13 @@ from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 from ..experiment_mixins import MapToPhysicalQubits
 from ..framework.compound_analysis import CompoundAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
+from .phase_shift import PhaseShiftMeasurement
 
 twopi = 2. * np.pi
 logger = logging.getLogger(__name__)
 
 
-class DiagonalCircuitPhaseShift(MapToPhysicalQubits, BaseExperiment):
+class DiagonalCircuitPhaseShift(PhaseShiftMeasurement):
     """Measurement of the phase shift imparted by a diagonal circuit.
 
     In this experiment we fix the states of the spectator qubits to a specific computational basis
@@ -38,64 +39,49 @@ class DiagonalCircuitPhaseShift(MapToPhysicalQubits, BaseExperiment):
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
         options.circuit = None
-        options.angles = np.linspace(0., 2. * np.pi, 12, endpoint=False)
         return options
 
     def __init__(
         self,
         physical_qubits: Sequence[int],
         circuit: QuantumCircuit,
-        measured_logical_qubit: int,
         state: tuple[bool, ...],
+        phase_shifts: Optional[Sequence[float]] = None,
         backend: Optional[Backend] = None
     ):
         """
-        state: Whether the bit should be raised, from low to high excluding the measured bit.
+        state: Initial state as a binary array from low to high with the measured qubit set to None.
         """
-        super().__init__(physical_qubits, backend=backend, analysis=OscillationAnalysis())
-        self.measured_logical_qubit = measured_logical_qubit
-        self.state = state
-        self.set_experiment_options(circuit=circuit)
-
-        outcome_rev = list('1' if xup else '0' for xup in state)
-        outcome_rev.insert(measured_logical_qubit, '1')
-
-        self.analysis.set_options(
-            outcome=''.join(reversed(outcome_rev)),
-            result_parameters=['phase'],
-            fixed_parameters={'freq': 1. / twopi},
-            p0={'amp': 0.5, 'base': 0.5},
-            bounds={'amp': (0., 1.), 'base': (0., 1.)}
+        measured_logical_qubit = state.index(None)
+        super().__init__(
+            physical_qubits,
+            measured_logical_qubit=measured_logical_qubit,
+            phase_shifts=phase_shifts,
+            backend=backend,
+            analysis=OscillationAnalysis()
         )
 
-    def circuits(self) -> list[QuantumCircuit]:
+        self.state = state
+        self.set_experiment_options(circuit=circuit, measure_all=True)
+
+        outcome_rev = list('1' if xup else '0' for xup in state)
+        outcome_rev[measured_logical_qubit] = '1'
+
+        self.analysis.set_options(outcome=''.join(reversed(outcome_rev)))
+
+    def _phase_rotation_sequence(self) -> QuantumCircuit:
         num_qubits = len(self._physical_qubits)
-        logical_qubits = list(range(num_qubits))
-        logical_qubits.remove(self.measured_logical_qubit)
-        phi = Parameter('phi')
-        template = QuantumCircuit(num_qubits)
-        for bit, xup in zip(logical_qubits, self.state):
-            if xup:
-                template.x(bit)
-        template.sx(self.measured_logical_qubit)
-        template.barrier()
-        template.compose(self.experiment_options.circuit, inplace=True)
-        template.barrier()
-        template.rz(phi, self.measured_logical_qubit)
-        template.sx(self.measured_logical_qubit)
-        template.measure_all()
-
-        circuits = []
-        for angle in self.experiment_options.angles:
-            circuit = template.assign_parameters({phi: angle}, inplace=False)
-            circuit.metadata = {'xval': angle}
-            circuits.append(circuit)
-
-        return circuits
+        sequence = QuantumCircuit(num_qubits)
+        for bit, xup in enumerate(self.state):
+            if bit != self.experiment_options.measured_logical_qubit and xup:
+                sequence.x(bit)
+        sequence.sx(self.experiment_options.measured_logical_qubit)
+        sequence.barrier()
+        sequence.compose(self.experiment_options.circuit, inplace=True)
+        return sequence
 
     def _metadata(self) -> dict[str, Any]:
         metadata = super()._metadata()
-        metadata['measured_logical_qubit'] = self.measured_logical_qubit
         metadata['state'] = list(self.state)
         return metadata
 
@@ -118,7 +104,8 @@ class PhaseTable(BatchExperiment):
         num_qubits = len(physical_qubits)
         for qubit in range(num_qubits):
             for init in range(2 ** (num_qubits - 1)):
-                state = tuple((init >> iq) % 2 == 1 for iq in range(num_qubits - 1))
+                state = [(init >> iq) % 2 == 1 for iq in range(num_qubits - 1)]
+                state.insert(qubit, None)
                 experiments.append(
                     DiagonalCircuitPhaseShift(physical_qubits, circuit, qubit, state,
                                               backend=backend)
@@ -165,13 +152,10 @@ class PhaseTableAnalysis(CompoundAnalysis):
             state = child_data.metadata['state']
             exp_setups.append((logical_qubit, state))
             num_qubits = len(state) + 1
-            idx_low.append(
-                sum((int(bit) << iq) for iq, bit in enumerate(state[:logical_qubit]))
-                + sum((int(bit) << (iq + logical_qubit + 1))
-                      for iq, bit in enumerate(state[logical_qubit:]))
-            )
-            idx_high.append(idx_low[-1] + (1 << logical_qubit))
-            fit_res = child_data.analysis_results('phase').value
+            idx = sum((int(state[iq]) << iq) for iq in range(num_qubits) if iq != logical_qubit)
+            idx_low.append(idx)
+            idx_high.append(idx + (1 << logical_qubit))
+            fit_res = child_data.analysis_results('phase_offset').value
             phase_diffs.append(fit_res.n)
             errs.append(fit_res.std_dev)
         phase_diffs = np.array(phase_diffs)
@@ -218,6 +202,9 @@ class PhaseTableAnalysis(CompoundAnalysis):
                        c='#ff7f0e', label='fit')
             ax.set_xticks(np.arange(num_exps),
                           labels=[f'{high}-{low}' for high, low in zip(idx_high, idx_low)])
+            ax.axhline(0, c='black', ls='--', lw=0.2)
+            ax.axhline(np.pi, c='black', ls='--', lw=0.2)
+            ax.axhline(-np.pi, c='black', ls='--', lw=0.2)
             ax.legend()
             figures.append(ax.get_figure())
 

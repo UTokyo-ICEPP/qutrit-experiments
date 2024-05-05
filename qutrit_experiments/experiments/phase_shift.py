@@ -56,6 +56,7 @@ class PhaseShiftMeasurement(MapToPhysicalQubits, BaseExperiment):
         self.analysis.set_options(
             outcome='1', # Needs to be updated if measure_all option is True
             result_parameters=[curve.ParameterRepr('phase', 'phase_offset')],
+            p0={'amp': 0.5, 'base': 0.5},
             bounds={'amp': (0., 1.)},
             fixed_parameters={'freq': 1. / (2. * np.pi)},
             normalization=False
@@ -108,6 +109,8 @@ class PhaseShiftMeasurement(MapToPhysicalQubits, BaseExperiment):
         for run_opt in ["meas_level", "meas_return"]:
             if hasattr(self.run_options, run_opt):
                 metadata[run_opt] = getattr(self.run_options, run_opt)
+        if (iq := self.experiment_options.measured_logical_qubit) is not None:
+            metadata['measured_logical_qubit'] = iq
         return metadata
 
     def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]: # pylint: disable=unused-argument
