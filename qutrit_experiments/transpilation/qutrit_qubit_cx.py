@@ -24,23 +24,23 @@ class ReverseCXDecomposition(TransformationPass):
     def __init__(
         self,
         instruction_durations: InstructionDurations,
-        rcr_types: dict[tuple[int, int], int],
         apply_dd: bool = True,
         pulse_alignment: Optional[int] = None
     ):
         super().__init__()
         self.inst_durations = instruction_durations
-        self.rcr_types = rcr_types
         self.apply_dd = apply_dd
         self.pulse_alignment = pulse_alignment
         if self.apply_dd and not self.pulse_alignment:
             raise TranspilerError('Pulse alignment needed when applying DD')
+        self.calibrations = None
 
     def run(self, dag: DAGCircuit) -> DAGCircuit:
         cx_cz_nodes = dag.named_nodes('qutrit_qubit_cx') + dag.named_nodes('qutrit_qubit_cz')
         for node in cx_cz_nodes:
             qids = tuple(dag.find_bit(q).index for q in node.qargs)
-            if self.rcr_types[qids] != QutritQubitCXType.REVERSE:
+            rcr_type = self.calibrations.get_parameter_value('rcr_type', qids)
+            if rcr_type != QutritQubitCXType.REVERSE:
                   continue
 
             def dur(gate, *iqs):

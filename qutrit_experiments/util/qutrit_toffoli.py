@@ -50,7 +50,6 @@ def qutrit_toffoli_translator(
     physical_qubits = tuple(physical_qubits)
 
     rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits[-2:])
-    rcr_types = {physical_qubits[-2:]: rcr_type}
 
     ecr_based = 'ecr' in backend.basis_gates
 
@@ -76,15 +75,15 @@ def qutrit_toffoli_translator(
         'layout': generate_layout_passmanager(physical_qubits, backend.coupling_map)
     }
 
-    pms['pretranslation'] = PassManager([
-        QutritMCGateDecomposition(instruction_durations, rcr_types, do_dd,
-                                  backend.target.pulse_alignment)
-    ])
+    decomp_pass = QutritMCGateDecomposition(instruction_durations, do_dd,
+                                            backend.target.pulse_alignment)
+    decomp_pass.calibrations = calibrations
+    pms['pretranslation'] = PassManager([decomp_pass])
     if do_phase_corr:
-        pms['pretranslation'].append(
-            ReverseCXDecomposition(instruction_durations, rcr_types, do_dd,
-                                   backend.target.pulse_alignment)
-        )
+        decomp_pass = ReverseCXDecomposition(instruction_durations, do_dd,
+                                             backend.target.pulse_alignment)
+        decomp_pass.calibrations = calibrations
+        pms['pretranslation'].append(decomp_pass)
     basis_gates = backend.basis_gates + ['rz12', 'x12', 'xplus', 'xminus']
     if rcr_type != QutritQubitCXType.REVERSE:
         basis_gates.append('qutrit_qubit_cx')
@@ -97,11 +96,13 @@ def qutrit_toffoli_translator(
     pms['pretranslation'].append(BasisTranslator(sel, basis_gates))
 
     if do_phase_corr:
+        refocusing_pass = QutritToffoliRefocusing(instruction_durations, do_dd,
+                                                  backend.target.pulse_alignment)
+        refocusing_pass.calibrations = calibrations
         pms['pretranslation'].append([
             TimeUnitConversion(inst_durations=instruction_durations),
             ALAPScheduleAnalysis(instruction_durations),
-            QutritToffoliRefocusing(instruction_durations, rcr_types, do_dd,
-                                    backend.target.pulse_alignment)
+            refocusing_pass
         ])
     translation_passes = []
     # if do_dd:

@@ -12,6 +12,7 @@ from qiskit.circuit import Barrier, Delay, Gate
 from qiskit.circuit.library import ECRGate, HGate, RZGate, SXGate, XGate
 from qiskit.transpiler import (AnalysisPass, InstructionDurations, Target, TransformationPass,
                                TranspilerError)
+from qiskit_experiments.exceptions import CalibrationError
 
 from ..gates import (P2Gate, QutritCCXGate, QutritCCZGate, QutritQubitCXType, QutritQubitCXGate,
                      QutritQubitCZGate, QutritMCGate, RZ12Gate, XplusGate, XminusGate, X12Gate)
@@ -99,26 +100,33 @@ class QutritMCGateDecomposition(TransformationPass):
     def __init__(
         self,
         instruction_durations: InstructionDurations,
-        rcr_types: dict[tuple[int, int], int],
         apply_dd: bool = True,
         pulse_alignment: Optional[int] = None
     ):
         super().__init__()
         self.inst_durations = instruction_durations
-        self.rcr_types = rcr_types
         self.apply_dd = apply_dd
         self.pulse_alignment = pulse_alignment
         if self.apply_dd and not self.pulse_alignment:
             raise TranspilerError('Pulse alignment needed when applying DD')
+        self.calibrations = None
 
     def run(self, dag: DAGCircuit) -> DAGCircuit:
         cc_nodes = dag.named_nodes('qutrit_toffoli') + dag.named_nodes('qutrit_ccz')
 
         for node in cc_nodes:
             qids = tuple(dag.find_bit(q).index for q in node.qargs)
-            rcr_type = self.rcr_types[qids[1:]]
+            rcr_type = self.calibrations.get_parameter_value('rcr_type', qids[1:])
             is_reverse = rcr_type == QutritQubitCXType.REVERSE
             is_ccx = isinstance(node.op, QutritCCXGate)
+            try:
+                delta_cz = self.calibrations.get_parameter_value('delta_cz', qids)
+            except CalibrationError:
+                delta_cz = 0.
+            try:
+                delta_ccz = self.calibrations.get_parameter_value('delta_ccz', qids)
+            except CalibrationError:
+                delta_ccz = 0.
 
             def dur(gate, *iqs):
                 return self.inst_durations.get(gate, [qids[i] for i in iqs])
@@ -130,28 +138,53 @@ class QutritMCGateDecomposition(TransformationPass):
             def add_op(op, *qubits):
                 subdag.apply_operation_back(op, [qreg[iq] for iq in qubits])
 
+            def add_delay(delay, *qubits):
+                add_op(Delay(delay), *qubits)
+
+            def left_dd(qubit, duration, ndiv=2):
+                unit_delay = (duration - ndiv * dur('x', qubit)) // ndiv
+                for _ in range(ndiv):
+                    add_op(XGate(), qubit)
+                    add_delay(unit_delay, qubit)
+
+            def right_dd(qubit, duration, ndiv=2):
+                unit_delay = (duration - ndiv * dur('x', qubit)) // ndiv
+                for _ in range(ndiv):
+                    add_delay(unit_delay, qubit)
+                    add_op(XGate(), qubit)
+
+            def symmetric_dd(qubit, duration, ndiv=2):
+                unit_delay = (duration - ndiv * dur('x', qubit)) // ndiv
+                add_delay(unit_delay // 2, qubit)
+                for _ in range(ndiv - 1):
+                    add_op(XGate(), qubit)
+                    add_delay(unit_delay, qubit)
+                add_op(XGate(), qubit)
+                add_delay(unit_delay // 2, qubit)
+
             if is_reverse == is_ccx:
-                add_op(Delay(dur('sx', 2)), 0)
-                add_op(Delay(dur('sx', 2)), 1)
+                add_delay(dur('sx', 2), 0)
+                add_delay(dur('sx', 2), 1)
                 add_op(HGate(), 2)
 
             add_op(XplusGate(label='qutrit_toffoli_begin'), 1)
             add_op(X12Gate(), 1)
             add_op(SXGate(), 1)
             add_op(P2Gate(-np.pi / 4.), 1)
-            add_op(Delay(dur('xplus', 1) + dur('x12', 1) + dur('sx', 1)), 0)
-            add_op(Delay(dur('xplus', 1) + dur('x12', 1) + dur('sx', 1)), 2)
+            if self.apply_dd:
+                # DD for 0 and 2 will be adjusted in the refocusing pass
+                left_dd(0, 2 * dur('x12', 1))
+                right_dd(2, 2 * dur('x12', 1))
+
             add_op(Barrier(3), 0, 1, 2)
             add_op(ECRGate(), 0, 1)
 
             if self.apply_dd:
-                cr_duration = (dur('ecr', 0, 1) - dur('x', 0)) // 2
-                add_op(Delay(cr_duration), 2)
-                add_op(XGate(), 2) # with X in ECR
-                add_op(Delay(cr_duration), 2)
-                add_op(XGate(), 2) # with X12 below
+                # DD2: 4X in the period of ECR+X12
+                symmetric_dd(2, dur('ecr', 0, 1) + dur('x12', 1), 4)
 
             if is_reverse:
+                add_op(RZGate(-delta_cz), 1)
                 add_op(X12Gate(), 1)
                 add_op(ECRGate(), 2, 1)
                 add_op(XGate(), 2)
@@ -161,7 +194,7 @@ class QutritMCGateDecomposition(TransformationPass):
                 add_op(RZGate(-np.pi), 2)
                 add_op(XplusGate(), 1)
                 interval = dur('x12', 1) + 2 * dur('ecr', 2, 1) + dur('x', 2)
-                add_op(Delay(interval - dur('xplus', 1)), 1)
+                add_delay(interval - dur('xplus', 1), 1)
                 add_op(X12Gate(), 1)
                 add_op(RZGate(np.pi), 1)
                 add_op(SXGate(), 1)
@@ -169,27 +202,20 @@ class QutritMCGateDecomposition(TransformationPass):
                 add_op(P2Gate(3. * np.pi / 4.), 1)
 
                 if self.apply_dd:
-                    cr_duration = (dur('ecr', 2, 1) - dur('x', 2)) // 2
-                    add_op(XGate(), 0) # with first X12
-                    add_op(Delay(cr_duration), 0)
-                    add_op(XGate(), 0) # with X in ECR
-                    add_op(Delay(cr_duration), 0)
-                    add_op(XGate(), 0) # with X between ECRs
-                    add_op(Delay(cr_duration), 0)
-                    add_op(XGate(), 0) # with X in ECR
-                    add_op(Delay(cr_duration), 0)
-                    dd_unit = (interval + dur('x12', 1) + dur('sx', 1) - 2 * dur('x', 0)) // 4
-                    add_op(Delay(dd_unit), 0)
+                    # DD0: 8X in X12+ECR+X+ECR
+                    symmetric_dd(0, interval, 8)
+                    # DD0: 4X irregular in X12+X+Delay+X12+X
                     add_op(XGate(), 0)
-                    add_op(Delay(2 * dd_unit), 0)
-                    add_op(XGate(), 0) # with SX
-                    add_op(Delay(dd_unit), 0)
-
-                    add_op(Delay(dd_unit), 2)
+                    add_delay(dur('x', 1), 0)
+                    left_dd(0, interval - dur('xplus', 1))
+                    add_op(XGate(), 0)
+                    add_delay(dur('x', 1), 0)
+                    # DD2: delay(X) + 2X in X+Delay
+                    add_delay(dur('x', 1), 2)
+                    left_dd(2, interval - dur('xplus', 1))
+                    # Unpaired X
                     add_op(XGate(), 2)
-                    add_op(Delay(2 * dd_unit - dur('x', 2)), 2)
-                    add_op(XGate(), 2)
-                    add_op(Delay(dd_unit), 2)
+                    add_delay(dur('x', 1), 2)
             else:
                 add_op(QutritQubitCXGate(), 1, 2)
                 add_op(SXGate(), 1)
@@ -200,27 +226,27 @@ class QutritMCGateDecomposition(TransformationPass):
                     if rcr_type == QutritQubitCXType.X:
                         add_op(XGate(), 0)
                     for _ in range(5):
-                        add_op(Delay(dd_delay), 0)
+                        add_delay(dd_delay, 0)
                         add_op(XGate(), 0)
-                    add_op(Delay(dd_delay), 0)
+                    add_delay(dd_delay, 0)
                     if rcr_type == QutritQubitCXType.X12:
                         add_op(XGate(), 0)
 
             add_op(ECRGate(), 0, 1)
 
-            if self.apply_dd:
-                cr_duration = (dur('ecr', 0, 1) - dur('x', 0)) // 2
-                add_op(Delay(cr_duration), 2)
-                add_op(XGate(), 2)
-                add_op(Delay(cr_duration), 2)
-                add_op(XGate(), 2) # with the last X12
-                add_op(Delay(dur('x', 2)), 2)
-
+            add_delay(dur('xplus', 1), 0)
             add_op(XplusGate(label='qutrit_toffoli_end'), 1)
-            add_op(Delay(dur('xplus', 1)), 0)
+            if is_reverse:
+                add_op(RZGate(-delta_ccz), 1)
+
+            if self.apply_dd:
+                # DD2: 4X in ECR+X12 + X pairing with above
+                symmetric_dd(2, dur('ecr', 0, 1) + dur('x12', 1), 4)
+                add_op(XGate(), 2)
+
             if is_reverse == is_ccx:
-                add_op(Delay(dur('sx', 2)), 0)
-                add_op(Delay(dur('sx', 2)), 1)
+                add_delay(dur('sx', 2), 0)
+                add_delay(dur('sx', 2), 1)
                 add_op(HGate(), 2)
 
             dag.substitute_node_with_dag(node, subdag)
@@ -280,15 +306,14 @@ class QutritToffoliRefocusing(TransformationPass):
     def __init__(
         self,
         instruction_durations: InstructionDurations,
-        rcr_types: dict[tuple[int, int], QutritQubitCXType],
         apply_dd: bool,
         pulse_alignment: int
     ):
         super().__init__()
         self.inst_durations = instruction_durations
-        self.rcr_types = rcr_types
         self.apply_dd = apply_dd
         self.pulse_alignment = pulse_alignment
+        self.calibrations = None
 
     def run(self, dag: DAGCircuit) -> DAGCircuit:
         # Invalidate node_start_time
@@ -310,6 +335,8 @@ class QutritToffoliRefocusing(TransformationPass):
 
             qids = tuple(dag.find_bit(q).index for q in [c1, c2, t])
 
+            rcr_type = self.calibrations.get_parameter_value('rcr_type', qids[1:])
+
             subdag = DAGCircuit()
             qreg = QuantumRegister(3)
             subdag.add_qreg(qreg)
@@ -320,13 +347,16 @@ class QutritToffoliRefocusing(TransformationPass):
             def add_op(op, *iqs):
                 subdag.apply_operation_back(op, [qreg[iq] for iq in iqs])
 
+            def add_delay(delay, *iqs):
+                add_op(Delay(delay), *iqs)
+
             if any((isinstance(node, DAGOpNode) and isinstance(node.op, HGate))
                    for node in dag.ancestors(barrier)):
-                add_op(Delay(dur('sx', 2)), 0)
-                add_op(Delay(dur('sx', 2)), 1)
+                add_delay(dur('sx', 2), 0)
+                add_delay(dur('sx', 2), 1)
                 add_op(HGate(), 2)
 
-            if self.rcr_types[qids[1:]] == QutritQubitCXType.REVERSE:
+            if rcr_type == QutritQubitCXType.REVERSE:
                 alpha = dur('x12', 1) + 2 * dur('ecr', 2, 1) + dur('x', 2)
             else:
                 alpha = 2 * dur('cr', 1, 2) + dur('x', 1) + dur('x12', 1)
@@ -345,21 +375,19 @@ class QutritToffoliRefocusing(TransformationPass):
 
             if added_time >= dur('xplus', 1):
                 add_op(XplusGate(label='qutrit_toffoli_begin'), 1)
-                add_op(Delay(added_time - dur('xplus', 1)), 1)
+                add_delay(added_time - dur('xplus', 1), 1)
                 add_op(X12Gate(), 1)
                 add_op(SXGate(), 1)
                 add_op(P2Gate(-np.pi / 4.), 1)
                 if self.apply_dd:
-                    total_delay = added_time + dur('x12', 1) + dur('sx', 1) - 2 * dur('x', 0)
-                    dd_unit = total_delay // 2
-                    add_op(Delay(dd_unit), 0)
-                    add_op(XGate(), 0)
-                    add_op(Delay(dd_unit), 0)
-                    add_op(XGate(), 0)
-                    add_op(Delay(dd_unit), 2)
-                    add_op(XGate(), 2)
-                    add_op(Delay(dd_unit), 2)
-                    add_op(XGate(), 2)
+                    unit_delay = (added_time + dur('x12', 1) + dur('sx', 1) - 2 * dur('x', 0)) // 2
+                    for _ in range(2):
+                        add_op(XGate(), 0)
+                        add_delay(unit_delay, 0)
+                    unit_delay = (added_time + dur('x12', 1) + dur('sx', 1) - 2 * dur('x', 2)) // 2
+                    for _ in range(2):
+                        add_delay(unit_delay, 2)
+                        add_op(XGate(), 2)
             else:
                 add_op(XminusGate(label='qutrit_toffoli_begin'), 1)
                 add_op(RZGate(np.pi), 1)
