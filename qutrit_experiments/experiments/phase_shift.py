@@ -10,13 +10,13 @@ from qiskit_experiments.framework import BaseExperiment, Options
 import qiskit_experiments.curve_analysis as curve
 
 from ..constants import DEFAULT_SHOTS
-from ..experiment_mixins import MapToPhysicalQubitsCommonCircuit
+from ..experiment_mixins import MapToPhysicalQubits
 from ..util.dummy_data import single_qubit_counts
 
 twopi = 2. * np.pi
 
 
-class PhaseShiftMeasurement(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
+class PhaseShiftMeasurement(MapToPhysicalQubits, BaseExperiment):
     r"""Phase rotation-Rz-SX experiment.
 
     Subclasses should implement _phase_rotation_sequence that returns a circuit whose final state
