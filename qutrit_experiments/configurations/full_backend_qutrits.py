@@ -18,7 +18,6 @@ from .qutrit import (
     qutrit_sx12_stark_shift,
     qutrit_x_stark_shift,
     qutrit_sx_stark_shift,
-    qutrit_rotary_stark_shift,
     qutrit_assignment_error,
     qutrit_assignment_error_post,
     qutrit_t1,
@@ -64,7 +63,6 @@ qutrit_functions = [
     qutrit_sx12_stark_shift,
     qutrit_x_stark_shift,
     qutrit_sx_stark_shift,
-    qutrit_rotary_stark_shift,
     qutrit_assignment_error,
     qutrit_t1,
     qutrit_x12_irb

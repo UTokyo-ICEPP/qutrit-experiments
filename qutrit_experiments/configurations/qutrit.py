@@ -261,14 +261,6 @@ def qutrit_sx_stark_shift(runner, qubit):
         [qubit]
     )
 
-@add_readout_mitigation
-def qutrit_rotary_stark_shift(runner, qubit):
-    from ..experiments.single_qutrit.stark_shift_phase import RotaryStarkShiftPhaseCal
-    return ExperimentConfig(
-        RotaryStarkShiftPhaseCal,
-        [qubit]
-    )
-
 def qutrit_assignment_error(runner, qubit):
     from ..experiments.single_qutrit.ternary_readout import MCMLocalReadoutError
     return ExperimentConfig(
