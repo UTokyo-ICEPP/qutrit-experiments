@@ -58,8 +58,7 @@ class DiagonalCircuitPhaseShift(PhaseShiftMeasurement):
             physical_qubits,
             measured_logical_qubit=measured_logical_qubit,
             phase_shifts=phase_shifts,
-            backend=backend,
-            analysis=OscillationAnalysis()
+            backend=backend
         )
 
         self.state = state
