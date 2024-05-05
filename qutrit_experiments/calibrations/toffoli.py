@@ -3,7 +3,6 @@
 from collections.abc import Sequence
 import logging
 from typing import Optional
-from qiskit import pulse
 from qiskit.circuit import Parameter
 from qiskit.providers import Backend
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
@@ -34,6 +33,9 @@ def make_toffoli_calibrations(
             add_x(calibrations)
         add_ecr(calibrations)
 
+    calibrations._register_parameter(Parameter('delta_cz'), ())
+    calibrations._register_parameter(Parameter('delta_ccz'), ())
+
     if set_defaults:
         set_dd_default(backend, calibrations, qubits)
         if 'ecr' not in backend.basis_gates:
@@ -41,3 +43,12 @@ def make_toffoli_calibrations(
             set_ecr_default(backend, calibrations, qubits)
 
     return calibrations
+
+
+def set_cz_ccz_default(
+    backend: Backend,
+    calibrations: Calibrations,
+    qubits: Sequence[int]
+) -> None:
+    calibrations.add_parameter_value(ParameterValue(0.), 'delta_cz', qubits)
+    calibrations.add_parameter_value(ParameterValue(0.), 'delta_ccz', qubits)
