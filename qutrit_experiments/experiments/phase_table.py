@@ -6,15 +6,16 @@ from matplotlib.figure import Figure
 import numpy as np
 from scipy.optimize import least_squares
 from qiskit import QuantumCircuit
-from qiskit.circuit import Parameter
 from qiskit.providers import Backend
 from qiskit.providers.options import Options
+from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
+from qiskit_experiments.calibration_management.update_library import BaseUpdater
 from qiskit_experiments.curve_analysis.standard_analysis import OscillationAnalysis
 from qiskit_experiments.data_processing import Probability
-from qiskit_experiments.framework import AnalysisResultData, BaseExperiment, ExperimentData
+from qiskit_experiments.framework import AnalysisResultData, ExperimentData
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 
-from ..experiment_mixins import MapToPhysicalQubits
+from ..framework.calibration_updaters import DeltaUpdater
 from ..framework.compound_analysis import CompoundAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
 from .phase_shift import PhaseShiftMeasurement
@@ -209,3 +210,42 @@ class PhaseTableAnalysis(CompoundAnalysis):
             figures.append(ax.get_figure())
 
         return analysis_results, figures
+
+
+
+class PhaseShiftUpdater(DeltaUpdater):
+    @staticmethod
+    def get_value(exp_data: ExperimentData, param_name: str, index: Optional[int] = -1) -> float:
+        return (BaseUpdater.get_value(exp_data, 'phase_offset', index) + np.pi) % twopi - np.pi
+
+
+class DiagonalPhaseCal(BaseCalibrationExperiment, DiagonalCircuitPhaseShift):
+    """Generic calibration experiment of a phase of a diagonal circuit."""
+    def __init__(
+        self,
+        physical_qubits: Sequence[int],
+        calibrations: Calibrations,
+        circuit: QuantumCircuit,
+        state: tuple[bool, ...],
+        cal_parameter_name: str,
+        schedule_name: Optional[str] = None,
+        updater: type[BaseUpdater] = PhaseShiftUpdater,
+        phase_shifts: Optional[Sequence[float]] = None,
+        backend: Optional[Backend] = None,
+        auto_update: bool = True
+    ):
+        super().__init__(
+            calibrations,
+            physical_qubits,
+            circuit,
+            state,
+            schedule_name=schedule_name,
+            cal_parameter_name=cal_parameter_name,
+            updater=updater,
+            auto_update=auto_update,
+            phase_shifts=phase_shifts,
+            backend=backend
+        )
+
+    def _attach_calibrations(self, circuit: QuantumCircuit):
+        pass
