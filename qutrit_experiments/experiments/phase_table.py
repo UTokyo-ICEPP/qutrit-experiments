@@ -107,8 +107,7 @@ class PhaseTable(BatchExperiment):
                 state = [(init >> iq) % 2 == 1 for iq in range(num_qubits - 1)]
                 state.insert(qubit, None)
                 experiments.append(
-                    DiagonalCircuitPhaseShift(physical_qubits, circuit, qubit, state,
-                                              backend=backend)
+                    DiagonalCircuitPhaseShift(physical_qubits, circuit, state, backend=backend)
                 )
 
         super().__init__(experiments, backend=backend,
