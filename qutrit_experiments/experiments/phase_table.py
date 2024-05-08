@@ -150,7 +150,7 @@ class PhaseTableAnalysis(CompoundAnalysis):
             logical_qubit = child_data.metadata['measured_logical_qubit']
             state = child_data.metadata['state']
             exp_setups.append((logical_qubit, state))
-            num_qubits = len(state) + 1
+            num_qubits = len(state)
             idx = sum((int(state[iq]) << iq) for iq in range(num_qubits) if iq != logical_qubit)
             idx_low.append(idx)
             idx_high.append(idx + (1 << logical_qubit))
@@ -171,7 +171,7 @@ class PhaseTableAnalysis(CompoundAnalysis):
             while binary.count('1') != 0:
                 first_one = binary.index('1')
                 free_qubit = num_qubits - 1 - first_one
-                state = [b == '1' for b in binary[-1:first_one:-1]] + ([False] * first_one)
+                state = [b == '1' for b in binary[-1:first_one:-1]] + [None] + ([False] * first_one)
                 iexp = next(iexp for iexp, setup in enumerate(exp_setups)
                             if setup == (free_qubit, state))
                 init[idx - 1] += phase_diffs[iexp]
