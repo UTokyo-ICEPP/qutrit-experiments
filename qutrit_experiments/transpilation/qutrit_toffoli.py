@@ -173,8 +173,8 @@ class QutritMCGateDecomposition(TransformationPass):
             add_op(P2Gate(-np.pi / 4.), 1)
             if self.apply_dd:
                 # DD for 0 and 2 will be adjusted in the refocusing pass
-                left_dd(0, 2 * dur('x12', 1))
-                right_dd(2, 2 * dur('x12', 1))
+                left_dd(0, 4 * dur('x12', 1))
+                right_dd(2, 4 * dur('x12', 1))
 
             add_op(Barrier(3), 0, 1, 2)
             add_op(ECRGate(), 0, 1)
@@ -202,14 +202,15 @@ class QutritMCGateDecomposition(TransformationPass):
                 add_op(P2Gate(3. * np.pi / 4.), 1)
 
                 if self.apply_dd:
-                    # DD0: 8X in X12+ECR+X+ECR
-                    symmetric_dd(0, interval, 8)
-                    # DD0: 4X irregular in X12+X+Delay+X12+X
-                    add_op(XGate(), 0)
-                    add_delay(dur('x', 1), 0)
-                    left_dd(0, interval - dur('xplus', 1))
-                    add_op(XGate(), 0)
-                    add_delay(dur('x', 1), 0)
+                    # # DD0: 8X in X12+ECR+X+ECR
+                    # symmetric_dd(0, interval, 8)
+                    # # DD0: 4X irregular in X12+X+Delay+X12+X
+                    # add_op(XGate(), 0)
+                    # add_delay(dur('x', 1), 0)
+                    # left_dd(0, interval - dur('xplus', 1))
+                    # add_op(XGate(), 0)
+                    # add_delay(dur('x', 1), 0)
+                    symmetric_dd(0, 2 * interval + dur('xplus', 1), 10)
                     # DD2: delay(X) + 2X in X+Delay
                     add_delay(dur('x', 1), 2)
                     left_dd(2, interval - dur('xplus', 1))

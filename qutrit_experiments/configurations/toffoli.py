@@ -1,6 +1,10 @@
 # pylint: disable=import-outside-toplevel, function-redefined, unused-argument
 """Experiment configurations for Toffoli gate calibration."""
+import numpy as np
 from qiskit import QuantumCircuit
+from qiskit_experiments.calibration_management import ParameterValue
+from qiskit_experiments.exceptions import CalibrationError
+
 
 from ..experiment_config import ExperimentConfig, register_exp
 from ..gates import (QutritCCZGate, QutritQubitCXType, QutritQubitCXGate, QutritQubitCZGate,
@@ -22,6 +26,188 @@ def c1c2_cr_rotary_delta(runner):
         runner.qubits[:2],
         analysis_options={'outcome': '1'}
     )
+
+@register_exp
+@add_readout_mitigation
+def cz_c2_phase(runner):
+    from ..experiments.phase_table import DiagonalPhaseCal
+    from ..gates import X12Gate, P2Gate
+
+    try:
+        czcorr = runner.calibrations.get_parameter_value('delta_cz', runner.qubits)
+    except CalibrationError:
+        runner.calibrations.add_parameter_value(ParameterValue(0.), 'delta_cz', runner.qubits)
+        czcorr = 0.
+
+    pm = qutrit_toffoli_translator(runner.backend, runner.calibrations, runner.qubits)
+
+    ecr_dur = runner.backend.target['ecr'][runner.qubits[:2]].calibration.duration
+    x_dur = runner.backend.target['x'][runner.qubits[:1]].calibration.duration
+    cr_dur = (ecr_dur - x_dur) // 2
+    x12_dur = runner.calibrations.get_schedule('x12', runner.qubits[1]).duration
+    xplus_dur = x_dur + x12_dur
+
+    circuit = QuantumCircuit(3)
+
+    circuit.rz(-czcorr, 1)
+    circuit.append(X12Gate(), [1])
+    circuit.ecr(2, 1)
+    circuit.x(2)
+    circuit.ecr(2, 1)
+    circuit.x(2)
+    circuit.append(P2Gate(-np.pi / 2.), [1])
+    circuit.rz(-np.pi, 2)
+    circuit.append(XplusGate(), [1])
+    interval = x12_dur + 2 * ecr_dur + x_dur
+    circuit.delay(interval - xplus_dur, 1)
+    circuit.append(X12Gate(), [1])
+    circuit.x(1)
+
+    circuit.delay(2 * x_dur, 0)
+    for _ in range(9):
+        circuit.x(0)
+        circuit.delay(4 * x_dur, 0)
+    circuit.x(0)
+    circuit.delay(2 * x_dur, 0)
+
+    circuit.delay(x_dur, 2)
+    circuit.x(2)
+    circuit.delay(10 * x_dur, 2)
+    circuit.x(2)
+    circuit.delay(10 * x_dur, 2)
+    circuit.delay(2 * x_dur, 2)
+
+    circuit = pm.run(circuit)
+
+    return ExperimentConfig(
+        DiagonalPhaseCal,
+        runner.qubits,
+        args={
+            'circuit': circuit,
+            'state': [0, None, 0],
+            'cal_parameter_name': 'delta_cz'
+        },
+        analysis_options={'outcome': '010'}
+    )
+
+@register_exp
+@add_readout_mitigation
+def ccz_c2_phase(runner):
+    from ..experiments.phase_table import DiagonalPhaseCal
+    from ..gates import X12Gate, P2Gate
+
+    try:
+        cczcorr = runner.calibrations.get_parameter_value('delta_ccz', runner.qubits)
+    except CalibrationError:
+        runner.calibrations.add_parameter_value(ParameterValue(0.), 'delta_ccz', runner.qubits)
+        cczcorr = 0.
+
+    pm = qutrit_toffoli_translator(runner.backend, runner.calibrations, runner.qubits)
+
+    ecr_dur = runner.backend.target['ecr'][runner.qubits[:2]].calibration.duration
+    x_dur = runner.backend.target['x'][runner.qubits[:1]].calibration.duration
+    x12_dur = runner.calibrations.get_schedule('x12', runner.qubits[1]).duration
+    xplus_dur = x_dur + x12_dur
+
+    czcorr = runner.calibrations.get_parameter_value('delta_cz', runner.qubits)
+
+    circuit = QuantumCircuit(3)
+    circuit.append(XplusGate(), [1])
+    circuit.append(X12Gate(), [1])
+    circuit.sx(1)
+    circuit.append(P2Gate(-np.pi / 4.), [1])
+
+    for _ in range(2):
+        circuit.delay(x_dur, 2)
+        circuit.x(2)
+    for _ in range(2):
+        circuit.x(0)
+        circuit.delay(x_dur, 0)
+
+    circuit.ecr(0, 1)
+
+    circuit.delay(x_dur, 2)
+    for _ in range(3):
+        circuit.x(2)
+        circuit.delay(2 * x_dur, 2)
+    circuit.x(2)
+    circuit.delay(x_dur, 2)
+
+    circuit.rz(-czcorr, 1)
+    circuit.append(X12Gate(), [1])
+    circuit.ecr(2, 1)
+    circuit.x(2)
+    circuit.ecr(2, 1)
+    circuit.x(2)
+    circuit.append(P2Gate(-np.pi / 2.), [1])
+    circuit.rz(-np.pi, 2)
+    circuit.append(XplusGate(), [1])
+    interval = x12_dur + 2 * ecr_dur + x_dur
+    circuit.delay(interval - xplus_dur, 1)
+    circuit.append(X12Gate(), [1])
+    circuit.rz(np.pi, 1)
+    circuit.sx(1)
+    circuit.rz(-np.pi, 1)
+    circuit.append(P2Gate(3. * np.pi / 4.), [1])
+
+    # circuit.delay(x_dur, 0)
+    # for _ in range(7):
+    #     circuit.x(0)
+    #     circuit.delay(2 * x_dur, 0)
+    # circuit.x(0)
+    # circuit.delay(x_dur, 0)
+
+    # circuit.x(0)
+    # circuit.delay(x_dur, 0)
+    # for _ in range(2):
+    #     circuit.x(0)
+    #     circuit.delay(10 * x_dur, 0)
+    # circuit.x(0)
+    # circuit.delay(x_dur, 0)
+
+    circuit.delay(2 * x_dur, 0)
+    for _ in range(9):
+        circuit.x(0)
+        circuit.delay(4 * x_dur, 0)
+    circuit.x(0)
+    circuit.delay(2 * x_dur, 0)
+
+    circuit.delay(x_dur, 2)
+    for _ in range(2):
+        circuit.x(2)
+        circuit.delay(10 * x_dur, 2)
+    circuit.x(2)
+    circuit.delay(x_dur, 2)
+
+    circuit.ecr(0, 1)
+
+    circuit.append(XplusGate(), [1])
+
+    circuit.delay(x_dur, 2)
+    for _ in range(3):
+        circuit.x(2)
+        circuit.delay(2 * x_dur, 2)
+    circuit.x(2)
+    circuit.delay(x_dur, 2)
+    circuit.x(2)
+
+    circuit.delay(xplus_dur, 0)
+
+#    circuit = QuantumCircuit(3)
+#    circuit.append(QutritCCZGate(), [0, 1, 2])
+    circuit = pm.run(circuit)
+
+    return ExperimentConfig(
+        DiagonalPhaseCal,
+        runner.qubits,
+        args={
+            'circuit': circuit,
+            'state': [0, None, 0],
+            'cal_parameter_name': 'delta_ccz'
+        },
+        analysis_options={'outcome': '010'}
+    )
+
 
 @register_exp
 @add_qpt_readout_mitigation
