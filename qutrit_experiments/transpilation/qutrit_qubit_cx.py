@@ -1,14 +1,11 @@
 from typing import Optional
 import numpy as np
-from qiskit import QuantumCircuit, QuantumRegister
+from qiskit import QuantumCircuit
+from qiskit.converters import circuit_to_dag
 from qiskit.dagcircuit import DAGCircuit
-from qiskit.circuit import Delay
-from qiskit.circuit.library import ECRGate, HGate, RZGate, XGate
 from qiskit.transpiler import InstructionDurations, TransformationPass, TranspilerError
-from qiskit_experiments.calibration_management import Calibrations
 
-from ..gates import P2Gate, QutritQubitCXGate, QutritQubitCXType, RZ12Gate, X12Gate, XplusGate
-from .util import insert_dd
+from ..gates import P2Gate, QutritQubitCXGate, QutritQubitCXType, X12Gate, XplusGate
 
 
 class ReverseCXDecomposition(TransformationPass):
@@ -44,84 +41,48 @@ class ReverseCXDecomposition(TransformationPass):
             if rcr_type != QutritQubitCXType.REVERSE:
                   continue
 
-            def dur(gate, *iqs):
-                return self.inst_durations.get(gate, [qids[i] for i in iqs])
-
-            subdag = DAGCircuit()
-            qreg = QuantumRegister(2)
-            subdag.add_qreg(qreg)
-
-            def add_op(op, *qubits):
-                subdag.apply_operation_back(op, [qreg[iq] for iq in qubits])
-
-            if isinstance(node.op, QutritQubitCXGate):
-                add_op(Delay(dur('sx', 1)), 0)
-                add_op(HGate(), 1)
-            add_op(X12Gate(), 0)
-            add_op(ECRGate(), 1, 0)
-            add_op(XGate(), 1)
-            add_op(ECRGate(), 1, 0)
-            add_op(XGate(), 1)
-            add_op(P2Gate(-np.pi / 2.), 0)
-            add_op(RZGate(-np.pi), 1)
-            add_op(XplusGate(), 0)
-            interval = dur('x12', 0) + 2 * dur('ecr', 1, 0) + dur('x', 1)
-            add_op(Delay(interval - dur('xplus', 0)), 0)
-            add_op(XplusGate(), 0)
-
-            if self.apply_dd:
-                # dd_unit = (interval + 2 * dur('x', 0) - 2 * dur('x', 1)) // 4
-                # add_op(Delay(dd_unit), 1)
-                # add_op(XGate(), 1)
-                # add_op(Delay(2 * dd_unit - dur('x', 1)), 1)
-                # add_op(XGate(), 1)
-                # add_op(Delay(dd_unit), 1)
-                add_op(Delay(dur('x', 0)), 1)
-                dd_unit = (interval - dur('xplus', 0) - 2 * dur('x', 1)) // 2
-                add_op(XGate(), 1)
-                add_op(Delay(dd_unit), 1)
-                add_op(XGate(), 1)
-                add_op(Delay(dd_unit), 1)
-                add_op(Delay(2 * dur('x', 1)), 1)
-
-            if isinstance(node.op, QutritQubitCXGate):
-                add_op(Delay(dur('sx', 1)), 0)
-                add_op(HGate(), 1)
-
-            dag.substitute_node_with_dag(node, subdag)
+            circuit = reverse2q_decomposition_circuit(node.op.name, qids, self.inst_durations,
+                                                      apply_dd=self.apply_dd)
+            dag.substitute_node_with_dag(node, circuit_to_dag(circuit))
 
         return dag
 
 
-def cz_decomposition_circuit(
+def reverse2q_decomposition_circuit(
+    gate: str,
     physical_qubits: tuple[int, int],
     instruction_durations: InstructionDurations,
-    calibrations: Calibrations,
     apply_dd: bool = True,
-    pulse_alignment: Optional[int] = None,
+    delta_cz: float = 0.,
     include_last_local: bool = True
 ) -> QuantumCircuit:
     """Return a qutrit-qubit CZ circuit with reverse ECR."""
     def dur(gate, *qubits):
         return instruction_durations.get(gate, tuple(physical_qubits[iq] for iq in qubits))
 
-    x12_to_x12 = dur('x12', 0) + dur('ecr', 1, 0) + dur('x', 1)
+    x12_to_x12 = dur('x12', 0) + 2 * dur('ecr', 1, 0) + dur('x', 1)
     xplus_dur = dur('x12', 0) + dur('x', 0)
 
     circuit = QuantumCircuit(2)
+
+    if gate == 'qutrit_qubit_cx':
+        circuit.delay(dur('sx', 1), 0)
+        circuit.h(1)
+
+    if delta_cz:
+        circuit.rz(-delta_cz, 0)
+
     circuit.append(X12Gate(), [0])
     circuit.ecr(1, 0)
     circuit.x(1)
     circuit.ecr(1, 0)
     circuit.x(1)
-    circuit.append(P2Gate(-np.pi / 2.), 0)
+    circuit.append(P2Gate(-np.pi / 2.), [0])
     circuit.rz(-np.pi, 1)
-    circuit.append(X12Gate(), [0])
-    circuit.x(0)
+    circuit.append(XplusGate(), [0])
     circuit.delay(x12_to_x12 - xplus_dur, 0)
     if include_last_local:
-        circuit.append(X12Gate(), [0])
-        circuit.x(0)
+        circuit.append(XplusGate(), [0])
 
     if apply_dd:
         circuit.delay(dur('x12', 0), 1)
@@ -130,7 +91,14 @@ def cz_decomposition_circuit(
         for _ in range(2):
             circuit.x(1)
             circuit.delay(unit_delay, 1)
-        if include_last_local:
-            circuit.delay(xplus_dur, 1)
+    else:
+        circuit.delay(x12_to_x12, 1)
+
+    if include_last_local:
+        circuit.delay(xplus_dur, 1)
+
+    if gate == 'qutrit_qubit_cx':
+        circuit.delay(dur('sx', 1), 0)
+        circuit.h(1)
 
     return circuit

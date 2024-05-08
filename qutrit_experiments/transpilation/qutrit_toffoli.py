@@ -6,17 +6,18 @@ nothing else.
 import logging
 from typing import Optional
 import numpy as np
-from qiskit import QuantumRegister
+from qiskit import QuantumCircuit, QuantumRegister
+from qiskit.circuit import Delay
+from qiskit.circuit.library import HGate, RZGate, SXGate, XGate
+from qiskit.converters import circuit_to_dag
 from qiskit.dagcircuit import DAGCircuit, DAGOpNode
-from qiskit.circuit import Barrier, Delay, Gate
-from qiskit.circuit.library import ECRGate, HGate, RZGate, SXGate, XGate
-from qiskit.transpiler import (AnalysisPass, InstructionDurations, Target, TransformationPass,
+from qiskit.transpiler import (AnalysisPass, InstructionDurations, TransformationPass,
                                TranspilerError)
 from qiskit_experiments.exceptions import CalibrationError
 
-from ..gates import (P2Gate, QutritCCXGate, QutritCCZGate, QutritQubitCXType, QutritQubitCXGate,
-                     QutritQubitCZGate, QutritMCGate, RZ12Gate, XplusGate, XminusGate, X12Gate)
-from .util import insert_dd
+from ..gates import (P2Gate, QutritQubitCXType, QutritQubitCXGate, QutritMCGate, XplusGate,
+                     XminusGate, X12Gate)
+from .qutrit_qubit_cx import reverse2q_decomposition_circuit
 
 logger = logging.getLogger(__name__)
 
@@ -117,8 +118,6 @@ class QutritMCGateDecomposition(TransformationPass):
         for node in cc_nodes:
             qids = tuple(dag.find_bit(q).index for q in node.qargs)
             rcr_type = self.calibrations.get_parameter_value('rcr_type', qids[1:])
-            is_reverse = rcr_type == QutritQubitCXType.REVERSE
-            is_ccx = isinstance(node.op, QutritCCXGate)
             try:
                 delta_cz = self.calibrations.get_parameter_value('delta_cz', qids)
             except CalibrationError:
@@ -128,131 +127,177 @@ class QutritMCGateDecomposition(TransformationPass):
             except CalibrationError:
                 delta_ccz = 0.
 
-            def dur(gate, *iqs):
-                return self.inst_durations.get(gate, [qids[i] for i in iqs])
+            circuit = qutrit_toffoli_decomposition_circuit(node.op.name, rcr_type, qids,
+                                                           self.inst_durations,
+                                                           apply_dd=self.apply_dd,
+                                                           delta_cz=delta_cz, delta_ccz=delta_ccz)
 
-            subdag = DAGCircuit()
-            qreg = QuantumRegister(3)
-            subdag.add_qreg(qreg)
-
-            def add_op(op, *qubits):
-                subdag.apply_operation_back(op, [qreg[iq] for iq in qubits])
-
-            def add_delay(delay, *qubits):
-                add_op(Delay(delay), *qubits)
-
-            def left_dd(qubit, duration, ndiv=2):
-                unit_delay = (duration - ndiv * dur('x', qubit)) // ndiv
-                for _ in range(ndiv):
-                    add_op(XGate(), qubit)
-                    add_delay(unit_delay, qubit)
-
-            def right_dd(qubit, duration, ndiv=2):
-                unit_delay = (duration - ndiv * dur('x', qubit)) // ndiv
-                for _ in range(ndiv):
-                    add_delay(unit_delay, qubit)
-                    add_op(XGate(), qubit)
-
-            def symmetric_dd(qubit, duration, ndiv=2):
-                unit_delay = (duration - ndiv * dur('x', qubit)) // ndiv
-                add_delay(unit_delay // 2, qubit)
-                for _ in range(ndiv - 1):
-                    add_op(XGate(), qubit)
-                    add_delay(unit_delay, qubit)
-                add_op(XGate(), qubit)
-                add_delay(unit_delay // 2, qubit)
-
-            if is_reverse == is_ccx:
-                add_delay(dur('sx', 2), 0)
-                add_delay(dur('sx', 2), 1)
-                add_op(HGate(), 2)
-
-            add_op(XplusGate(label='qutrit_toffoli_begin'), 1)
-            add_op(X12Gate(), 1)
-            add_op(SXGate(), 1)
-            add_op(P2Gate(-np.pi / 4.), 1)
-            if self.apply_dd:
-                # DD for 0 and 2 will be adjusted in the refocusing pass
-                left_dd(0, 4 * dur('x12', 1))
-                right_dd(2, 4 * dur('x12', 1))
-
-            add_op(Barrier(3), 0, 1, 2)
-            add_op(ECRGate(), 0, 1)
-
-            if self.apply_dd:
-                # DD2: 4X in the period of ECR+X12
-                symmetric_dd(2, dur('ecr', 0, 1) + dur('x12', 1), 4)
-
-            if is_reverse:
-                add_op(RZGate(-delta_cz), 1)
-                add_op(X12Gate(), 1)
-                add_op(ECRGate(), 2, 1)
-                add_op(XGate(), 2)
-                add_op(ECRGate(), 2, 1)
-                add_op(XGate(), 2) # coincides with X12
-                add_op(P2Gate(-np.pi / 2.), 1)
-                add_op(RZGate(-np.pi), 2)
-                add_op(XplusGate(), 1)
-                interval = dur('x12', 1) + 2 * dur('ecr', 2, 1) + dur('x', 2)
-                add_delay(interval - dur('xplus', 1), 1)
-                add_op(X12Gate(), 1)
-                add_op(RZGate(np.pi), 1)
-                add_op(SXGate(), 1)
-                add_op(RZGate(-np.pi), 1)
-                add_op(P2Gate(3. * np.pi / 4.), 1)
-
-                if self.apply_dd:
-                    # # DD0: 8X in X12+ECR+X+ECR
-                    # symmetric_dd(0, interval, 8)
-                    # # DD0: 4X irregular in X12+X+Delay+X12+X
-                    # add_op(XGate(), 0)
-                    # add_delay(dur('x', 1), 0)
-                    # left_dd(0, interval - dur('xplus', 1))
-                    # add_op(XGate(), 0)
-                    # add_delay(dur('x', 1), 0)
-                    symmetric_dd(0, 2 * interval + dur('xplus', 1), 10)
-                    # DD2: delay(X) + 2X in X+Delay
-                    add_delay(dur('x', 1), 2)
-                    left_dd(2, interval - dur('xplus', 1))
-                    # Unpaired X
-                    add_op(XGate(), 2)
-                    add_delay(dur('x', 1), 2)
-            else:
-                add_op(QutritQubitCXGate(), 1, 2)
-                add_op(SXGate(), 1)
-                add_op(P2Gate(np.pi / 4.), 1)
-
-                if self.apply_dd:
-                    dd_delay = dur(f'qutrit_qubit_cx_rcr{rcr_type}', 1, 2) // 6 - dur('x', 0)
-                    if rcr_type == QutritQubitCXType.X:
-                        add_op(XGate(), 0)
-                    for _ in range(5):
-                        add_delay(dd_delay, 0)
-                        add_op(XGate(), 0)
-                    add_delay(dd_delay, 0)
-                    if rcr_type == QutritQubitCXType.X12:
-                        add_op(XGate(), 0)
-
-            add_op(ECRGate(), 0, 1)
-
-            add_delay(dur('xplus', 1), 0)
-            add_op(XplusGate(label='qutrit_toffoli_end'), 1)
-            if is_reverse:
-                add_op(RZGate(-delta_ccz), 1)
-
-            if self.apply_dd:
-                # DD2: 4X in ECR+X12 + X pairing with above
-                symmetric_dd(2, dur('ecr', 0, 1) + dur('x12', 1), 4)
-                add_op(XGate(), 2)
-
-            if is_reverse == is_ccx:
-                add_delay(dur('sx', 2), 0)
-                add_delay(dur('sx', 2), 1)
-                add_op(HGate(), 2)
-
-            dag.substitute_node_with_dag(node, subdag)
+            dag.substitute_node_with_dag(node, circuit_to_dag(circuit))
 
         return dag
+
+
+def reverse2q_3q_decomposition_circuit(
+    gate: str,
+    physical_qubits: tuple[int, int, int],
+    instruction_durations: InstructionDurations,
+    apply_dd: bool = True,
+    delta_cz: float = 0.,
+    include_last_local: bool = True
+) -> QuantumCircuit:
+    """Return the decomposition of the CZ part of the CCZ sequence."""
+    circuit = QuantumCircuit(3)
+    r2q = reverse2q_decomposition_circuit(gate, physical_qubits[1:], instruction_durations,
+                                          apply_dd=apply_dd, delta_cz=delta_cz,
+                                          include_last_local=include_last_local)
+    circuit.compose(r2q, qubits=[1, 2], inplace=True)
+
+    if apply_dd:
+        def dur(gate, *qubits):
+            return instruction_durations.get(gate, tuple(physical_qubits[iq] for iq in qubits))
+
+        x12_to_x12 = dur('x12', 1) + 2 * dur('ecr', 2, 1) + dur('x', 2)
+        xplus_dur = dur('x12', 1) + dur('x', 1)
+
+        if gate == 'qutrit_qubit_cx':
+            circuit.delay(dur('sx', 2), 0)
+
+        unit_delay = (2 * x12_to_x12 + xplus_dur) // 10 - dur('x', 0)
+        circuit.delay(unit_delay // 2, 0)
+        for _ in range(9):
+            circuit.x(0)
+            circuit.delay(unit_delay, 0)
+        circuit.x(0)
+        circuit.delay(unit_delay // 2, 0)
+
+        if gate == 'qutrit_qubit_cx':
+            circuit.delay(dur('sx', 2), 0)
+
+    return circuit
+
+
+def forwardcx_3q_decomposition_circuit(
+    physical_qubits: tuple[int, int, int],
+    instruction_durations: InstructionDurations,
+    rcr_type: QutritQubitCXType,
+    apply_dd: bool = True
+) -> QuantumCircuit:
+    """Return the CX circuit using CRCR."""
+    def dur(gate, *qubits):
+        return instruction_durations.get(gate, tuple(physical_qubits[iq] for iq in qubits))
+
+    circuit = QuantumCircuit(3)
+    circuit.append(QutritQubitCXGate(), [1, 2])
+    circuit.sx(1)
+    circuit.append(P2Gate(np.pi / 4.), 1)
+
+    if apply_dd:
+        unit_delay = dur(f'qutrit_qubit_cx_rcr{rcr_type}', 1, 2) // 6 - dur('x', 0)
+        circuit.delay(unit_delay // 2, 0)
+        for _ in range(5):
+            circuit.x(0)
+            circuit.delay(unit_delay, 0)
+        circuit.x(0)
+        circuit.delay(unit_delay // 2 + dur('sx', 1), 0)
+
+    return circuit
+
+
+def qutrit_toffoli_decomposition_circuit(
+    gate: str,
+    rcr_type: QutritQubitCXGate,
+    physical_qubits: tuple[int, int, int],
+    instruction_durations: InstructionDurations,
+    apply_dd: bool = True,
+    refocusing_delay: int = 0,
+    delta_cz: float = 0.,
+    delta_ccz: float = 0.
+) -> QuantumCircuit:
+    """Return the decomposition of qubit-qutrit-qubit CCZ."""
+    def dur(gate, *qubits):
+        return instruction_durations.get(gate, tuple(physical_qubits[iq] for iq in qubits))
+
+    xplus_dur = dur('x12', 1) + dur('x', 1)
+
+    circuit = QuantumCircuit(3)
+
+    def left_dd(qubit, duration, ndiv=2):
+        unit_delay = duration // ndiv - dur('x', qubit)
+        for _ in range(ndiv):
+            circuit.x(qubit)
+            circuit.delay(unit_delay, qubit)
+
+    def right_dd(qubit, duration, ndiv=2):
+        unit_delay = duration // ndiv - dur('x', qubit)
+        for _ in range(ndiv):
+            circuit.delay(unit_delay, qubit)
+            circuit.x(qubit)
+
+    def symmetric_dd(qubit, duration, ndiv=2):
+        unit_delay = duration // ndiv - dur('x', qubit)
+        circuit.delay(unit_delay // 2, qubit)
+        for _ in range(ndiv - 1):
+            circuit.x(qubit)
+            circuit.delay(unit_delay, qubit)
+        circuit.x(qubit)
+        circuit.delay(unit_delay // 2, qubit)
+
+    if (rcr_type == QutritQubitCXType.REVERSE) == (gate == 'qutrit_toffoli'):
+        circuit.delay(dur('sx', 2), [0, 1])
+        circuit.h(2)
+
+    circuit.append(XplusGate(label='qutrit_toffoli_begin'), [1])
+    if refocusing_delay:
+        circuit.delay(refocusing_delay, 1)
+    circuit.append(X12Gate(), [1])
+    circuit.sx(1)
+    circuit.append(P2Gate(-np.pi / 4.), [1])
+
+    if apply_dd:
+        left_dd(0, 2 * xplus_dur + refocusing_delay)
+        right_dd(2, 2 * xplus_dur + refocusing_delay)
+    else:
+        circuit.delay(2 * xplus_dur + refocusing_delay, [0, 2])
+
+    circuit.barrier() # For refocusing analysis
+    circuit.ecr(0, 1)
+
+    if apply_dd:
+        symmetric_dd(2, dur('ecr', 0, 1) + dur('x12', 1), 4)
+    else:
+        circuit.delay(dur('ecr', 0, 1) + dur('x12', 1), 2)
+
+    if rcr_type == QutritQubitCXType.REVERSE:
+        cz = reverse2q_3q_decomposition_circuit('qutrit_qubit_cz', physical_qubits,
+                                                instruction_durations, apply_dd=apply_dd,
+                                                delta_cz=delta_cz, include_last_local=False)
+        circuit.compose(cz, inplace=True)
+        circuit.append(X12Gate(), [1])
+        circuit.rz(np.pi, 1)
+        circuit.sx(1)
+        circuit.rz(-np.pi, 1)
+        circuit.append(P2Gate(3. * np.pi / 4.), [1])
+    else:
+        cx = forwardcx_3q_decomposition_circuit(physical_qubits, instruction_durations, rcr_type,
+                                                apply_dd=apply_dd)
+        circuit.compose(cx, inplace=True)
+
+    circuit.ecr(0, 1)
+
+    circuit.delay(xplus_dur, 0)
+    circuit.append(XplusGate('qutrit_toffoli_end'), [1])
+    if delta_ccz:
+        circuit.rz(-delta_ccz, 1)
+
+    if apply_dd:
+        circuit.x(2)
+        circuit.delay(dur('sx', 1), 2)
+        symmetric_dd(2, dur('ecr', 0, 1) + dur('x12', 1), 4)
+        circuit.x(2)
+    else:
+        circuit.delay(3 * dur('x', 2) + dur('ecr', 0, 1) + dur('x12', 1), 2)
+
+    return circuit
 
 
 class QutritToffoliRefocusing(TransformationPass):
