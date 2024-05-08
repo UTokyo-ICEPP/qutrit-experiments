@@ -25,8 +25,11 @@ def calibrate_qutrit_qubit_cx(
     runner: ExperimentsRunner,
     cx_type: int = QutritQubitCXType.CRCR,
     refresh_readout_error: bool = True,
+    calibrated: Optional[set[str]] = None,
     qutrit_qubit_index: Optional[tuple[int, int]] = None
 ):
+    if calibrated is None:
+        calibrated = set()
     if qutrit_qubit_index is not None:
         runner_qubits = tuple(runner.qubits)
         runner.qubits = [runner.qubits[idx] for idx in qutrit_qubit_index]
@@ -37,7 +40,8 @@ def calibrate_qutrit_qubit_cx(
 
     if cx_type == QutritQubitCXType.REVERSE:
         runner.calibrations.add_parameter_value(int(cx_type), 'rcr_type', runner.qubits)
-        runner.run_experiment('tc2_cr_rotary_delta')
+        if (exp_type := 'tc2_cr_rotary_delta') not in calibrated:
+            runner.run_experiment(exp_type)
         if qutrit_qubit_index is not None:
             runner.qubits = runner_qubits
         return

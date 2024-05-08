@@ -137,8 +137,8 @@ if __name__ == '__main__':
         cx_type = qutrit_qubit_cx_type(backend, toffoli_qubits[1:])
 
         calibrate_qutrit_qubit_cx(runner, cx_type=cx_type, refresh_readout_error=False,
-                                  qutrit_qubit_index=(1, 2))
-        calibrate_toffoli(runner, refresh_readout_error=False)
+                                  calibrated=calibrated, qutrit_qubit_index=(1, 2))
+        calibrate_toffoli(runner, refresh_readout_error=False, calibrated=calibrated)
         if cx_type == QutritQubitCXType.REVERSE:
             characterize_ccz(runner, refresh_readout_error=False)
         else:

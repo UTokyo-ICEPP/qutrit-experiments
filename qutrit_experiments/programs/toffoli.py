@@ -1,22 +1,34 @@
 from itertools import product
+from typing import Optional
 import numpy as np
 from qiskit_experiments.data_processing import DataProcessor
 
 from ..data_processing import ReadoutMitigation
 from ..experiments.circuit_runner import CircuitRunner
 from ..experiment_config import ExperimentConfig
+from ..gates import QutritQubitCXType
 from ..runners import ExperimentsRunner
 
 
 def calibrate_toffoli(
     runner: ExperimentsRunner,
-    refresh_readout_error: bool = True
+    refresh_readout_error: bool = True,
+    calibrated: Optional[set[str]] = None
 ):
+    if calibrated is None:
+        calibrated = set()
     if 'readout_mitigator' not in runner.program_data:
         # Construct the error mitigation matrix and find the rough CR pulse width
         runner.run_experiment('qubits_assignment_error', force_resubmit=refresh_readout_error)
 
-    runner.run_experiment('c1c2_cr_rotary_delta')
+    if (exp_type := 'c1c2_cr_rotary_delta') not in calibrated:
+        runner.run_experiment(exp_type)
+
+    rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits[1:])
+    if rcr_type == QutritQubitCXType.REVERSE:
+        for exp_type in ['cz_c2_phase', 'ccz_c2_phase']:
+            if exp_type not in calibrated:
+                runner.run_experiment(exp_type)
 
 
 def characterize_ccz(
@@ -32,7 +44,7 @@ def characterize_ccz(
     runner.run_experiment('phasetable_ccz', analyze=False)
     qpt_data = runner.run_experiment('qpt_ccz_bc', analyze=False)
 
-    recover_qpt_data(runner, qpt_data)
+    #recover_qpt_data(runner, qpt_data)
 
 
 def characterize_toffoli(
