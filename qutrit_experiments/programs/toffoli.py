@@ -42,6 +42,7 @@ def characterize_ccz(
     # Truth table
     runner.run_experiment('truthtable_ccz', analyze=False)
     runner.run_experiment('phasetable_ccz', analyze=False)
+    runner.run_experiment('xminusxplus_c2_phase', analyze=False)
     qpt_data = runner.run_experiment('qpt_ccz_bc', analyze=False)
 
     #recover_qpt_data(runner, qpt_data)

@@ -8,7 +8,7 @@ from qiskit_experiments.exceptions import CalibrationError
 
 from ..experiment_config import ExperimentConfig, register_exp
 from ..gates import (QutritCCZGate, QutritQubitCXType, QutritQubitCXGate, QutritQubitCZGate,
-                     XminusGate, XplusGate)
+                     X12Gate, XminusGate, XplusGate)
 from ..transpilation.layout_and_translation import generate_translation_passmanager
 from ..transpilation.qutrit_toffoli import reverse2q_3q_decomposition_circuit
 from ..transpilation.qutrit_transpiler import BASIS_GATES, make_instruction_durations
@@ -80,6 +80,24 @@ def ccz_c2_phase(runner):
         analysis_options={'outcome': '010'}
     )
 
+@register_exp
+@add_readout_mitigation
+def xminusxplus_c2_phase(runner):
+    from ..experiments.phase_table import DiagonalCircuitPhaseShift
+    circuit = QuantumCircuit(1)
+    circuit.x(0)
+    circuit.append(X12Gate(), [0])
+    circuit.append(X12Gate(), [0])
+    circuit.x(0)
+
+    return ExperimentConfig(
+        DiagonalCircuitPhaseShift,
+        runner.qubits[1:2],
+        args={
+            'circuit': circuit,
+            'state': [None],
+        }
+    )
 
 @register_exp
 @add_qpt_readout_mitigation
@@ -187,7 +205,8 @@ def qpt_ccz_bc(runner):
         runner.qubits,
         args={'circuit': circuit, 'target_circuit': target_circuit},
         experiment_options={'max_circuits': 100},
-        run_options={'shots': 2000}
+        run_options={'shots': 2000},
+        analysis_options={'target_bootstrap_samples': 10}
     )
 
 @register_exp
