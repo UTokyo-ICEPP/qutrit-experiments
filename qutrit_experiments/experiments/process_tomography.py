@@ -1,16 +1,20 @@
 """QPT experiment with custom target circuit."""
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import ProcessPoolExecutor
 import logging
 from typing import Any, Optional
 from matplotlib.figure import Figure
 import numpy as np
+from uncertainties import ufloat
 from qiskit import QuantumCircuit, ClassicalRegister
 from qiskit.providers import Backend
 from qiskit.quantum_info import Operator
 from qiskit.result import Counts, CorrelatedReadoutMitigator, LocalReadoutMitigator
 from qiskit_experiments.data_processing import DataProcessor, Probability, BasisExpectationValue
+from qiskit_experiments.exceptions import AnalysisError
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 from qiskit_experiments.library.tomography import basis, ProcessTomographyAnalysis
+from qiskit_experiments.library.tomography.fitters import postprocess_fitter, tomography_fitter_data
 from qiskit_experiments.library.tomography.fitters.cvxpy_utils import cvxpy
 from qiskit_experiments.library.tomography.tomography_experiment import TomographyExperiment
 
@@ -252,6 +256,7 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
         options = super()._default_options()
         options.readout_mitigator = None
         options.plot = True
+        options.bootstrap_max_procs = None
         return options
 
     def _run_analysis_threaded(self, experiment_data: ExperimentData) -> Any:
@@ -283,7 +288,133 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
             measurement_basis=basis.PauliMeasurementBasis(mitigator=self.options.readout_mitigator)
         )
 
-        analysis_results, figures = super(ThreadedAnalysis, self)._run_analysis(experiment_data)
+        #analysis_results, figures = super(ThreadedAnalysis, self)._run_analysis(experiment_data)
+        ###########
+        # Copy-pasting the original _run_analysis because we want to run both the main and bootstrap
+        # fits in parallel
+        # Get option values
+        meas_basis = self.options.measurement_basis
+        meas_qubits = self.options.measurement_qubits
+        if meas_basis and meas_qubits is None:
+            meas_qubits = experiment_data.metadata.get("m_qubits")
+        prep_basis = self.options.preparation_basis
+        prep_qubits = self.options.preparation_qubits
+        if prep_basis and prep_qubits is None:
+            prep_qubits = experiment_data.metadata.get("p_qubits")
+        cond_meas_indices = self.options.conditional_measurement_indices
+        if cond_meas_indices is True:
+            cond_meas_indices = list(range(len(meas_qubits)))
+        cond_prep_indices = self.options.conditional_preparation_indices
+        if cond_prep_indices is True:
+            cond_prep_indices = list(range(len(prep_qubits)))
+
+        # Generate tomography fitter data
+        outcome_shape = None
+        if meas_basis and meas_qubits:
+            outcome_shape = meas_basis.outcome_shape(meas_qubits)
+
+        outcome_data, shot_data, meas_data, prep_data = tomography_fitter_data(
+            experiment_data.data(),
+            outcome_shape=outcome_shape,
+        )
+        qpt = prep_data.size > 0
+
+        # Get fitter kwargs
+        fitter_kwargs = {}
+        if meas_basis:
+            fitter_kwargs["measurement_basis"] = meas_basis
+        if meas_qubits:
+            fitter_kwargs["measurement_qubits"] = meas_qubits
+        if cond_meas_indices:
+            fitter_kwargs["conditional_measurement_indices"] = cond_meas_indices
+        if prep_basis:
+            fitter_kwargs["preparation_basis"] = prep_basis
+        if prep_qubits:
+            fitter_kwargs["preparation_qubits"] = prep_qubits
+        if cond_prep_indices:
+            fitter_kwargs["conditional_preparation_indices"] = cond_prep_indices
+        fitter_kwargs.update(**self.options.fitter_options)
+        fitter = self._get_fitter(self.options.fitter)
+
+        # EDIT yiiyama
+        target = self.options.target
+
+        # Fit state results
+        if (bs_samples := self.options.target_bootstrap_samples) and target is not None:
+            # Optionally, Estimate std error of fidelity via boostrapping
+            seed = self.options.target_bootstrap_seed
+            if isinstance(seed, np.random. Generator):
+                rng = seed
+            else:
+                rng = np.random.default_rng(seed)
+            prob_data = outcome_data / shot_data[None, :, None]
+
+            with ProcessPoolExecutor(max_workers=self.options.bootstrap_max_procs) as executor:
+                futures = []
+                for isamp in range(bs_samples + 1):
+                    logger.debug('Submitting (toy) outcome %d', isamp)
+                    outcome = outcome_data if isamp == 0 else rng.multinomial(shot_data, prob_data)
+                    futures.append(
+                        executor.submit(
+                            _fit_choi,
+                            fitter,
+                            outcome,
+                            shot_data,
+                            meas_data,
+                            prep_data,
+                            self.options.rescale_positive,
+                            'auto' if self.options.rescale_trace else None,
+                            raise_on_error=True if isamp == 0 else False,
+                            **fitter_kwargs
+                        )
+                    )
+
+            state_results_list = []
+            for future in futures:
+                if (state_results := future.result()) is not None:
+                    logger.debug('Recovered result %d', len(state_results_list))
+                    state_results_list.append(state_results)
+        else:
+            state_results_list = [
+                _fit_choi(fitter, outcome_data, shot_data, meas_data, prep_data,
+                          self.options.rescale_positive,
+                          'auto' if self.options.rescale_trace else None,
+                          **fitter_kwargs)
+            ]
+
+        other_results = []
+
+        # Compute fidelity with target
+        if target is not None and len(state_results_list[0]) == 1:
+            fidelity = self._compute_fidelity(state_results_list[0][0], target, qpt=True)
+
+            if len(state_results_list) > 1:
+                bs_fidelities = [self._compute_fidelity(res[0], target, qpt=True)
+                                for res in state_results_list[1:]]
+                bs_stderr = np.std(bs_fidelities)
+                fidelity_data = AnalysisResultData('process_fidelity', ufloat(fidelity, bs_stderr),
+                                                   extra={"bootstrap_samples": bs_fidelities})
+            else:
+                fidelity_data = AnalysisResultData('process_fidelity', fidelity)
+
+            other_results.append(fidelity_data)
+
+        # Check positive
+        other_results += self._positivity_result(state_results, qpt=qpt)
+
+        # Check trace preserving
+        if qpt:
+            output_dim = np.prod(state_results[0].value.output_dims())
+            other_results += self._tp_result(state_results, output_dim)
+
+        # Finally format state result metadata to remove eigenvectors
+        # which are no longer needed to reduce size
+        for state_result in state_results:
+            state_result.extra.pop("eigvecs")
+
+        analysis_results = state_results + other_results
+        ###########
+        figures = []
 
         self.set_options(measurement_basis=mmt_basis)
 
@@ -299,3 +430,47 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
                 figures.append(plot_unitary_fit(*fit_input))
 
         return analysis_results, figures
+
+
+def _fit_choi(
+    fitter: Callable,
+    outcome_data: np.ndarray,
+    shot_data: np.ndarray,
+    measurement_data: np.ndarray,
+    preparation_data: np.ndarray,
+    rescale_positive: bool,
+    rescale_trace: bool,
+    raise_on_error: bool = True,
+    **fitter_kwargs,
+) -> AnalysisResultData:
+    """Global function version of TomographyAnalysis._fit_state_results"""
+    try:
+        fits, fitter_metadata = fitter(
+            outcome_data,
+            shot_data,
+            measurement_data,
+            preparation_data,
+            **fitter_kwargs,
+        )
+    except AnalysisError as ex:
+        if raise_on_error:
+            raise AnalysisError(f"Tomography fitter failed with error: {str(ex)}") from ex
+        else:
+            logger.warning("Tomography fitter failed with error: %s", ex)
+            return None
+
+    # Post process fit
+    states, states_metadata = postprocess_fitter(
+        fits,
+        fitter_metadata,
+        make_positive=rescale_positive,
+        trace="auto" if rescale_trace else None,
+        qpt=True,
+    )
+
+    # Convert to results
+    state_results = [
+        AnalysisResultData("state", state, extra=extra)
+        for state, extra in zip(states, states_metadata)
+    ]
+    return state_results
