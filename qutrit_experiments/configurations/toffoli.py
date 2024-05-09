@@ -206,7 +206,7 @@ def qpt_ccz_bc(runner):
         args={'circuit': circuit, 'target_circuit': target_circuit},
         experiment_options={'max_circuits': 100},
         run_options={'shots': 2000},
-        analysis_options={'target_bootstrap_samples': 10}
+        analysis_options={'target_bootstrap_samples': 100}
     )
 
 @register_exp
