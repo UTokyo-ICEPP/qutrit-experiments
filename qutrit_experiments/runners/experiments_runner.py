@@ -115,6 +115,8 @@ class ExperimentsRunner:
     def data_dir(self, path: Union[str, None]):
         if path and not os.path.exists(path):
             os.makedirs(path)
+        if not os.path.isdir(pdata_path := os.path.join(path, 'program_data')):
+            os.mkdir(pdata_path)
         self._data_dir = path
 
     @property
@@ -500,8 +502,7 @@ class ExperimentsRunner:
     def save_program_data(self, key: str):
         if not self._data_dir:
             return
-        if not os.path.isdir(pdata_path := os.path.join(self._data_dir, 'program_data')):
-            os.mkdir(pdata_path)
+        pdata_path = os.path.join(self._data_dir, 'program_data')
         with open(os.path.join(pdata_path, f'{key}.pkl'), 'wb') as out:
             pickle.dump(self.program_data[key], out)
 
