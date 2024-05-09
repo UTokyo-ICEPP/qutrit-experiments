@@ -59,6 +59,9 @@ if __name__ == '__main__':
     runner.job_retry_interval = 120
     calibrated = load_calibrations(runner, program_config)
 
-    calibrate_single_qutrit_gates(runner, refresh_readout_error=program_config['refresh_readout'],
-                                  calibrated=calibrated)
-    characterize_qutrit(runner, refresh_readout_error=program_config['refresh_readout'])
+    try:
+        calibrate_single_qutrit_gates(runner, refresh_readout_error=program_config['refresh_readout'],
+                                      calibrated=calibrated)
+        characterize_qutrit(runner, refresh_readout_error=program_config['refresh_readout'])
+    finally:
+        runner.runtime_session.close()

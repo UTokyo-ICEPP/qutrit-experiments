@@ -101,45 +101,49 @@ if __name__ == '__main__':
     runner = setup_runner(backend, program_config, calibrations=calibrations)
     runner.job_retry_interval = 120
 
-    runner.run_experiment('qubits_assignment_error',
-                          force_resubmit=program_config['refresh_readout'])
-
-    # Load the calibrations if source is specified in program_config
-    calibrated = load_calibrations(runner, program_config)
-
-    if qutrit_runner_cls is None:
-        qutrit_runner = runner
-        qutrit_index = [1]
-    else:
-        # Define a ParallelRunner to calibrate single qutrit gates in parallel
-        qutrit_runner = setup_runner(backend, program_config, calibrations=calibrations,
-                                     qubits=qutrits, runner_cls=qutrit_runner_cls)
-        qutrit_runner.program_data = runner.program_data
-        qutrit_runner.runtime_session = runner.runtime_session
-        qutrit_runner.job_retry_interval = 120
-        qutrit_index = None
-
-    # Single qutrit gates
-    calibrate_single_qutrit_gates(qutrit_runner,
-                                  refresh_readout_error=program_config['refresh_readout'],
-                                  calibrated=calibrated, qutrit_index=qutrit_index)
-    # Session may have been renewed
-    runner.runtime_session = qutrit_runner.runtime_session
-
-    data_dir = runner.data_dir
-
-    for ic1 in range(0, len(all_qubits), 3):
-        # For each qubit combination, make a subdirectory and run the calibrations
-        toffoli_qubits = all_qubits[ic1:ic1 + 3]
-        runner.data_dir = os.path.join(data_dir, '_'.join(map(str, toffoli_qubits)))
-        runner.qubits = toffoli_qubits
-
-        cx_type = qutrit_qubit_cx_type(backend, toffoli_qubits[1:])
-
-        calibrate_qutrit_qubit_cx(runner, cx_type=cx_type, refresh_readout_error=False,
-                                  calibrated=calibrated, qutrit_qubit_index=(1, 2))
-        calibrate_toffoli(runner, refresh_readout_error=False, calibrated=calibrated)
-        if cx_type == QutritQubitCXType.REVERSE:
-            characterize_ccz(runner, refresh_readout_error=False)
+    try:
+        runner.run_experiment('qubits_assignment_error',
+                              force_resubmit=program_config['refresh_readout'])
+    
+        # Load the calibrations if source is specified in program_config
+        calibrated = load_calibrations(runner, program_config)
+    
+        if qutrit_runner_cls is None:
+            qutrit_runner = runner
+            qutrit_index = [1]
         else:
-            characterize_toffoli(runner, refresh_readout_error=False)
+            # Define a ParallelRunner to calibrate single qutrit gates in parallel
+            qutrit_runner = setup_runner(backend, program_config, calibrations=calibrations,
+                                         qubits=qutrits, runner_cls=qutrit_runner_cls)
+            qutrit_runner.program_data = runner.program_data
+            qutrit_runner.runtime_session = runner.runtime_session
+            qutrit_runner.job_retry_interval = 120
+            qutrit_index = None
+    
+        # Single qutrit gates
+        calibrate_single_qutrit_gates(qutrit_runner,
+                                      refresh_readout_error=program_config['refresh_readout'],
+                                      calibrated=calibrated, qutrit_index=qutrit_index)
+        # Session may have been renewed
+        runner.runtime_session = qutrit_runner.runtime_session
+    
+        data_dir = runner.data_dir
+    
+        for ic1 in range(0, len(all_qubits), 3):
+            # For each qubit combination, make a subdirectory and run the calibrations
+            toffoli_qubits = all_qubits[ic1:ic1 + 3]
+            runner.data_dir = os.path.join(data_dir, '_'.join(map(str, toffoli_qubits)))
+            runner.qubits = toffoli_qubits
+    
+            cx_type = qutrit_qubit_cx_type(backend, toffoli_qubits[1:])
+    
+            calibrate_qutrit_qubit_cx(runner, cx_type=cx_type, refresh_readout_error=False,
+                                      calibrated=calibrated, qutrit_qubit_index=(1, 2))
+            calibrate_toffoli(runner, refresh_readout_error=False, calibrated=calibrated)
+            if cx_type == QutritQubitCXType.REVERSE:
+                characterize_ccz(runner, refresh_readout_error=False)
+            else:
+                characterize_toffoli(runner, refresh_readout_error=False)
+
+    finally:
+        runner.runtime_session.close()
