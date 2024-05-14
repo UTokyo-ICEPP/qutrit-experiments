@@ -266,7 +266,7 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
             if self.options.readout_mitigator is not None:
                 nodes = [
                     ReadoutMitigation(readout_mitigator=self.options.readout_mitigator,
-                                      physical_qubits=self.physical_qubits),
+                                      physical_qubits=experiment_data.metadata['physical_qubits']),
                     Probability('1'),
                     BasisExpectationValue()
                 ]
@@ -382,10 +382,11 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
                           **fitter_kwargs)
             ]
 
+        state_results = state_results_list[0]
         other_results = []
 
         # Compute fidelity with target
-        if target is not None and len(state_results_list[0]) == 1:
+        if target is not None and len(state_results) == 1:
             fidelity = self._compute_fidelity(state_results_list[0][0], target, qpt=True)
 
             if len(state_results_list) > 1:
@@ -427,7 +428,7 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
                 AnalysisResultData(name='expvals_predicted', value=expvals_pred)
             ])
             if self.options.plot:
-                figures.append(plot_unitary_fit(*fit_input))
+                figures.append(plot_unitary_fit(popt_ufloats, *fit_input))
 
         return analysis_results, figures
 
