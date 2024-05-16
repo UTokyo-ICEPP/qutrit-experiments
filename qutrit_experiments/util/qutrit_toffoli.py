@@ -3,22 +3,17 @@ from collections.abc import Sequence
 from typing import Optional
 from qiskit import QuantumCircuit
 from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary as sel
-from qiskit.circuit.library import XGate
 from qiskit.providers import Backend
 from qiskit.transpiler import PassManager, StagedPassManager
-from qiskit.transpiler.passes import (ALAPScheduleAnalysis, BasisTranslator, PadDynamicalDecoupling,
-                                      TimeUnitConversion)
+from qiskit.transpiler.passes import ALAPScheduleAnalysis, BasisTranslator, TimeUnitConversion
 from qiskit_experiments.calibration_management import Calibrations
 
 from ..transpilation.custom_pulses import AttachCalibration
-from ..transpilation.dynamical_decoupling import AddDDCalibration
 from ..transpilation.qutrit_qubit_cx import ReverseCXDecomposition
-from ..transpilation.qutrit_toffoli import (ContainsQutritMCGate, QutritMCGateDecomposition,
-                                            QutritToffoliRefocusing)
+from ..transpilation.qutrit_toffoli import QutritMCGateDecomposition, QutritToffoliRefocusing
 from ..transpilation.qutrit_transpiler import BASIS_GATES, make_instruction_durations
 from ..transpilation.layout_and_translation import (UndoLayout, TranslateAndClearTiming,
-                                                    generate_layout_passmanager,
-                                                    generate_translation_passmanager)
+                                                    generate_layout_passmanager)
 from ..gates import QutritQubitCXType, QutritCCXGate, QutritMCGate
 
 
@@ -105,10 +100,6 @@ def qutrit_toffoli_translator(
             refocusing_pass
         ])
     translation_passes = []
-    # if do_dd:
-    #     add_dd = AddDDCalibration()
-    #     add_dd.calibrations = calibrations
-    #     translation_passes.append(add_dd)
     # Need to translate + clear the node_start_time dict because transpiler passes try to save the
     # node times to the output circuit at the end of each __call__ and translation of xplus corrupts
     # this dictionary

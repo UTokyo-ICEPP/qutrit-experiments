@@ -41,6 +41,8 @@ def cz_c2_phase(runner):
 
     inst_durations = make_instruction_durations(runner.backend, runner.calibrations, runner.qubits)
     circuit = reverse2q_3q_decomposition_circuit('qutrit_qubit_cz', runner.qubits, inst_durations,
+                                                 apply_dd=True,
+                                                 pulse_alignment=runner.backend.target.pulse_alignment,
                                                  delta_cz=delta_cz)
     pm = qutrit_toffoli_translator(runner.backend, runner.calibrations, runner.qubits)
     circuit = pm.run(circuit)

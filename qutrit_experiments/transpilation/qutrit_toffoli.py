@@ -17,6 +17,7 @@ from qiskit_experiments.exceptions import CalibrationError
 
 from ..gates import (P2Gate, QutritQubitCXType, QutritQubitCXGate, QutritMCGate, XplusGate,
                      XminusGate, X12Gate)
+from .dynamical_decoupling import DDCalculator
 from .qutrit_qubit_cx import reverse2q_decomposition_circuit
 
 logger = logging.getLogger(__name__)
@@ -159,23 +160,15 @@ def reverse2q_3q_decomposition_circuit(
         def dur(gate, *qubits):
             return instruction_durations.get(gate, tuple(physical_qubits[iq] for iq in qubits))
 
+        ddapp = DDCalculator(physical_qubits, instruction_durations, pulse_alignment)
+
         x12_to_x12 = dur('x12', 1) + 2 * dur('ecr', 2, 1) + dur('x', 2)
         xplus_dur = dur('x12', 1) + dur('x', 1)
 
         if gate == 'qutrit_qubit_cx':
             circuit.delay(dur('sx', 2), 0)
 
-        duration = 2 * x12_to_x12 + xplus_dur
-        num_units = 2 * (duration // (10 * dur('x', 0)))
-        unit_delay = duration // num_units - dur('x', 0)
-        aligned_unit_delay = (unit_delay // pulse_alignment) * pulse_alignment
-
-        circuit.delay(aligned_unit_delay // 2, 0)
-        for _ in range(num_units - 1):
-            circuit.x(0)
-            circuit.delay(aligned_unit_delay, 0)
-        circuit.x(0)
-        circuit.delay(aligned_unit_delay // 2, 0)
+        ddapp.append_dd(circuit, 0, 2 * x12_to_x12 + xplus_dur, 5)
 
         if gate == 'qutrit_qubit_cx':
             circuit.delay(dur('sx', 2), 0)
@@ -200,13 +193,8 @@ def forwardcx_3q_decomposition_circuit(
     circuit.append(P2Gate(np.pi / 4.), 1)
 
     if apply_dd:
-        unit_delay = dur(f'qutrit_qubit_cx_rcr{rcr_type}', 1, 2) // 6 - dur('x', 0)
-        circuit.delay(unit_delay // 2, 0)
-        for _ in range(5):
-            circuit.x(0)
-            circuit.delay(unit_delay, 0)
-        circuit.x(0)
-        circuit.delay(unit_delay // 2 + dur('sx', 1), 0)
+        ddapp = DDCalculator(physical_qubits, instruction_durations, pulse_alignment)
+        ddapp.append_dd(circuit, 0, dur(f'qutrit_qubit_cx_rcr{rcr_type}', 1, 2), 3)
 
     return circuit
 
@@ -230,26 +218,8 @@ def qutrit_toffoli_decomposition_circuit(
 
     circuit = QuantumCircuit(3)
 
-    def left_dd(qubit, duration, ndiv=2):
-        unit_delay = duration // ndiv - dur('x', qubit)
-        for _ in range(ndiv):
-            circuit.x(qubit)
-            circuit.delay(unit_delay, qubit)
-
-    def right_dd(qubit, duration, ndiv=2):
-        unit_delay = duration // ndiv - dur('x', qubit)
-        for _ in range(ndiv):
-            circuit.delay(unit_delay, qubit)
-            circuit.x(qubit)
-
-    def symmetric_dd(qubit, duration, ndiv=2):
-        unit_delay = duration // ndiv - dur('x', qubit)
-        circuit.delay(unit_delay // 2, qubit)
-        for _ in range(ndiv - 1):
-            circuit.x(qubit)
-            circuit.delay(unit_delay, qubit)
-        circuit.x(qubit)
-        circuit.delay(unit_delay // 2, qubit)
+    if apply_dd:
+        ddapp = DDCalculator(physical_qubits, instruction_durations, pulse_alignment)
 
     if (rcr_type == QutritQubitCXType.REVERSE) == (gate == 'qutrit_toffoli'):
         circuit.delay(dur('sx', 2), [0, 1])
@@ -263,8 +233,8 @@ def qutrit_toffoli_decomposition_circuit(
     circuit.append(P2Gate(-np.pi / 4.), [1])
 
     if apply_dd:
-        left_dd(0, 2 * xplus_dur + refocusing_delay)
-        right_dd(2, 2 * xplus_dur + refocusing_delay)
+        ddapp.append_dd(circuit, 0, 2 * xplus_dur + refocusing_delay, distribution='left')
+        ddapp.append_dd(circuit, 2, 2 * xplus_dur + refocusing_delay, distribution='right')
     else:
         circuit.delay(2 * xplus_dur + refocusing_delay, [0, 2])
 
@@ -272,7 +242,7 @@ def qutrit_toffoli_decomposition_circuit(
     circuit.ecr(0, 1)
 
     if apply_dd:
-        symmetric_dd(2, dur('ecr', 0, 1) + dur('x12', 1), 4)
+        ddapp.append_dd(circuit, 2, dur('ecr', 0, 1) + dur('x12', 1), 2)
     else:
         circuit.delay(dur('ecr', 0, 1) + dur('x12', 1), 2)
 
@@ -302,7 +272,7 @@ def qutrit_toffoli_decomposition_circuit(
     if apply_dd:
         circuit.x(2)
         circuit.delay(dur('sx', 1), 2)
-        symmetric_dd(2, dur('ecr', 0, 1) + dur('x12', 1), 4)
+        ddapp.append_dd(circuit, 2, dur('ecr', 0, 1) + dur('x12', 1), 2)
         circuit.x(2)
     else:
         circuit.delay(3 * dur('x', 2) + dur('ecr', 0, 1) + dur('x12', 1), 2)
@@ -436,13 +406,16 @@ class QutritToffoliRefocusing(TransformationPass):
                 add_op(SXGate(), 1)
                 add_op(P2Gate(-np.pi / 4.), 1)
                 if self.apply_dd:
-                    unit_delay = (added_time + dur('x12', 1) + dur('sx', 1) - 2 * dur('x', 0)) // 2
-                    for _ in range(2):
+                    ddcalc = DDCalculator(qids, self.inst_durations, self.pulse_alignment)
+                    taus = ddcalc.calculate_delays(0, added_time + dur('x12', 1) + dur('sx', 1),
+                                                   distribution='left')
+                    for tau in taus[1:]:
                         add_op(XGate(), 0)
-                        add_delay(unit_delay, 0)
-                    unit_delay = (added_time + dur('x12', 1) + dur('sx', 1) - 2 * dur('x', 2)) // 2
-                    for _ in range(2):
-                        add_delay(unit_delay, 2)
+                        add_delay(tau, 0)
+                    taus = ddcalc.calculate_delays(2, added_time + dur('x12', 1) + dur('sx', 1),
+                                                   distribution='right')
+                    for tau in taus[:-1]:
+                        add_delay(tau, 2)
                         add_op(XGate(), 2)
             else:
                 add_op(XminusGate(label='qutrit_toffoli_begin'), 1)

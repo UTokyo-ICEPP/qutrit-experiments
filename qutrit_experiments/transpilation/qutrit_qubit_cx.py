@@ -5,7 +5,8 @@ from qiskit.converters import circuit_to_dag
 from qiskit.dagcircuit import DAGCircuit
 from qiskit.transpiler import InstructionDurations, TransformationPass, TranspilerError
 
-from ..gates import P2Gate, QutritQubitCXGate, QutritQubitCXType, X12Gate, XplusGate
+from ..gates import P2Gate, QutritQubitCXType, X12Gate, XplusGate
+from .dynamical_decoupling import DDCalculator
 
 
 class ReverseCXDecomposition(TransformationPass):
@@ -88,15 +89,10 @@ def reverse2q_decomposition_circuit(
 
     if apply_dd:
         circuit.delay(dur('x12', 0), 1)
-        unit_delay = (x12_to_x12 - xplus_dur - 2 * dur('x', 1)) // 2
-        aligned_unit_delay = (unit_delay // pulse_alignment) * pulse_alignment
-        for _ in range(2):
-            circuit.x(1)
-            circuit.delay(aligned_unit_delay, 1)
-        if (residual := unit_delay - aligned_unit_delay):
-            circuit.delay(2 * residual, 1)
+        ddapp = DDCalculator(physical_qubits, instruction_durations, pulse_alignment)
+        ddapp.append_dd(circuit, 1, x12_to_x12 - xplus_dur, distribution='left')
     else:
-        circuit.delay(x12_to_x12, 1)
+        circuit.delay(x12_to_x12 - dur('x', 1), 1)
 
     if include_last_local:
         circuit.delay(xplus_dur, 1)
