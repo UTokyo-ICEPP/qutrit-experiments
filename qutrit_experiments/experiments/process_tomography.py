@@ -59,8 +59,6 @@ class CircuitTomography(TomographyExperiment):
 
         analysis = CircuitTomographyAnalysis()
         analysis.set_options(target=target)
-        if cvxpy is not None:
-            analysis.set_options(fitter='cvxpy_gaussian_lstsq')
 
         super().__init__(
             circuit,
@@ -161,6 +159,13 @@ class CircuitTomography(TomographyExperiment):
         circuits = super().circuits()
         pre_circuit = self.experiment_options.pre_circuit
         post_circuit = self.experiment_options.post_circuit
+
+        def barrier_all(circuit):
+            if apply_layout:
+                circuit.barrier(self.physical_qubits)
+            else:
+                circuit.barrier(range(len(self.physical_qubits)))
+
         qpt_circuits = []
         for circuit, (prep_element, meas_element) in zip(circuits, self._basis_indices()):
             qpt_circuit = channel.copy_empty_like(name=circuit.name)
@@ -177,9 +182,9 @@ class CircuitTomography(TomographyExperiment):
                     qubit = self._prep_indices[iq]
                 qpt_circuit.compose(prep_circuits[iq][idx], qubits=[qubit], inplace=True)
 
-            qpt_circuit.barrier()
+            barrier_all(qpt_circuit)
             qpt_circuit.compose(channel, inplace=True)
-            qpt_circuit.barrier()
+            barrier_all(qpt_circuit)
 
             for iq, idx in enumerate(meas_element):
                 if apply_layout:
@@ -192,7 +197,7 @@ class CircuitTomography(TomographyExperiment):
             if post_circuit:
                 qpt_circuit.compose(post_circuit, inplace=True)
 
-            qpt_circuit.barrier()
+            barrier_all(qpt_circuit)
             if apply_layout:
                 qpt_circuit.measure(mqubits, range(len(mqubits)))
             else:
@@ -257,6 +262,8 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
         options.readout_mitigator = None
         options.plot = True
         options.bootstrap_max_procs = None
+        if cvxpy is not None:
+            options.fitter = 'cvxpy_gaussian_lstsq'
         return options
 
     def _run_analysis_threaded(self, experiment_data: ExperimentData) -> Any:
