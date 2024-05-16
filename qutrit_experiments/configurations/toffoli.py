@@ -1,7 +1,7 @@
 # pylint: disable=import-outside-toplevel, function-redefined, unused-argument
 """Experiment configurations for Toffoli gate calibration."""
 import numpy as np
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit, schedule
 from qiskit_experiments.calibration_management import ParameterValue
 from qiskit_experiments.exceptions import CalibrationError
 
@@ -78,25 +78,6 @@ def ccz_c2_phase(runner):
             'cal_parameter_name': 'delta_ccz'
         },
         analysis_options={'outcome': '010'}
-    )
-
-@register_exp
-@add_readout_mitigation
-def xminusxplus_c2_phase(runner):
-    from ..experiments.phase_table import DiagonalCircuitPhaseShift
-    circuit = QuantumCircuit(1)
-    circuit.x(0)
-    circuit.append(X12Gate(), [0])
-    circuit.append(X12Gate(), [0])
-    circuit.x(0)
-
-    return ExperimentConfig(
-        DiagonalCircuitPhaseShift,
-        runner.qubits[1:2],
-        args={
-            'circuit': circuit,
-            'state': [None],
-        }
     )
 
 @register_exp
