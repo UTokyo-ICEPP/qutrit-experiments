@@ -499,12 +499,19 @@ class ExperimentsRunner:
         if any(x[-1] for x in update_list) and self._data_dir and not self.read_only:
             self.calibrations.save(folder=self._data_dir, overwrite=True)
 
-    def save_program_data(self, key: str):
+    def save_program_data(self, key: Optional[str] = None):
         if not self._data_dir:
             return
         pdata_path = os.path.join(self._data_dir, 'program_data')
-        with open(os.path.join(pdata_path, f'{key}.pkl'), 'wb') as out:
-            pickle.dump(self.program_data[key], out)
+        if key is None:
+            keys = self.program_data.keys()
+        elif isinstance(key, str):
+            keys = [key]
+        else:
+            keys = key
+        for key in keys:
+            with open(os.path.join(pdata_path, f'{key}.pkl'), 'wb') as out:
+                pickle.dump(self.program_data[key], out)
 
     def load_program_data(
         self,
