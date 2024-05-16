@@ -42,7 +42,8 @@ class ReverseCXDecomposition(TransformationPass):
                   continue
 
             circuit = reverse2q_decomposition_circuit(node.op.name, qids, self.inst_durations,
-                                                      apply_dd=self.apply_dd)
+                                                      apply_dd=self.apply_dd,
+                                                      pulse_alignment=self.pulse_alignment)
             dag.substitute_node_with_dag(node, circuit_to_dag(circuit))
 
         return dag
@@ -53,6 +54,7 @@ def reverse2q_decomposition_circuit(
     physical_qubits: tuple[int, int],
     instruction_durations: InstructionDurations,
     apply_dd: bool = True,
+    pulse_alignment: int = 1,
     delta_cz: float = 0.,
     include_last_local: bool = True
 ) -> QuantumCircuit:
@@ -87,10 +89,12 @@ def reverse2q_decomposition_circuit(
     if apply_dd:
         circuit.delay(dur('x12', 0), 1)
         unit_delay = (x12_to_x12 - xplus_dur - 2 * dur('x', 1)) // 2
-        # Need to deal with residuals etc - leaving for later
+        aligned_unit_delay = (unit_delay // pulse_alignment) * pulse_alignment
         for _ in range(2):
             circuit.x(1)
-            circuit.delay(unit_delay, 1)
+            circuit.delay(aligned_unit_delay, 1)
+        if (residual := unit_delay - aligned_unit_delay):
+            circuit.delay(2 * residual, 1)
     else:
         circuit.delay(x12_to_x12, 1)
 

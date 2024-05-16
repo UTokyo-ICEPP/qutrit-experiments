@@ -130,6 +130,7 @@ class QutritMCGateDecomposition(TransformationPass):
             circuit = qutrit_toffoli_decomposition_circuit(node.op.name, rcr_type, qids,
                                                            self.inst_durations,
                                                            apply_dd=self.apply_dd,
+                                                           pulse_alignment=self.pulse_alignment,
                                                            delta_cz=delta_cz, delta_ccz=delta_ccz)
 
             dag.substitute_node_with_dag(node, circuit_to_dag(circuit))
@@ -142,13 +143,15 @@ def reverse2q_3q_decomposition_circuit(
     physical_qubits: tuple[int, int, int],
     instruction_durations: InstructionDurations,
     apply_dd: bool = True,
+    pulse_alignment: int = 1,
     delta_cz: float = 0.,
     include_last_local: bool = True
 ) -> QuantumCircuit:
     """Return the decomposition of the CZ part of the CCZ sequence."""
     circuit = QuantumCircuit(3)
     r2q = reverse2q_decomposition_circuit(gate, physical_qubits[1:], instruction_durations,
-                                          apply_dd=apply_dd, delta_cz=delta_cz,
+                                          apply_dd=apply_dd, pulse_alignment=pulse_alignment,
+                                          delta_cz=delta_cz,
                                           include_last_local=include_last_local)
     circuit.compose(r2q, qubits=[1, 2], inplace=True)
 
@@ -162,13 +165,17 @@ def reverse2q_3q_decomposition_circuit(
         if gate == 'qutrit_qubit_cx':
             circuit.delay(dur('sx', 2), 0)
 
-        unit_delay = (2 * x12_to_x12 + xplus_dur) // 10 - dur('x', 0)
-        circuit.delay(unit_delay // 2, 0)
-        for _ in range(9):
+        duration = 2 * x12_to_x12 + xplus_dur
+        num_units = 2 * (duration // (10 * dur('x', 0)))
+        unit_delay = duration // num_units - dur('x', 0)
+        aligned_unit_delay = (unit_delay // pulse_alignment) * pulse_alignment
+
+        circuit.delay(aligned_unit_delay // 2, 0)
+        for _ in range(num_units - 1):
             circuit.x(0)
-            circuit.delay(unit_delay, 0)
+            circuit.delay(aligned_unit_delay, 0)
         circuit.x(0)
-        circuit.delay(unit_delay // 2, 0)
+        circuit.delay(aligned_unit_delay // 2, 0)
 
         if gate == 'qutrit_qubit_cx':
             circuit.delay(dur('sx', 2), 0)
@@ -180,7 +187,8 @@ def forwardcx_3q_decomposition_circuit(
     physical_qubits: tuple[int, int, int],
     instruction_durations: InstructionDurations,
     rcr_type: QutritQubitCXType,
-    apply_dd: bool = True
+    apply_dd: bool = True,
+    pulse_alignment: int = 1
 ) -> QuantumCircuit:
     """Return the CX circuit using CRCR."""
     def dur(gate, *qubits):
@@ -209,6 +217,7 @@ def qutrit_toffoli_decomposition_circuit(
     physical_qubits: tuple[int, int, int],
     instruction_durations: InstructionDurations,
     apply_dd: bool = True,
+    pulse_alignment: int = 1,
     refocusing_delay: int = 0,
     delta_cz: float = 0.,
     delta_ccz: float = 0.
@@ -270,6 +279,7 @@ def qutrit_toffoli_decomposition_circuit(
     if rcr_type == QutritQubitCXType.REVERSE:
         cz = reverse2q_3q_decomposition_circuit('qutrit_qubit_cz', physical_qubits,
                                                 instruction_durations, apply_dd=apply_dd,
+                                                pulse_alignment=pulse_alignment,
                                                 delta_cz=delta_cz, include_last_local=False)
         circuit.compose(cz, inplace=True)
         circuit.append(X12Gate(), [1])
@@ -279,7 +289,7 @@ def qutrit_toffoli_decomposition_circuit(
         circuit.append(P2Gate(3. * np.pi / 4.), [1])
     else:
         cx = forwardcx_3q_decomposition_circuit(physical_qubits, instruction_durations, rcr_type,
-                                                apply_dd=apply_dd)
+                                                apply_dd=apply_dd, pulse_alignment=pulse_alignment)
         circuit.compose(cx, inplace=True)
 
     circuit.ecr(0, 1)
