@@ -63,18 +63,20 @@ def add_qpt_readout_mitigation(gen):
     @wraps(gen)
     def converted_gen(runner):
         config = gen(runner)
-        for mitigator_qubits, mitigator in runner.program_data.get('readout_mitigator', {}).items():
-            if set(config.physical_qubits) <= set(mitigator_qubits):
-                matrices = [mitigator.assignment_matrix(qubit) for qubit in config.physical_qubits]
-                local_mitigator = LocalReadoutMitigator(matrices, config.physical_qubits)
-                config.analysis_options['readout_mitigator'] = local_mitigator
-                break
-        else:
-            logger.warning('Correlated readout mitigator for qubits %s not found.',
-                           config.physical_qubits)
+        configure_qpt_readout_mitigation(runner, config)
         return config
 
     return converted_gen
+
+def configure_qpt_readout_mitigation(runner, config):
+    for mitigator_qubits, mitigator in runner.program_data.get('readout_mitigator', {}).items():
+        if set(config.physical_qubits) <= set(mitigator_qubits):
+            matrices = [mitigator.assignment_matrix(qubit) for qubit in config.physical_qubits]
+            local_mitigator = LocalReadoutMitigator(matrices, config.physical_qubits)
+            config.analysis_options['readout_mitigator'] = local_mitigator
+            return
+
+    logger.warning('Correlated readout mitigator for qubits %s not found.', config.physical_qubits)
 
 def qubits_assignment_error(runner, qubits):
     """Template configuration generator for CorrelatedReadoutError."""
