@@ -171,7 +171,7 @@ class ParallelRunner(ExperimentsRunner):
         block_for_results: bool = True,
         analyze: bool = True,
         calibrate: bool = True,
-        print_level: int = 2,
+        print_level: Optional[int] = None,
         exp_data: Optional[ExperimentData] = None,
         force_resubmit: bool = False
     ) -> ExperimentData:
@@ -198,8 +198,8 @@ class ParallelRunner(ExperimentsRunner):
 
         exp_data = super().run_experiment(batch_config, experiment,
                                           block_for_results=block_for_results, analyze=analyze,
-                                          calibrate=calibrate, print_level=0, exp_data=exp_data,
-                                          force_resubmit=force_resubmit)
+                                          calibrate=calibrate, print_level=print_level,
+                                          exp_data=exp_data, force_resubmit=force_resubmit)
 
         if not analyze or experiment.analysis is None:
             return exp_data

@@ -380,7 +380,11 @@ class ExperimentsRunner:
         experiment_data._experiment = experiment
         experiment_data.backend = backend
 
-    def saved_data_exists(self, exp_type: str) -> bool:
+    def saved_data_exists(self, config: Union[str, ExperimentConfigBase]) -> bool:
+        if isinstance(config, str):
+            exp_type = config
+        else:
+            exp_type = config.exp_type
         return self._file_exists(f'{exp_type}.pkl')
 
     def delete_data(self, exp_type: str):
@@ -398,9 +402,15 @@ class ExperimentsRunner:
             return False
         return os.path.exists(os.path.join(self._data_dir, file_name))
 
-    def load_data(self, exp_type: str) -> ExperimentData:
+    def load_data(self, config: Union[str, ExperimentConfigBase]) -> ExperimentData:
         if not self._data_dir:
             raise RuntimeError('ExperimentsRunner does not have a data_dir set')
+
+        if isinstance(config, str):
+            exp_type = config
+        else:
+            exp_type = config.exp_type
+
         start = time.time()
         with open(os.path.join(self._data_dir, f'{exp_type}.pkl'), 'rb') as source:
             exp_data = deep_copy_no_results(pickle.load(source))

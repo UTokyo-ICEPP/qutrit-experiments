@@ -3,7 +3,7 @@ from collections.abc import Sequence
 import os
 import logging
 import shutil
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from qiskit.providers import Backend
 from qiskit_ibm_runtime import QiskitRuntimeService, Session
@@ -12,6 +12,7 @@ from qiskit_experiments.framework import BaseAnalysis, CompositeAnalysis
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 
 from ..runners import ExperimentsRunner
+from ..experiment_config import ExperimentConfigBase
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,7 @@ def load_calibrations(
 
 def run_experiment(
     runner: ExperimentsRunner,
-    exp_type: str,
+    config: Union[str, ExperimentConfigBase],
     block_for_results: bool = True,
     analyze: bool = True,
     calibrate: bool = True,
@@ -113,25 +114,25 @@ def run_experiment(
     runner_qubits = set(runner.qubits)
 
     exp_data = None
-    if runner.saved_data_exists(exp_type):
-        exp_data = runner.load_data(exp_type)
+    if runner.saved_data_exists(config):
+        exp_data = runner.load_data(config)
         if (data_qubits := set(exp_data.metadata['physical_qubits'])) - runner_qubits:
             logger.warning('Saved experiment data for %s has out-of-configuration qubits.',
-                            exp_type)
+                           config if isinstance(config) else config.exp_type)
         runner.qubits = data_qubits
 
-    exp = runner.make_experiment(exp_type)
+    exp = runner.make_experiment(config)
     set_analysis_option(exp.analysis, 'plot', False, threshold=plot_depth + 1)
     if not parallelize:
         set_analysis_option(exp.analysis, 'parallelize', 0)
 
-    exp_data = runner.run_experiment(exp_type, experiment=exp, block_for_results=block_for_results,
+    exp_data = runner.run_experiment(config, experiment=exp, block_for_results=block_for_results,
                                      analyze=analyze, calibrate=calibrate, print_level=print_level,
                                      exp_data=exp_data, force_resubmit=force_resubmit)
 
     if isinstance(exp, BaseCalibrationExperiment):
         # Exclude qubits that failed calibration
-        cal_data = runner.calibrations.parameters_table(group=exp_type,
+        cal_data = runner.calibrations.parameters_table(group=exp_data.experiment_type,
                                                         most_recent_only=False)['data']
         runner.qubits = runner_qubits & set(row['qubits'][0] for row in cal_data)
     else:

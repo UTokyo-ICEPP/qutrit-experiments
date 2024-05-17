@@ -37,10 +37,12 @@ if __name__ == '__main__':
     if (nq := len(program_config['qubits'])) == 1:
         import qutrit_experiments.configurations.single_qutrit
         runner_cls = None
+        default_print_level = 1
     else:
         import qutrit_experiments.configurations.full_backend_qutrits
         from qutrit_experiments.runners import ParallelRunner
         runner_cls = ParallelRunner
+        default_print_level = 0
 
     setup_data_dir(program_config)
     backend = setup_backend(program_config)
@@ -57,7 +59,7 @@ if __name__ == '__main__':
 
     runner = setup_runner(backend, program_config, calibrations=calibrations, runner_cls=runner_cls)
     runner.job_retry_interval = 120
-    runner.default_print_level = 1
+    runner.default_print_level = default_print_level
     calibrated = load_calibrations(runner, program_config)
 
     try:
