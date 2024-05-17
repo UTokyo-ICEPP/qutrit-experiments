@@ -4,7 +4,9 @@ import logging
 from typing import Any, Optional
 from matplotlib.figure import Figure
 import numpy as np
+from scipy.linalg import svd
 from scipy.optimize import least_squares
+from uncertainties import correlated_values, ufloat, unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.providers import Backend
 from qiskit.providers.options import Options
@@ -178,14 +180,26 @@ class PhaseTableAnalysis(CompoundAnalysis):
                 binary = binary[:first_one] + '0' + binary[first_one + 1:]
 
         result = least_squares(fun, init)
-        diagonals = np.concatenate([[0.], (result.x + np.pi) % twopi - np.pi])
+        popt = (result.x + np.pi) % twopi - np.pi
 
-        analysis_results.append(AnalysisResultData(name='phases', value=diagonals))
+        # Covariance calculation from least_squares result copied from scipy.optimize._minpack_py
+        _, s, VT = svd(result.jac, full_matrices=False)
+        threshold = np.finfo(float).eps * max(result.jac.shape) * s[0]
+        s = s[s > threshold]
+        VT = VT[:s.size]
+        pcov = np.dot(VT.T / s**2, VT)
+
+        phases = correlated_values(nom_values=popt, covariance_mat=pcov)
+        phases = np.concatenate([[ufloat(0., 0.)], phases])
+
+        analysis_results.append(AnalysisResultData(name='phases', value=phases))
 
         if self.options.plot:
             num_states = 2 ** num_qubits
+            phases_nom = unp.nominal_values(phases)
+            phases_err = unp.std_devs(phases)
             ax = get_non_gui_ax()
-            ax.scatter(np.arange(num_states), diagonals)
+            ax.errorbar(np.arange(num_states), phases_nom, xerr=0.5, yerr=phases_err, fmt='o')
             ax.set_xlabel('State')
             ax.set_ylabel('Phase')
             ax.set_xticks(np.arange(num_states), labels=[f'{i}' for i in range(num_states)])
@@ -197,7 +211,7 @@ class PhaseTableAnalysis(CompoundAnalysis):
             ax.errorbar(np.arange(num_exps), (phase_diffs + np.pi) % twopi - np.pi, xerr=0.5,
                         yerr=errs, fmt='none', label='observed')
             ax.scatter(np.arange(num_exps),
-                       (diagonals[idx_high] - diagonals[idx_low] + np.pi) % twopi - np.pi,
+                       (phases_nom[idx_high] - phases_nom[idx_low] + np.pi) % twopi - np.pi,
                        c='#ff7f0e', label='fit')
             ax.set_xticks(np.arange(num_exps),
                           labels=[f'{high}-{low}' for high, low in zip(idx_high, idx_low)])
