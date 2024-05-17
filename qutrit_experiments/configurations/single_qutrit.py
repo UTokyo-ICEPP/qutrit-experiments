@@ -3,6 +3,7 @@
 from functools import wraps
 from .common import qubits_assignment_error, qubits_assignment_error_post
 from .qutrit import (
+    qutrit_wide_frequency,
     qutrit_rough_frequency,
     qutrit_rough_amplitude,
     qutrit_discriminator,
@@ -36,6 +37,7 @@ def register_single_qutrit_exp(function):
 
 
 qutrit_functions = [
+    qutrit_wide_frequency,
     qutrit_rough_frequency,
     qutrit_rough_amplitude,
     qutrit_discriminator,

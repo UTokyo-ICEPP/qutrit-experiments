@@ -47,6 +47,10 @@ def calibrate_single_qutrit_gates(
         _run_experiment(runner, 'qubits_assignment_error', is_calibration=False,
                         force_resubmit=refresh_readout_error)
 
+    if (exp_type := 'qutrit_wide_frequency') not in calibrated:
+        if any(runner.backend.qubit_properties(q).anharmonicity == 0 for q in runner.qubits):
+            _run_experiment(runner, exp_type)
+
     exp_types = [
         'qutrit_rough_frequency',
         'qutrit_rough_amplitude',

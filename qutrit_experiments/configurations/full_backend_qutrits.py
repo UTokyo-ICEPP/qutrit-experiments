@@ -4,6 +4,7 @@ from functools import wraps
 import logging
 from .common import qubits_assignment_error, qubits_assignment_error_post
 from .qutrit import (
+    qutrit_wide_frequency,
     qutrit_rough_frequency,
     qutrit_rough_amplitude,
     qutrit_semifine_frequency,
@@ -48,6 +49,7 @@ def register_backend_qutrit_postexp(function):
 
 
 qutrit_functions = [
+    qutrit_wide_frequency,
     qutrit_rough_frequency,
     #qutrit_rough_amplitude,
     qubits_assignment_error,

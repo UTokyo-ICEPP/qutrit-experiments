@@ -41,6 +41,34 @@ def add_iq_discriminator(gen):
 
     return converted_gen
 
+def qutrit_wide_frequency(runner, qubit):
+    """EF frequency measurement based on spectroscopy over a very wide range."""
+    from ..experiments.single_qutrit.rough_frequency import EFRoughFrequencyCal
+    sx_sched = runner.backend.defaults().instruction_schedule_map.get('sx', qubit)
+    sx_pulse = next(inst.pulse for _, inst in sx_sched.instructions if isinstance(inst, pulse.Play))
+    sx_amp = sx_pulse.amp
+    sx_duration = sx_pulse.duration
+    sx_sigma = sx_pulse.sigma
+    # aim for pi/2 rotation at the resonance with stretched pulse
+    # factor sqrt(2) for ef transition amp
+    factor = 4.
+    while (amp := sx_amp / factor / np.sqrt(2.)) < 0.005:
+        factor *= 0.9
+
+    f01 = runner.backend.qubit_properties(qubit).frequency
+    frequencies = np.linspace(f01 - 400.e+6, f01 - 200.e+6, 100)
+
+    return ExperimentConfig(
+        EFRoughFrequencyCal,
+        [qubit],
+        args={'frequencies': frequencies},
+        experiment_options={
+            'amp': amp,
+            'duration': sx_duration * factor * runner.backend.dt,
+            'sigma': sx_sigma * factor * runner.backend.dt
+        }
+    )
+
 def qutrit_rough_frequency(runner, qubit):
     """EF frequency measurement based on spectroscopy."""
     from ..experiments.single_qutrit.rough_frequency import EFRoughFrequencyCal
@@ -54,9 +82,14 @@ def qutrit_rough_frequency(runner, qubit):
     factor = 4.
     while (amp := sx_amp / factor / np.sqrt(2.)) < 0.005:
         factor *= 0.9
+
+    freq_12_est = runner.calibrations.get_parameter_value('f12', qubit)
+    frequencies = np.linspace(freq_12_est - 20.e+6, freq_12_est + 20.e+6, 41)
+
     return ExperimentConfig(
         EFRoughFrequencyCal,
         [qubit],
+        args={'frequencies': frequencies},
         experiment_options={
             'amp': amp,
             'duration': sx_duration * factor * runner.backend.dt,
