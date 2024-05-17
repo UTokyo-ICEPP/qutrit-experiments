@@ -125,9 +125,9 @@ def run_experiment(
     if not parallelize:
         set_analysis_option(exp.analysis, 'parallelize', 0)
 
-    runner.run_experiment(exp_type, experiment=exp, block_for_results=block_for_results,
-                          analyze=analyze, calibrate=calibrate, print_level=print_level,
-                          exp_data=exp_data, force_resubmit=force_resubmit)
+    exp_data = runner.run_experiment(exp_type, experiment=exp, block_for_results=block_for_results,
+                                     analyze=analyze, calibrate=calibrate, print_level=print_level,
+                                     exp_data=exp_data, force_resubmit=force_resubmit)
 
     if isinstance(exp, BaseCalibrationExperiment):
         # Exclude qubits that failed calibration
