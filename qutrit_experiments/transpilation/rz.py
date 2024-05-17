@@ -134,7 +134,7 @@ class CastRZToAngle(TransformationPass):
                     f"Operation {repr(node)} is likely added after the circuit is scheduled. "
                     "Schedule the circuit again if you transformed it."
                 )
-            
+
             if not isinstance(node.op, Gate):
                 continue
 
@@ -167,7 +167,7 @@ class CastRZToAngle(TransformationPass):
                 insert_rz(dag, node, pre_angles=angles, post_angles=-angles,
                           node_start_time=node_start_time)
                 # op_duration missing; it's likely OK because this should be one of the last passes
-        
+
         for qubit, phase in cumul_phase.items():
             if phase != 0.:
                 node = dag.apply_operation_back(RZGate(phase), [dag.qubits[qubit]])
@@ -265,10 +265,10 @@ class CastRZToAngle(TransformationPass):
 
             if not isinstance(block.pulse, ScalableSymbolicPulse):
                 raise TranspilerError(f'Pulse {block.pulse} is not a ScalableSymbolicPulse')
-            
+
             if 0. <= block.pulse.angle < twopi:
                 continue
-            
+
             new_inst = pulse.Play(copy.deepcopy(block.pulse), block.channel, name=block.name)
             new_inst.pulse._params['angle'] = block.pulse._params['angle'] % twopi
             replacements.append((block, new_inst))

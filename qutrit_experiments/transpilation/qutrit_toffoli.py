@@ -257,6 +257,11 @@ def qutrit_toffoli_decomposition_circuit(
         circuit.sx(1)
         circuit.rz(-np.pi, 1)
         circuit.append(P2Gate(3. * np.pi / 4.), [1])
+        if apply_dd:
+            circuit.x(2)
+            circuit.delay(dur('sx', 1), 2)
+        else:
+            circuit.delay(dur('x', 2) + dur('sx', 1), 2)
     else:
         cx = forwardcx_3q_decomposition_circuit(physical_qubits, instruction_durations, rcr_type,
                                                 apply_dd=apply_dd, pulse_alignment=pulse_alignment)
@@ -270,12 +275,10 @@ def qutrit_toffoli_decomposition_circuit(
         circuit.rz(-delta_ccz, 1)
 
     if apply_dd:
-        circuit.x(2)
-        circuit.delay(dur('sx', 1), 2)
         ddapp.append_dd(circuit, 2, dur('ecr', 0, 1) + dur('x12', 1), 2)
         circuit.x(2)
     else:
-        circuit.delay(3 * dur('x', 2) + dur('ecr', 0, 1) + dur('x12', 1), 2)
+        circuit.delay(dur('x', 2) + dur('ecr', 0, 1) + dur('x12', 1), 2)
 
     return circuit
 
@@ -319,9 +322,9 @@ class QutritToffoliRefocusing(TransformationPass):
         T = X+ U X- P0(δs) exp[iδ(t2 - t1)(z + ζ)].
     To cancel the phase on |0> we need
         t2 - t1 = d = -s.
-    If 0 < d + s < a, we can be achieved the above condition by adjusting some delays. For all three
-    cases above, s = -3α where α is
-    the duration of a sequence that is repeated twice. By adding a delay Δ to this sequence,
+    If 0 < d + s < a, we can achieve the above condition by adjusting some delays. For all three
+    cases above, s = -3α where α is the duration of a sequence that is repeated twice. By adding a
+    delay Δ to this sequence,
         d -> d' = d + 2Δ
         s -> s' = s - 3Δ
         ∴ d' + s' = d + s - Δ
