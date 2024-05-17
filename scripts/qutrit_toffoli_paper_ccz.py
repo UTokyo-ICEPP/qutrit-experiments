@@ -171,7 +171,7 @@ if __name__ == '__main__':
         ]:
             config = parallelized(exp_type)
             batch_config.subexperiments.append(config)
-        data_3q = run_experiment(runner, config, block_for_results=False, plot_depth=-1)
+        data_3q = run_experiment(runner, batch_config, block_for_results=False, plot_depth=-1)
 
         batch_config = BatchExperimentConfig(
             exp_type='characterization_1q',
@@ -185,7 +185,7 @@ if __name__ == '__main__':
         ]:
             config = parallelized(exp_type)
             batch_config.subexperiments.append(config)
-        data_1q = run_experiment(runner, config, block_for_results=False, plot_depth=-1)
+        data_1q = run_experiment(runner, batch_config, block_for_results=False, plot_depth=-1)
 
     finally:
         runner.runtime_session.close()

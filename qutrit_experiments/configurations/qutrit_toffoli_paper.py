@@ -110,7 +110,7 @@ def skeleton_cz_circuit_core(runner, ecr_tc2=False):
         circuit.x(2)
         circuit.ecr(2, 1)
         circuit.x(2)
-        circuit.append(P2Gate(-np.pi / 2.), [0])
+        circuit.append(P2Gate(-np.pi / 2.), [1])
         circuit.rz(-np.pi, 1)
     else:
         circuit.x(1)
@@ -251,7 +251,7 @@ def cz_circuit(runner):
     """Circuit with Xpluses, DDs, and ECR(c1,c2)."""
     delta_cz = runner.calibrations.get_parameter_value('delta_cz', runner.qubits)
     delta_ccz = runner.calibrations.get_parameter_value('delta_ccz_cz', runner.qubits)
-    circuit = skeleton_ccz_circuit(runner, delta_cz=delta_cz, delta_ccz=delta_ccz, ecr_c2t=True)
+    circuit = skeleton_ccz_circuit(runner, delta_cz=delta_cz, delta_ccz=delta_ccz, ecr_tc2=True)
     return translate(circuit, runner)
 
 #######################################
@@ -269,7 +269,7 @@ def cz_id_c2_phase(runner):
     except CalibrationError:
         runner.calibrations.add_parameter_value(ParameterValue(0.), param_name, runner.qubits)
         delta_cz = 0.
-    circuit = skeleton_cz_circuit(runner, delta_cz=delta_cz)
+    circuit = translate(skeleton_cz_circuit(runner, delta_cz=delta_cz), runner)
 
     return ExperimentConfig(
         DiagonalPhaseCal,
@@ -295,7 +295,8 @@ def ccz_id0_c2_phase(runner):
         delta_ccz = runner.calibrations.add_parameter_value(ParameterValue(0.), param_name,
                                                             runner.qubits)
 
-    circuit = skeleton_ccz_circuit(runner, delta_cz=delta_cz, delta_ccz=delta_ccz)
+    circuit = translate(skeleton_ccz_circuit(runner, delta_cz=delta_cz, delta_ccz=delta_ccz),
+                        runner)
 
     return ExperimentConfig(
         DiagonalPhaseCal,
@@ -321,7 +322,9 @@ def ccz_id1_c2_phase(runner):
         delta_ccz = runner.calibrations.add_parameter_value(ParameterValue(0.), param_name,
                                                             runner.qubits)
 
-    circuit = skeleton_ccz_circuit(runner, delta_cz=delta_cz, delta_ccz=delta_ccz, ecr_c1c2=True)
+    circuit = translate(skeleton_ccz_circuit(runner, delta_cz=delta_cz, delta_ccz=delta_ccz,
+                                             ecr_c1c2=True),
+                        runner)
 
     return ExperimentConfig(
         DiagonalPhaseCal,
@@ -347,7 +350,9 @@ def ccz_cz_c2_phase(runner):
         delta_ccz = runner.calibrations.add_parameter_value(ParameterValue(0.), param_name,
                                                             runner.qubits)
 
-    circuit = skeleton_ccz_circuit(runner, delta_cz=delta_cz, delta_ccz=delta_ccz, ecr_tc2=True)
+    circuit = translate(skeleton_ccz_circuit(runner, delta_cz=delta_cz, delta_ccz=delta_ccz,
+                                             ecr_tc2=True),
+                        runner)
 
     return ExperimentConfig(
         DiagonalPhaseCal,
