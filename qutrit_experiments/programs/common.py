@@ -118,7 +118,7 @@ def run_experiment(
         exp_data = runner.load_data(config)
         if (data_qubits := set(exp_data.metadata['physical_qubits'])) - runner_qubits:
             logger.warning('Saved experiment data for %s has out-of-configuration qubits.',
-                           config if isinstance(config) else config.exp_type)
+                           config if isinstance(config, str) else config.exp_type)
         runner.qubits = data_qubits
 
     exp = runner.make_experiment(config)

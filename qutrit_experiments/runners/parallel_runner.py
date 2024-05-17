@@ -198,7 +198,7 @@ class ParallelRunner(ExperimentsRunner):
 
         exp_data = super().run_experiment(batch_config, experiment,
                                           block_for_results=block_for_results, analyze=analyze,
-                                          calibrate=calibrate, print_level=print_level,
+                                          calibrate=calibrate, print_level=0,
                                           exp_data=exp_data, force_resubmit=force_resubmit)
 
         if not analyze or experiment.analysis is None:
@@ -210,7 +210,9 @@ class ParallelRunner(ExperimentsRunner):
 
         if block_for_results:
             exp_data.block_for_results()
-            if print_level:
+            if print_level is None:
+                print_level = self.default_print_level
+            if print_level > 0:
                 for figure_name in exp_data.figure_names:
                     display(exp_data.figure(figure_name))
             if print_level >= 2:

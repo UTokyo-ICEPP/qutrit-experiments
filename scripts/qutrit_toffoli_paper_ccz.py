@@ -38,9 +38,8 @@ if __name__ == '__main__':
                                                       ParallelExperimentConfig,
                                                       experiments, postexperiments)
     from qutrit_experiments.gates import QutritQubitCXType
-    from qutrit_experiments.programs.common import (load_calibrations, setup_backend,
+    from qutrit_experiments.programs.common import (load_calibrations, run_experiment, setup_backend,
                                                     setup_data_dir, setup_runner)
-    from qutrit_experiments.programs.common import run_experiment
     from qutrit_experiments.programs.single_qutrit_gates import calibrate_single_qutrit_gates
     from qutrit_experiments.runners.parallel_runner import ParallelRunner
 
