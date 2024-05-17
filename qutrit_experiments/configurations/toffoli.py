@@ -171,7 +171,7 @@ def qpt_toffoli_bc(runner):
         CircuitTomography,
         runner.qubits,
         args={'circuit': circuit, 'target_circuit': target_circuit},
-        run_options={'shots': 2000, 'rep_delay': runner.backend.configuration().rep_delay_range[1]}
+        run_options={'shots': 2000}#, 'rep_delay': runner.backend.configuration().rep_delay_range[1]}
     )
 
 @register_exp
