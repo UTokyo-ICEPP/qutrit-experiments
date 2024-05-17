@@ -72,6 +72,7 @@ class ExperimentsRunner:
         self.data_dir = data_dir
 
         self.read_only = read_only
+        self.default_print_level = 2
 
         if runtime_session is not None:
             self._runtime_session = runtime_session
@@ -194,7 +195,7 @@ class ExperimentsRunner:
         block_for_results: bool = True,
         analyze: bool = True,
         calibrate: bool = True,
-        print_level: int = 2,
+        print_level: Optional[int] = None,
         exp_data: Optional[ExperimentData] = None,
         force_resubmit: bool = False
     ) -> ExperimentData:
@@ -291,6 +292,9 @@ class ExperimentsRunner:
                 exp_data.add_analysis_callback(postexperiment)
 
         if block_for_results:
+            if print_level is None:
+                print_level = self.default_print_level
+
             self._check_status(exp_data)
             if print_level == 1:
                 print_summary(exp_data)

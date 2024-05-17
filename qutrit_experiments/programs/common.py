@@ -1,15 +1,19 @@
 """Common functions for running calibration programs."""
 from collections.abc import Sequence
 import os
+import logging
 import shutil
 from typing import Any, Optional
 
 from qiskit.providers import Backend
 from qiskit_ibm_runtime import QiskitRuntimeService, Session
 from qiskit_ibm_runtime.exceptions import IBMNotAuthorizedError
-from qiskit_experiments.calibration_management import Calibrations
+from qiskit_experiments.framework import BaseAnalysis, CompositeAnalysis
+from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 
 from ..runners import ExperimentsRunner
+
+logger = logging.getLogger(__name__)
 
 
 def setup_data_dir(program_config: dict[str, Any]) -> str:
@@ -93,3 +97,59 @@ def load_calibrations(
                 calibrated.add(datum['group'])
 
     return calibrated
+
+
+def run_experiment(
+    runner: ExperimentsRunner,
+    exp_type: str,
+    block_for_results: bool = True,
+    analyze: bool = True,
+    calibrate: bool = True,
+    print_level: Optional[int] = None,
+    force_resubmit: bool = False,
+    plot_depth: int = 0,
+    parallelize: bool = True
+):
+    runner_qubits = set(runner.qubits)
+
+    exp_data = None
+    if runner.saved_data_exists(exp_type):
+        exp_data = runner.load_data(exp_type)
+        if (data_qubits := set(exp_data.metadata['physical_qubits'])) - runner_qubits:
+            logger.warning('Saved experiment data for %s has out-of-configuration qubits.',
+                            exp_type)
+        runner.qubits = data_qubits
+
+    exp = runner.make_experiment(exp_type)
+    set_analysis_option(exp.analysis, 'plot', False, threshold=plot_depth + 1)
+    if not parallelize:
+        set_analysis_option(exp.analysis, 'parallelize', 0)
+
+    runner.run_experiment(exp_type, experiment=exp, block_for_results=block_for_results,
+                          analyze=analyze, calibrate=calibrate, print_level=print_level,
+                          exp_data=exp_data, force_resubmit=force_resubmit)
+
+    if isinstance(exp, BaseCalibrationExperiment):
+        # Exclude qubits that failed calibration
+        cal_data = runner.calibrations.parameters_table(group=exp_type,
+                                                        most_recent_only=False)['data']
+        runner.qubits = runner_qubits & set(row['qubits'][0] for row in cal_data)
+    else:
+        runner.qubits = runner_qubits
+
+    return exp_data
+
+
+def set_analysis_option(
+    analysis: BaseAnalysis,
+    option: str,
+    value: Any,
+    threshold: int = 0,
+    _depth: int = 0
+):
+    if _depth >= threshold and hasattr(analysis.options, option):
+        analysis.set_options(**{option: value})
+
+    if isinstance(analysis, CompositeAnalysis):
+        for subanalysis in analysis.component_analysis():
+            set_analysis_option(subanalysis, option, value, threshold, _depth + 1)
