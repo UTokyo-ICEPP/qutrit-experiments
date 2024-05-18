@@ -3,8 +3,9 @@ import logging
 from typing import Optional
 import numpy as np
 from qiskit import pulse
-from qiskit.providers import Backend
 from qiskit.circuit import Parameter
+from qiskit.providers import Backend
+from qiskit.pulse import ScalableSymbolicPulse
 from qiskit_experiments.exceptions import CalibrationError
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 
@@ -45,8 +46,11 @@ def set_x_default(
 
     # Import the parameter values from inst_map
     for qubit in operational_qubits:
-        params = inst_map.get('x', qubit).instructions[0][1].pulse.parameters
-        for pname, value in params.items():
+        x_pulse = inst_map.get('x', qubit).instructions[0][1].pulse
+        if not (isinstance(x_pulse, ScalableSymbolicPulse)
+                    and x_pulse.pulse_type == 'Drag'):
+            raise RuntimeError(f'Pulse of q{qubit} x is not Drag')
+        for pname, value in x_pulse.parameters.items():
             calibrations.add_parameter_value(ParameterValue(value), pname, qubits=[qubit],
                                              schedule='x')
 
@@ -107,6 +111,9 @@ def set_dd_default(
     for qubit in operational_qubits:
         x_sched = inst_map.get('x', qubit)
         x_pulse = x_sched.instructions[0][1].pulse
+        if not (isinstance(x_pulse, ScalableSymbolicPulse)
+                    and x_pulse.pulse_type == 'Drag'):
+            raise RuntimeError(f'Pulse of q{qubit} x is not Drag')
         x_duration = x_sched.duration
         pvalues = [
             ('duration', x_duration * 2),

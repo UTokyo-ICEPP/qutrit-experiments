@@ -3,10 +3,10 @@
 from collections.abc import Sequence
 import logging
 from typing import Optional
-import numpy as np
 from qiskit import pulse
-from qiskit.providers import Backend
 from qiskit.circuit import Parameter
+from qiskit.providers import Backend
+from qiskit.pulse import ScalableSymbolicPulse
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 
 from ..constants import LO_SIGN
@@ -128,6 +128,9 @@ def set_x12_sx12_default(
             qubit_sched = inst_map.get(qubit_gate_name, qubit)
             qubit_pulse = next(inst.pulse for _, inst in qubit_sched.instructions
                                if isinstance(inst, pulse.Play))
+            if not (isinstance(qubit_pulse, ScalableSymbolicPulse)
+                    and qubit_pulse.pulse_type == 'Drag'):
+                raise RuntimeError(f'Pulse of q{qubit} {qubit_gate_name} is not Drag')
             for param_name in ['duration', 'sigma']:
                 value = getattr(qubit_pulse, param_name)
                 calibrations.add_parameter_value(ParameterValue(value), param_name, qubits=[qubit],
