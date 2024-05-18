@@ -10,7 +10,10 @@ if __name__ == '__main__':
     program_config = get_program_config(
         additional_args=[
             (('--no-qpt',),
-             {'help': 'Skip the QPT experiment.', 'action': 'store_true', 'dest': 'no_qpt'})
+             {'help': 'Skip the QPT experiment.', 'action': 'store_true', 'dest': 'no_qpt'}),
+            (('--no-3q',),
+             {'help': 'Skip 3Q characterization experiments.',
+              'action': 'store_true', 'dest': 'no_3q'})
         ]
     )
 
@@ -169,16 +172,17 @@ if __name__ == '__main__':
 
             exp_data[config.exp_type] = run_experiment(runner, config, block_for_results=False)
 
-        for seq_name in ['ccz', 'id0', 'id1', 'id2']:
-            config = BatchExperimentConfig(
-                exp_type=f'characterization_{seq_name}',
-                experiment_options={'max_circuits': 100},
-                run_options={'shots': 2000},
-            )
-            for etype in ['truthtable', 'phasetable']:
-                config.subexperiments.append(parallelized(f'{etype}_{seq_name}'))
-            exp_data[config.exp_type] = run_experiment(runner, config, block_for_results=False,
-                                                       plot_depth=-1)
+        if not program_config['no_3q']:
+            for seq_name in ['ccz', 'id0', 'id1', 'id2']:
+                config = BatchExperimentConfig(
+                    exp_type=f'characterization_{seq_name}',
+                    experiment_options={'max_circuits': 100},
+                    run_options={'shots': 2000},
+                )
+                for etype in ['truthtable', 'phasetable']:
+                    config.subexperiments.append(parallelized(f'{etype}_{seq_name}'))
+                exp_data[config.exp_type] = run_experiment(runner, config, block_for_results=False,
+                                                        plot_depth=-1)
 
         config = BatchExperimentConfig(
             exp_type='characterization_1q',
@@ -209,7 +213,9 @@ if __name__ == '__main__':
             runner.program_data['process_fidelity'][qubits] = child_data.analysis_results('process_fidelity').value
 
     for seq_name in ['ccz', 'id0', 'id1', 'id2']:
-        bdata = exp_data[f'characterization_{seq_name}']
+        if (bdata := exp_data.get(f'characterization_{seq_name}')) is None:
+            continue
+
         for (pdata, etype, resname) in zip(bdata.child_data(),
                                            ['truthtable', 'phasetable'],
                                            ['truth_table', 'phases']):
