@@ -455,25 +455,29 @@ class ExperimentsRunner:
     ):
         if experiment is None:
             experiment = experiment_data.experiment
-        if exp_type is None:
-            exp_type = experiment.experiment_type
-
-        logger.info('Updating calibrations for %s.', exp_type)
+        if exp_type:
+            logger.info('Updating calibrations for %s.', exp_type)
 
         def _get_update_list(exp_data, exp):
             update_list = []
             if isinstance(exp, BaseCalibrationExperiment):
+                if exp_type:
+                    etype = exp_type
+                else:
+                    etype = experiment.experiment_type
+                    logger.info('Updating calibrations for %s.', etype)
+
                 updated = False
                 try:
                     if criterion and not criterion(exp_data):
-                        logger.warning('%s qubits %s failed calibration criterion', exp_type,
+                        logger.warning('%s qubits %s failed calibration criterion', etype,
                                        exp.physical_qubits)
                     else:
                         exp.update_calibrations(exp_data)
                         updated = True
                 except ExperimentEntryNotFound as exc:
                     if self._skip_missing_calibration:
-                        logger.warning('%s (%s) %s', exp_type, exp.physical_qubits, exc.message)
+                        logger.warning('%s (%s) %s', etype, exp.physical_qubits, exc.message)
                     else:
                         raise
 
@@ -489,7 +493,7 @@ class ExperimentsRunner:
                 for pname, sname in targets:
                     qubit_indices = qubits_map.get((pname, sname), range(len(exp.physical_qubits)))
                     qubits = tuple(exp.physical_qubits[idx] for idx in qubit_indices)
-                    update_list.append((pname, sname, qubits, updated))
+                    update_list.append((pname, sname, etype, qubits, updated))
 
             elif type(exp) in [BatchExperiment, ParallelExperiment]:
                 for subexp, child_data in zip(exp.component_experiment(), exp_data.child_data()):
@@ -501,14 +505,14 @@ class ExperimentsRunner:
         logger.info('%d/%d parameters to update.',
                     len([x for x in update_list if x[-1]]), len(update_list))
 
-        for pname, sname, qubits, updated in update_list:
+        for pname, sname, etype, qubits, updated in update_list:
             if not updated:
                 continue
 
             logger.debug('Tagging calibration parameter %s:%s:%s from experiment %s',
-                         pname, sname, qubits, exp_type)
+                         pname, sname, qubits, etype)
             self.pass_parameter_value(pname, qubits, from_schedule=sname, from_group='default',
-                                      to_group=exp_type)
+                                      to_group=etype)
 
         if any(x[-1] for x in update_list) and self._data_dir and not self.read_only:
             self.calibrations.save(folder=self._data_dir, overwrite=True)

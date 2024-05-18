@@ -198,7 +198,7 @@ class ParallelRunner(ExperimentsRunner):
 
         exp_data = super().run_experiment(batch_config, experiment,
                                           block_for_results=block_for_results, analyze=analyze,
-                                          calibrate=calibrate, print_level=0,
+                                          calibrate=False, print_level=0,
                                           exp_data=exp_data, force_resubmit=force_resubmit)
 
         if not analyze or experiment.analysis is None:
@@ -207,6 +207,14 @@ class ParallelRunner(ExperimentsRunner):
         # Make and show the plots
         with exp_data._analysis_callbacks.lock:
             exp_data.add_analysis_callback(self.consolidate_figures)
+
+        if calibrate and self.calibrations is not None:
+            def update_calibrations(exp_data):
+                self.update_calibrations(exp_data, experiment=experiment,
+                                         exp_type=exp_data.experiment_type,
+                                         criterion=config.calibration_criterion)
+            with exp_data._analysis_callbacks.lock:
+                exp_data.add_analysis_callback(update_calibrations)
 
         if block_for_results:
             exp_data.block_for_results()
