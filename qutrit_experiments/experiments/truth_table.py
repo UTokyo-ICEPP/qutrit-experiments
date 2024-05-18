@@ -69,7 +69,7 @@ class TruthTableAnalysis(BaseAnalysis):
 
         for counts, datum in zip(counts_arr, experiment_data.data()):
             init = datum['metadata']['init']
-            shots = datum['shots']
+            shots = sum(counts.values())
             for bstr, count in counts.items():
                 truth_table[init, int(bstr, 2)] = count / shots
 
