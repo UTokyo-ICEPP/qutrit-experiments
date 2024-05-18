@@ -71,7 +71,7 @@ def add_qpt_readout_mitigation(gen):
 def configure_qpt_readout_mitigation(runner, config):
     for mitigator_qubits, mitigator in runner.program_data.get('readout_mitigator', {}).items():
         if set(config.physical_qubits) <= set(mitigator_qubits):
-            matrices = [mitigator.assignment_matrix(qubit) for qubit in config.physical_qubits]
+            matrices = [mitigator.assignment_matrix((qubit,)) for qubit in config.physical_qubits]
             local_mitigator = LocalReadoutMitigator(matrices, config.physical_qubits)
             config.analysis_options['readout_mitigator'] = local_mitigator
             return
