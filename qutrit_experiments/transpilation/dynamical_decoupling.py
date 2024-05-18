@@ -53,7 +53,7 @@ class DDCalculator:
             idx_seq[::2] = np.arange(num_pairs + 1)
             idx_seq[1::2] = np.arange(num_xs, num_pairs, -1)
 
-        taus = self._constrained_length(spacing)
+        taus = self._constrained_length(slack * spacing)
         extra_slack = slack - np.sum(taus)
 
         while extra_slack > 0:
