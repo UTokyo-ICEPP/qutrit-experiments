@@ -111,7 +111,7 @@ def skeleton_cz_circuit_core(runner, ecr_tc2=False):
         circuit.ecr(2, 1)
         circuit.x(2)
         circuit.append(P2Gate(-np.pi / 2.), [1])
-        circuit.rz(-np.pi, 1)
+        circuit.rz(-np.pi, 2)
     else:
         circuit.x(1)
         circuit.delay(alpha - xplus_dur, 1)
@@ -174,7 +174,8 @@ def skeleton_ccz_circuit(runner, delta_cz=0., delta_ccz=0., ecr_c1c2=False, ecr_
     ddapp.append_dd(circuit, 0, 2 * xplus_dur + refocusing_delay, distribution='left')
     circuit.append(X12Gate(), [1])
     circuit.x(1)
-    circuit.delay(refocusing_delay, 1)
+    if refocusing_delay:
+        circuit.delay(refocusing_delay, 1)
     circuit.append(X12Gate(), [1])
     ddapp.append_dd(circuit, 2, 2 * xplus_dur + refocusing_delay, distribution='right')
 
@@ -247,10 +248,10 @@ def id1_circuit(runner):
     circuit = skeleton_ccz_circuit(runner, delta_cz=delta_cz, delta_ccz=delta_ccz, ecr_c1c2=True)
     return translate(circuit, runner)
 
-def cz_circuit(runner):
-    """Circuit with Xpluses, DDs, and ECR(c1,c2)."""
+def id2_circuit(runner):
+    """Circuit with Xpluses, DDs, and ECR(t,c2)."""
     delta_cz = runner.calibrations.get_parameter_value('delta_cz', runner.qubits)
-    delta_ccz = runner.calibrations.get_parameter_value('delta_ccz_cz', runner.qubits)
+    delta_ccz = runner.calibrations.get_parameter_value('delta_ccz_id2', runner.qubits)
     circuit = skeleton_ccz_circuit(runner, delta_cz=delta_cz, delta_ccz=delta_ccz, ecr_tc2=True)
     return translate(circuit, runner)
 
@@ -339,10 +340,10 @@ def ccz_id1_c2_phase(runner):
 
 @register_exp
 @add_readout_mitigation
-def ccz_cz_c2_phase(runner):
+def ccz_id2_c2_phase(runner):
     from ..experiments.phase_table import DiagonalPhaseCal
 
-    param_name = 'delta_ccz_cz'
+    param_name = 'delta_ccz_id2'
     delta_cz = runner.calibrations.get_parameter_value('delta_cz', runner.qubits)
     try:
         delta_ccz = runner.calibrations.get_parameter_value(param_name, runner.qubits)
@@ -484,24 +485,24 @@ def phasetable_id1(runner):
 
 @register_exp
 @add_readout_mitigation(probability=False)
-def truthtable_cz(runner):
+def truthtable_id2(runner):
     from qutrit_experiments.experiments.truth_table import TruthTable
     return ExperimentConfig(
         TruthTable,
         runner.qubits,
         args={
-            'circuit': cz_circuit(runner)
+            'circuit': id2_circuit(runner)
         }
     )
 
 @register_exp
 @add_readout_mitigation
-def phasetable_cz(runner):
+def phasetable_id2(runner):
     from qutrit_experiments.experiments.phase_table import PhaseTable
     return ExperimentConfig(
         PhaseTable,
         runner.qubits,
         args={
-            'circuit': cz_circuit(runner)
+            'circuit': id2_circuit(runner)
         }
     )

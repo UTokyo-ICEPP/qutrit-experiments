@@ -67,7 +67,7 @@ if __name__ == '__main__':
     calibrations._register_parameter(Parameter('delta_cz_id'), ())
     calibrations._register_parameter(Parameter('delta_ccz_id0'), ())
     calibrations._register_parameter(Parameter('delta_ccz_id1'), ())
-    calibrations._register_parameter(Parameter('delta_ccz_cz'), ())
+    calibrations._register_parameter(Parameter('delta_ccz_id2'), ())
 
     for qubits in qubits_list:
         calibrations.add_parameter_value(int(QutritQubitCXType.REVERSE), 'rcr_type', qubits[1:])
@@ -136,47 +136,49 @@ if __name__ == '__main__':
             config = parallelized(exp_type)
             run_experiment(runner, config, plot_depth=-1)
 
-        batch_config = BatchExperimentConfig(exp_type='delta_cz_cal')
+        config = BatchExperimentConfig(exp_type='delta_cz_cal')
         for exp_type in ['cz_c2_phase', 'cz_id_c2_phase']:
             if exp_type not in calibrated:
-                config = parallelized(exp_type)
-                batch_config.subexperiments.append(config)
-        if batch_config.subexperiments:
-            run_experiment(runner, batch_config, plot_depth=-1)
+                config.subexperiments.append(parallelized(exp_type))
+        if config.subexperiments:
+            run_experiment(runner, config, plot_depth=-1)
 
-        batch_config = BatchExperimentConfig(exp_type='delta_ccz_cal')
+        config = BatchExperimentConfig(exp_type='delta_ccz_cal')
         for exp_type in [
             'ccz_c2_phase',
             'ccz_id0_c2_phase',
             'ccz_id1_c2_phase',
-            'ccz_cz_c2_phase'
+            'ccz_id2_c2_phase'
         ]:
             if exp_type not in calibrated:
-                config = parallelized(exp_type)
-                batch_config.subexperiments.append(config)
-        if batch_config.subexperiments:
-            run_experiment(runner, batch_config, plot_depth=-1)
+                config.subexperiments.append(parallelized(exp_type))
+        if config.subexperiments:
+            run_experiment(runner, config, plot_depth=-1)
 
         exp_data = {}
 
         if not program_config['no_qpt']:
-            config = parallelized('qpt_ccz_bc')
+            def gen(runner):
+                config = experiments['qpt_ccz_bc'](runner)
+                config.analysis_options.pop('target_bootstrap_samples')
+                return config
+
+            config = parallelized('qpt_ccz_bc', gen=gen)
             config.experiment_options = {'max_circuits': 100}
             config.run_options = {'shots': 2000}
-            config.analysis_options = {'parallelize': 0}
+
             exp_data[config.exp_type] = run_experiment(runner, config, block_for_results=False)
 
-        for seq_name in ['ccz', 'id0', 'id1', 'cz']:
+        for seq_name in ['ccz', 'id0', 'id1', 'id2']:
             config = BatchExperimentConfig(
                 exp_type=f'characterization_{seq_name}',
                 experiment_options={'max_circuits': 100},
                 run_options={'shots': 2000},
             )
             for etype in ['truthtable', 'phasetable']:
-                pconfig = parallelized(f'{etype}_{seq_name}')
-                config.subexperiments.append(pconfig)
-            exp_data[config.exp_type] = run_experiment(runner, batch_config,
-                                                       block_for_results=False, plot_depth=-1)
+                config.subexperiments.append(parallelized(f'{etype}_{seq_name}'))
+            exp_data[config.exp_type] = run_experiment(runner, config, block_for_results=False,
+                                                       plot_depth=-1)
 
         config = BatchExperimentConfig(
             exp_type='characterization_1q',
@@ -188,17 +190,16 @@ if __name__ == '__main__':
             'c2phase_xplus3',
             'qpt_xplus3'
         ]:
-            pconfig = parallelized(exp_type)
-            config.subexperiments.append(pconfig)
-        exp_data[config.exp_type] = run_experiment(runner, batch_config,
-                                                   block_for_results=False, plot_depth=-1)
+            config.subexperiments.append(parallelized(exp_type))
+        exp_data[config.exp_type] = run_experiment(runner, config, block_for_results=False,
+                                                   plot_depth=-1)
 
     finally:
         runner.runtime_session.close()
 
     for data in exp_data.values():
         data.block_for_results()
-    
+
     if (data_qpt := exp_data.get('qpt_ccz_bc')) is not None:
         runner.program_data['choi'] = {}
         runner.program_data['process_fidelity'] = {}
@@ -207,7 +208,7 @@ if __name__ == '__main__':
             runner.program_data['choi'][qubits] = child_data.analysis_results('state').value
             runner.program_data['process_fidelity'][qubits] = child_data.analysis_results('process_fidelity').value
 
-    for seq_name in ['ccz', 'id0', 'id1', 'cz']:
+    for seq_name in ['ccz', 'id0', 'id1', 'id2']:
         bdata = exp_data[f'characterization_{seq_name}']
         for (pdata, etype, resname) in zip(bdata.child_data(),
                                            ['truthtable', 'phasetable'],
