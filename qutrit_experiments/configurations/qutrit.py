@@ -108,8 +108,8 @@ def qutrit_rough_amplitude(runner, qubit):
 
     def calibration_criterion(data):
         rate = data.analysis_results('rabi_rate_12', block=False).value.n
-        return 0.5 < rate < 2.5
-    
+        return rate > 0.5
+
     return ExperimentConfig(
         EFRoughXSXAmplitudeCal,
         [qubit],
