@@ -109,17 +109,20 @@ def run_experiment(
     print_level: Optional[int] = None,
     force_resubmit: bool = False,
     plot_depth: int = 0,
-    parallelize: bool = True
+    parallelize: bool = True,
+    update_qubits: bool = False,
+    save_data: bool = False
 ):
     runner_qubits = set(runner.qubits)
 
     exp_data = None
     if runner.saved_data_exists(config):
         exp_data = runner.load_data(config)
-        if (data_qubits := set(exp_data.metadata['physical_qubits'])) - runner_qubits:
-            logger.warning('Saved experiment data for %s has out-of-configuration qubits.',
-                           config if isinstance(config, str) else config.exp_type)
-        runner.qubits = data_qubits
+        if update_qubits:
+            if (data_qubits := set(exp_data.metadata['physical_qubits'])) - runner_qubits:
+                logger.warning('Saved experiment data for %s has out-of-configuration qubits.',
+                            config if isinstance(config, str) else config.exp_type)
+            runner.qubits = data_qubits
 
     exp = runner.make_experiment(config)
     set_analysis_option(exp.analysis, 'plot', False, threshold=plot_depth + 1)
@@ -130,13 +133,17 @@ def run_experiment(
                                      analyze=analyze, calibrate=calibrate, print_level=print_level,
                                      exp_data=exp_data, force_resubmit=force_resubmit)
 
-    if isinstance(exp, BaseCalibrationExperiment):
-        # Exclude qubits that failed calibration
-        cal_data = runner.calibrations.parameters_table(group=exp_data.experiment_type,
-                                                        most_recent_only=False)['data']
-        runner.qubits = runner_qubits & set(row['qubits'][0] for row in cal_data)
-    else:
-        runner.qubits = runner_qubits
+    if update_qubits:
+        if isinstance(exp, BaseCalibrationExperiment):
+            # Exclude qubits that failed calibration
+            cal_data = runner.calibrations.parameters_table(group=exp_data.experiment_type,
+                                                            most_recent_only=False)['data']
+            runner.qubits = runner_qubits & set(row['qubits'][0] for row in cal_data)
+        else:
+            runner.qubits = runner_qubits
+
+    if save_data:
+        runner.program_data.setdefault('experiment_data', {})[exp_data.experiment_type] = exp_data
 
     return exp_data
 

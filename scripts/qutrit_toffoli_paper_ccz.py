@@ -72,8 +72,9 @@ if __name__ == '__main__':
     runner.job_retry_interval = 120
     runner.default_print_level = 1
 
-    def parallelized(exp_type, gen=None, qidx=None, **options):
-        config = ParallelExperimentConfig(exp_type=exp_type, **options)
+    def parallelized(exp_type, gen=None, qidx=None):
+        config = ParallelExperimentConfig(exp_type=exp_type)
+        runner_qubits = runner.qubits
         for qubits in qubits_list:
             if qidx:
                 runner.qubits = [qubits[iq] for iq in qidx]
@@ -86,12 +87,13 @@ if __name__ == '__main__':
             subconfig.exp_type = f'{exp_type}-{"_".join(map(str, runner.qubits))}'
             config.subexperiments.append(subconfig)
 
+        runner.qubits = runner_qubits
         return config
 
     try:
         config = parallelized('qubits_assignment_error',
-                              gen=lambda runner: _assign_error(runner, runner.qubits),
-                              run_options={'shots': 10000})
+                              gen=lambda runner: _assign_error(runner, runner.qubits))
+        config.run_options = {'shots': 10000}
         postexperiments.pop('qubits_assignment_error')
         data = run_experiment(runner, config, plot_depth=-1,
                               force_resubmit=program_config['refresh_readout'])
@@ -146,12 +148,10 @@ if __name__ == '__main__':
         if batch_config.subexperiments:
             run_experiment(runner, batch_config, plot_depth=-1)
 
-        config = parallelized(
-            exp_type='qpt_ccz_bc',
-            experiment_options={'max_circuits': 100},
-            run_options={'shots': 2000},
-            analysis_options={'parallelize': 0}
-        )
+        config = parallelized('qpt_ccz_bc')
+        config.experiment_options = {'max_circuits': 100}
+        config.run_options = {'shots': 2000}
+        config.analysis_options = {'parallelize': 0}
         data_qpt = run_experiment(runner, config, block_for_results=False, plot_depth=-1)
 
         batch_config = BatchExperimentConfig(
