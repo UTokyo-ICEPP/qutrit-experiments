@@ -7,7 +7,12 @@ import logging
 
 if __name__ == '__main__':
     from qutrit_experiments.programs.program_config import get_program_config
-    program_config = get_program_config()
+    program_config = get_program_config(
+        additional_args=[
+            (('--no-qpt',),
+             {'help': 'Skip the QPT experiment.', 'action': 'store_true', 'dest': 'no_qpt'})
+        ]
+    )
 
     try:
         import gpustat
@@ -152,11 +157,14 @@ if __name__ == '__main__':
         if batch_config.subexperiments:
             run_experiment(runner, batch_config, plot_depth=-1)
 
-        config = parallelized('qpt_ccz_bc')
-        config.experiment_options = {'max_circuits': 100}
-        config.run_options = {'shots': 2000}
-        config.analysis_options = {'parallelize': 0}
-        data_qpt = run_experiment(runner, config, block_for_results=False, plot_depth=-1)
+        if not program_config['no_qpt']:
+            config = parallelized('qpt_ccz_bc')
+            config.experiment_options = {'max_circuits': 100}
+            config.run_options = {'shots': 2000}
+            config.analysis_options = {'parallelize': 0}
+            data_qpt = run_experiment(runner, config, block_for_results=False, plot_depth=-1)
+        else:
+            data_qpt = None
 
         batch_config = BatchExperimentConfig(
             exp_type='characterization_3q',
@@ -194,16 +202,18 @@ if __name__ == '__main__':
     finally:
         runner.runtime_session.close()
 
-    data_qpt.block_for_results()
+    if data_qpt:
+        data_qpt.block_for_results()
     data_3q.block_for_results()
     data_1q.block_for_results()
-
-    runner.program_data['choi'] = {}
-    runner.program_data['process_fidelity'] = {}
-    for child_data in data_qpt.child_data():
-        qubits = tuple(child_data.metadata['physical_qubits'])
-        runner.program_data['choi'][qubits] = child_data.analysis_results('state').value
-        runner.program_data['process_fidelity'][qubits] = child_data.analysis_results('process_fidelity').value
+    
+    if data_qpt:
+        runner.program_data['choi'] = {}
+        runner.program_data['process_fidelity'] = {}
+        for child_data in data_qpt.child_data():
+            qubits = tuple(child_data.metadata['physical_qubits'])
+            runner.program_data['choi'][qubits] = child_data.analysis_results('state').value
+            runner.program_data['process_fidelity'][qubits] = child_data.analysis_results('process_fidelity').value
 
     for pdata in data_3q.child_data():
         exp_type = pdata.experiment_type

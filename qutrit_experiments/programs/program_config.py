@@ -3,7 +3,10 @@ import datetime
 from typing import Any, Optional
 import yaml
 
-def get_program_config(program_config: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def get_program_config(
+    program_config: Optional[dict[str, Any]] = None,
+    additional_args: Optional[list[tuple[tuple, dict]]] = None
+) -> dict[str, Any]:
     static_required = ['base_dir', 'instance', 'backend']
     static_optional = ['name', 'qubits', 'calibrations']
 
@@ -42,6 +45,9 @@ def get_program_config(program_config: Optional[dict[str, Any]] = None) -> dict[
                             ' the calibrations to disk.', dest='read_only')
         parser.add_argument('--dry-run', action='store_true', help='Do not submit experiment jobs; run'
                             ' the experiments with dummy data.', dest='dry_run')
+        
+        for args, kwargs in (additional_args or []):
+            parser.add_argument(*args, **kwargs)
 
         options = parser.parse_args()
 
