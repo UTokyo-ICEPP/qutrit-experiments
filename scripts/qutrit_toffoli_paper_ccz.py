@@ -157,35 +157,28 @@ if __name__ == '__main__':
         if batch_config.subexperiments:
             run_experiment(runner, batch_config, plot_depth=-1)
 
+        exp_data = {}
+
         if not program_config['no_qpt']:
             config = parallelized('qpt_ccz_bc')
             config.experiment_options = {'max_circuits': 100}
             config.run_options = {'shots': 2000}
             config.analysis_options = {'parallelize': 0}
-            data_qpt = run_experiment(runner, config, block_for_results=False, plot_depth=-1)
-        else:
-            data_qpt = None
+            exp_data[config.exp_type] = run_experiment(runner, config, block_for_results=False)
 
-        batch_config = BatchExperimentConfig(
-            exp_type='characterization_3q',
-            experiment_options={'max_circuits': 100},
-            run_options={'shots': 2000},
-        )
-        for exp_type in [
-            'truthtable_ccz',
-            'phasetable_ccz',
-            'truthtable_id0',
-            'phasetable_id0',
-            'truthtable_id1',
-            'phasetable_id1',
-            'truthtable_cz',
-            'phasetable_cz'
-        ]:
-            config = parallelized(exp_type)
-            batch_config.subexperiments.append(config)
-        data_3q = run_experiment(runner, batch_config, block_for_results=False, plot_depth=-1)
+        for seq_name in ['ccz', 'id0', 'id1', 'cz']:
+            config = BatchExperimentConfig(
+                exp_type=f'characterization_{seq_name}',
+                experiment_options={'max_circuits': 100},
+                run_options={'shots': 2000},
+            )
+            for etype in ['truthtable', 'phasetable']:
+                pconfig = parallelized(f'{etype}_{seq_name}')
+                config.subexperiments.append(pconfig)
+            exp_data[config.exp_type] = run_experiment(runner, batch_config,
+                                                       block_for_results=False, plot_depth=-1)
 
-        batch_config = BatchExperimentConfig(
+        config = BatchExperimentConfig(
             exp_type='characterization_1q',
             run_options={'shots': 2000}
         )
@@ -195,19 +188,18 @@ if __name__ == '__main__':
             'c2phase_xplus3',
             'qpt_xplus3'
         ]:
-            config = parallelized(exp_type)
-            batch_config.subexperiments.append(config)
-        data_1q = run_experiment(runner, batch_config, block_for_results=False, plot_depth=-1)
+            pconfig = parallelized(exp_type)
+            config.subexperiments.append(pconfig)
+        exp_data[config.exp_type] = run_experiment(runner, batch_config,
+                                                   block_for_results=False, plot_depth=-1)
 
     finally:
         runner.runtime_session.close()
 
-    if data_qpt:
-        data_qpt.block_for_results()
-    data_3q.block_for_results()
-    data_1q.block_for_results()
+    for data in exp_data.values():
+        data.block_for_results()
     
-    if data_qpt:
+    if (data_qpt := exp_data.get('qpt_ccz_bc')) is not None:
         runner.program_data['choi'] = {}
         runner.program_data['process_fidelity'] = {}
         for child_data in data_qpt.child_data():
@@ -215,17 +207,18 @@ if __name__ == '__main__':
             runner.program_data['choi'][qubits] = child_data.analysis_results('state').value
             runner.program_data['process_fidelity'][qubits] = child_data.analysis_results('process_fidelity').value
 
-    for pdata in data_3q.child_data():
-        exp_type = pdata.experiment_type
-        runner.program_data[exp_type] = {}
-        for child_data in pdata.child_data():
-            qubits = tuple(child_data.metadata['physical_qubits'])
-            if exp_type.startswith('truthtable'):
-                runner.program_data[exp_type][qubits] = child_data.analysis_results('truth_table').value
-            else:
-                runner.program_data[exp_type][qubits] = child_data.analysis_results('phases').value
+    for seq_name in ['ccz', 'id0', 'id1', 'cz']:
+        bdata = exp_data[f'characterization_{seq_name}']
+        for (pdata, etype, resname) in zip(bdata.child_data(),
+                                           ['truthtable', 'phasetable'],
+                                           ['truth_table', 'phases']):
+            exp_type = pdata.experiment_type
+            runner.program_data[exp_type] = {}
+            for child_data in pdata.child_data():
+                qubits = tuple(child_data.metadata['physical_qubits'])
+                runner.program_data[exp_type][qubits] = child_data.analysis_results(resname).value
 
-    for pdata in data_1q.child_data():
+    for pdata in exp_data['characterization_1q'].child_data():
         exp_type = pdata.experiment_type
         runner.program_data[exp_type] = {}
         for child_data in pdata.child_data():

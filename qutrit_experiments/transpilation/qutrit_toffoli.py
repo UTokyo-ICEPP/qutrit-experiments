@@ -404,7 +404,8 @@ class QutritToffoliRefocusing(TransformationPass):
 
             if added_time >= dur('xplus', 1):
                 add_op(XplusGate(label='qutrit_toffoli_begin'), 1)
-                add_delay(added_time - dur('xplus', 1), 1)
+                if (delay := added_time - dur('xplus', 1)):
+                    add_delay(delay, 1)
                 add_op(X12Gate(), 1)
                 add_op(SXGate(), 1)
                 add_op(P2Gate(-np.pi / 4.), 1)
