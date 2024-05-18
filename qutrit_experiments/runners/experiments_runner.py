@@ -464,7 +464,7 @@ class ExperimentsRunner:
                 if exp_type:
                     etype = exp_type
                 else:
-                    etype = experiment.experiment_type
+                    etype = exp.experiment_type
                     logger.info('Updating calibrations for %s.', etype)
 
                 updated = False
