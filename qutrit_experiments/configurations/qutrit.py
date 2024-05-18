@@ -86,6 +86,10 @@ def qutrit_rough_frequency(runner, qubit):
     freq_12_est = runner.calibrations.get_parameter_value('f12', qubit)
     frequencies = np.linspace(freq_12_est - 20.e+6, freq_12_est + 20.e+6, 41)
 
+    def calibration_criterion(data):
+        results = data.analysis_results('@Parameters_GaussianResonanceAnalysis').value
+        return 1.e+6 < results.params['sigma'] < 4.e+6 and abs(results.params['a']) > 0.5
+
     return ExperimentConfig(
         EFRoughFrequencyCal,
         [qubit],
@@ -94,14 +98,18 @@ def qutrit_rough_frequency(runner, qubit):
             'amp': amp,
             'duration': sx_duration * factor * runner.backend.dt,
             'sigma': sx_sigma * factor * runner.backend.dt
-        }
+        },
+        calibration_criterion=calibration_criterion
     )
 
 def qutrit_rough_amplitude(runner, qubit):
     """X12 and SX12 amplitude determination from Rabi oscillation."""
     from ..experiments.single_qutrit.rough_amplitude import EFRoughXSXAmplitudeCal
+
     def calibration_criterion(data):
-        return data.analysis_results('rabi_rate_12', block=False).value.n > 0.5
+        rate = data.analysis_results('rabi_rate_12', block=False).value.n
+        return 0.5 < rate < 2.5
+    
     return ExperimentConfig(
         EFRoughXSXAmplitudeCal,
         [qubit],
