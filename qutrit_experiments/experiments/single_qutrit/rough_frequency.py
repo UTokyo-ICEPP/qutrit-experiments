@@ -94,6 +94,7 @@ class GaussianResonanceAnalysis(curve.CurveAnalysis):
             ],
             name=name,
         )
+        self.plotter.set_figure_options(ylim=(-0.1, 1.1))
 
     def _run_analysis(
         self, experiment_data: ExperimentData
