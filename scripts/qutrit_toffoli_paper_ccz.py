@@ -84,7 +84,6 @@ if __name__ == '__main__':
                 subconfig = gen(runner)
             else:
                 subconfig = experiments[exp_type](runner)
-            subconfig.exp_type = f'{exp_type}-{"_".join(map(str, runner.qubits))}'
             config.subexperiments.append(subconfig)
 
         runner.qubits = runner_qubits
@@ -118,6 +117,11 @@ if __name__ == '__main__':
                                       calibrated=calibrated)
         # Session may have been renewed
         runner.runtime_session = qutrit_runner.runtime_session
+
+        # Update the qubits list to exclude combinations with bad qutrits
+        good_qutrits = set(qutrit_runner.qubits)
+        qubits_list = [all_qubits[i:i + 3] for i in range(0, len(all_qubits), 3)
+                       if all_qubits[i + 1] in good_qutrits]
 
         if (exp_type := 'tc2_cr_rotary_delta') not in calibrated:
             config = parallelized(exp_type, qidx=(1, 2))

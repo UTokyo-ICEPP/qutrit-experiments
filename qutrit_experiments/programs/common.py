@@ -121,7 +121,7 @@ def run_experiment(
         if update_qubits:
             if (data_qubits := set(exp_data.metadata['physical_qubits'])) - runner_qubits:
                 logger.warning('Saved experiment data for %s has out-of-configuration qubits.',
-                            config if isinstance(config, str) else config.exp_type)
+                               config if isinstance(config, str) else config.exp_type)
             runner.qubits = data_qubits
 
     exp = runner.make_experiment(config)
@@ -134,13 +134,7 @@ def run_experiment(
                                      exp_data=exp_data, force_resubmit=force_resubmit)
 
     if update_qubits:
-        if isinstance(exp, BaseCalibrationExperiment):
-            # Exclude qubits that failed calibration
-            cal_data = runner.calibrations.parameters_table(group=exp_data.experiment_type,
-                                                            most_recent_only=False)['data']
-            runner.qubits = runner_qubits & set(row['qubits'][0] for row in cal_data)
-        else:
-            runner.qubits = runner_qubits
+        runner.qubits = runner_qubits
 
     if save_data:
         runner.program_data.setdefault('experiment_data', {})[exp_data.experiment_type] = exp_data

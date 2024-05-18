@@ -51,6 +51,9 @@ def calibrate_single_qutrit_gates(
         if exp_type not in calibrated:
             run_experiment(runner, exp_type, plot_depth=plot_depth, update_qubits=True,
                            save_data=save_data)
+        # Exclude qubits that failed calibration
+        cal_table = runner.calibrations.parameters_table(group=exp_type, most_recent_only=False)
+        runner.qubits = set(runner.qubits) & set(row['qubits'][0] for row in cal_table['data'])
 
     if qutrit_index is not None:
         runner.qubits = runner_qubits
