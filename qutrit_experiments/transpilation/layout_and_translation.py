@@ -50,17 +50,29 @@ def map_to_physical_qubits(
         layout=generate_layout_passmanager(physical_qubits, coupling_map)
     )
 
-    if common_circuit_optimization and isinstance(circuit, list):
-        first_circuit = pass_manager.run(circuit[0])
-        transpiled_circuits = [first_circuit]
-        for original in circuit[1:]:
+    if isinstance(circuit, list):
+        first_circuit = circuit[0]
+    else:
+        first_circuit = circuit
+
+    first_circuit = pass_manager.run(first_circuit)
+
+    if not isinstance(circuit, list):
+        return first_circuit
+
+    transpiled_circuits = [first_circuit]
+    for original in circuit[1:]:
+        if common_circuit_optimization:
             tcirc = first_circuit.copy()
             tcirc.calibrations = original.calibrations
-            tcirc.metadata = original.metadata
-            transpiled_circuits.append(tcirc)
-        return transpiled_circuits
+        else:
+            tcirc = first_circuit.copy_empty_like()
+            tcirc.compose(original, physical_qubits, inplace=True)
 
-    return pass_manager.run(circuit)
+        tcirc.metadata = original.metadata
+        transpiled_circuits.append(tcirc)
+
+    return transpiled_circuits
 
 
 class UndoLayout(TransformationPass):
