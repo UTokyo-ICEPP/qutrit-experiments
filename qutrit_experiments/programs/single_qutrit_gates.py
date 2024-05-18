@@ -28,7 +28,8 @@ def calibrate_single_qutrit_gates(
 
     if (exp_type := 'qutrit_wide_frequency') not in calibrated:
         if any(runner.backend.qubit_properties(q).anharmonicity == 0 for q in runner.qubits):
-            run_experiment(runner, exp_type, plot_depth=plot_depth, save_data=save_data)
+            run_experiment(runner, exp_type, plot_depth=plot_depth, update_qubits=True,
+                           save_data=save_data)
 
     exp_types = [
         'qutrit_rough_frequency',
@@ -48,7 +49,8 @@ def calibrate_single_qutrit_gates(
     ]
     for exp_type in exp_types:
         if exp_type not in calibrated:
-            run_experiment(runner, exp_type, plot_depth=plot_depth, save_data=save_data)
+            run_experiment(runner, exp_type, plot_depth=plot_depth, update_qubits=True,
+                           save_data=save_data)
 
     if qutrit_index is not None:
         runner.qubits = runner_qubits
