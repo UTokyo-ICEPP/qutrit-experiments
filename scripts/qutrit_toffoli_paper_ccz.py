@@ -182,7 +182,7 @@ if __name__ == '__main__':
                 for etype in ['truthtable', 'phasetable']:
                     config.subexperiments.append(parallelized(f'{etype}_{seq_name}'))
                 exp_data[config.exp_type] = run_experiment(runner, config, block_for_results=False,
-                                                        plot_depth=-1)
+                                                           plot_depth=-1)
 
         config = BatchExperimentConfig(
             exp_type='characterization_1q',
@@ -204,6 +204,17 @@ if __name__ == '__main__':
     for data in exp_data.values():
         data.block_for_results()
 
+    def save_figure(child_data):
+        exp_type = child_data.experiment_type
+        qubits = child_data.metadata['physical_qubits']
+        for name in child_data.figure_names:
+            file_name = os.path.join(runner.data_dir,
+                                     'program_data',
+                                     f'{exp_type}_{"_".join(map(str, qubits))}_{name}')
+            figure = child_data.figure(name).figure
+            figure.savefig(file_name + '.pdf')
+            figure.savefig(file_name + '.jpg')
+
     if (data_qpt := exp_data.get('qpt_ccz_bc')) is not None:
         runner.program_data['choi'] = {}
         runner.program_data['process_fidelity'] = {}
@@ -224,6 +235,7 @@ if __name__ == '__main__':
             for child_data in pdata.child_data():
                 qubits = tuple(child_data.metadata['physical_qubits'])
                 runner.program_data[exp_type][qubits] = child_data.analysis_results(resname).value
+                save_figure(child_data)
 
     for pdata in exp_data['characterization_1q'].child_data():
         exp_type = pdata.experiment_type
@@ -234,3 +246,6 @@ if __name__ == '__main__':
                 runner.program_data[exp_type][qubits] = child_data.analysis_results('phase_offset').value
             else:
                 runner.program_data[exp_type][qubits] = child_data.analysis_results('process_fidelity').value
+            save_figure(child_data)
+
+    runner.save_program_data()
