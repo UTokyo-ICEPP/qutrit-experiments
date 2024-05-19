@@ -9,6 +9,9 @@ if __name__ == '__main__':
     from qutrit_experiments.programs.program_config import get_program_config
     program_config = get_program_config(
         additional_args=[
+            (('--no-cal',),
+             {'help': 'Do not perform any calibration experiment.', 'action': 'store_true',
+              'dest': 'no_cal'}),
             (('--no-qpt',),
              {'help': 'Skip the QPT experiment.', 'action': 'store_true', 'dest': 'no_qpt'}),
             (('--no-3q',),
@@ -57,6 +60,8 @@ if __name__ == '__main__':
     assert program_config['qubits'] is not None and len(program_config['qubits']) % 3 == 0
     print('Starting toffoli:', program_config['name'])
 
+    need_calibration = program_config['calibrations'] is None
+
     # Instantiate the backend
     backend = setup_backend(program_config)
     all_qubits = tuple(program_config['qubits'])
@@ -98,66 +103,67 @@ if __name__ == '__main__':
         return config
 
     try:
+        # Load the calibrations if source is specified in program_config
+        calibrated = load_calibrations(runner, program_config)
+
         config = parallelized('qubits_assignment_error',
                               gen=lambda runner: _assign_error(runner, runner.qubits))
         config.run_options = {'shots': 10000}
         postexperiments.pop('qubits_assignment_error')
         data = run_experiment(runner, config, plot_depth=-1,
                               force_resubmit=program_config['refresh_readout'],
-                              block_for_results=program_config['calibrations'] is None)
-        for qubits, child_data in zip(qubits_list, data.child_data()):
-            runner.qubits = qubits
-            _assign_post(runner, child_data)
+                              block_for_results=not program_config['no_cal'])
+        if not program_config['no_cal']:
+            for qubits, child_data in zip(qubits_list, data.child_data()):
+                runner.qubits = qubits
+                _assign_post(runner, child_data)
 
-        # Load the calibrations if source is specified in program_config
-        calibrated = load_calibrations(runner, program_config)
+            # Define a ParallelRunner to calibrate single qutrit gates in parallel
+            qutrit_runner = setup_runner(backend, program_config, calibrations=calibrations,
+                                        qubits=qutrits, runner_cls=ParallelRunner)
+            qutrit_runner.program_data = runner.program_data
+            qutrit_runner.runtime_session = runner.runtime_session
+            qutrit_runner.job_retry_interval = 120
+            qutrit_runner.default_print_level = 0
 
-        # Define a ParallelRunner to calibrate single qutrit gates in parallel
-        qutrit_runner = setup_runner(backend, program_config, calibrations=calibrations,
-                                     qubits=qutrits, runner_cls=ParallelRunner)
-        qutrit_runner.program_data = runner.program_data
-        qutrit_runner.runtime_session = runner.runtime_session
-        qutrit_runner.job_retry_interval = 120
-        qutrit_runner.default_print_level = 0
+            # Single qutrit gates
+            calibrate_single_qutrit_gates(qutrit_runner,
+                                        refresh_readout_error=program_config['refresh_readout'],
+                                        calibrated=calibrated)
+            # Session may have been renewed
+            runner.runtime_session = qutrit_runner.runtime_session
 
-        # Single qutrit gates
-        calibrate_single_qutrit_gates(qutrit_runner,
-                                      refresh_readout_error=program_config['refresh_readout'],
-                                      calibrated=calibrated)
-        # Session may have been renewed
-        runner.runtime_session = qutrit_runner.runtime_session
+            # Update the qubits list to exclude combinations with bad qutrits
+            good_qutrits = set(qutrit_runner.qubits)
+            qubits_list = [all_qubits[i:i + 3] for i in range(0, len(all_qubits), 3)
+                        if all_qubits[i + 1] in good_qutrits]
 
-        # Update the qubits list to exclude combinations with bad qutrits
-        good_qutrits = set(qutrit_runner.qubits)
-        qubits_list = [all_qubits[i:i + 3] for i in range(0, len(all_qubits), 3)
-                       if all_qubits[i + 1] in good_qutrits]
+            if (exp_type := 'tc2_cr_rotary_delta') not in calibrated:
+                config = parallelized(exp_type, qidx=(1, 2))
+                run_experiment(runner, config, plot_depth=-1)
 
-        if (exp_type := 'tc2_cr_rotary_delta') not in calibrated:
-            config = parallelized(exp_type, qidx=(1, 2))
-            run_experiment(runner, config, plot_depth=-1)
+            if (exp_type := 'c1c2_cr_rotary_delta') not in calibrated:
+                config = parallelized(exp_type)
+                run_experiment(runner, config, plot_depth=-1)
 
-        if (exp_type := 'c1c2_cr_rotary_delta') not in calibrated:
-            config = parallelized(exp_type)
-            run_experiment(runner, config, plot_depth=-1)
+            config = BatchExperimentConfig(exp_type='delta_cz_cal')
+            for exp_type in ['cz_c2_phase', 'cz_id_c2_phase']:
+                if exp_type not in calibrated:
+                    config.subexperiments.append(parallelized(exp_type))
+            if config.subexperiments:
+                run_experiment(runner, config, plot_depth=-1)
 
-        config = BatchExperimentConfig(exp_type='delta_cz_cal')
-        for exp_type in ['cz_c2_phase', 'cz_id_c2_phase']:
-            if exp_type not in calibrated:
-                config.subexperiments.append(parallelized(exp_type))
-        if config.subexperiments:
-            run_experiment(runner, config, plot_depth=-1)
-
-        config = BatchExperimentConfig(exp_type='delta_ccz_cal')
-        for exp_type in [
-            'ccz_c2_phase',
-            'ccz_id0_c2_phase',
-            'ccz_id1_c2_phase',
-            'ccz_id2_c2_phase'
-        ]:
-            if exp_type not in calibrated:
-                config.subexperiments.append(parallelized(exp_type))
-        if config.subexperiments:
-            run_experiment(runner, config, plot_depth=-1)
+            config = BatchExperimentConfig(exp_type='delta_ccz_cal')
+            for exp_type in [
+                'ccz_c2_phase',
+                'ccz_id0_c2_phase',
+                'ccz_id1_c2_phase',
+                'ccz_id2_c2_phase'
+            ]:
+                if exp_type not in calibrated:
+                    config.subexperiments.append(parallelized(exp_type))
+            if config.subexperiments:
+                run_experiment(runner, config, plot_depth=-1)
 
         exp_data = {}
 
