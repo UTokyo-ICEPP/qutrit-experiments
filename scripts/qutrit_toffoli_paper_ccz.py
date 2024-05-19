@@ -103,7 +103,8 @@ if __name__ == '__main__':
         config.run_options = {'shots': 10000}
         postexperiments.pop('qubits_assignment_error')
         data = run_experiment(runner, config, plot_depth=-1,
-                              force_resubmit=program_config['refresh_readout'])
+                              force_resubmit=program_config['refresh_readout'],
+                              block_for_results=program_config['calibrations'] is None)
         for qubits, child_data in zip(qubits_list, data.child_data()):
             runner.qubits = qubits
             _assign_post(runner, child_data)
