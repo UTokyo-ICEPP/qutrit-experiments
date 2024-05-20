@@ -91,7 +91,6 @@ def load_calibrations(
             data_dir = os.path.join(program_config['base_dir'], data_dir)
 
         runner.load_calibrations(file_name=file_name, data_dir=data_dir)
-        runner.load_program_data()
 
         for datum in runner.calibrations.parameters_table(most_recent_only=False)['data']:
             if datum['valid'] and datum['group'] != 'default':
