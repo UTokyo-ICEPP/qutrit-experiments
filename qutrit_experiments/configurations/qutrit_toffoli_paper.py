@@ -255,6 +255,20 @@ def id2_circuit(runner):
     circuit = skeleton_ccz_circuit(runner, delta_cz=delta_cz, delta_ccz=delta_ccz, ecr_tc2=True)
     return translate(circuit, runner)
 
+def id3_circuit(runner):
+    """Circuit with 6 X+s."""
+    x_dur = runner.backend.target['x'][runner.qubits[1:2]].calibration.duration
+    circuit = QuantumCircuit(3)
+    for _ in range(6):
+        circuit.x(0)
+        circuit.delay(x_dur, 0)
+        circuit.append(X12Gate(), [1])
+        circuit.x(1)
+        circuit.delay(x_dur, 2)
+        circuit.x(2)
+
+    return circuit
+
 #######################################
 ### Calibrations for error analysis ###
 #######################################
@@ -504,5 +518,29 @@ def phasetable_id2(runner):
         runner.qubits,
         args={
             'circuit': id2_circuit(runner)
+        }
+    )
+
+@register_exp
+@add_readout_mitigation(probability=False)
+def truthtable_id3(runner):
+    from qutrit_experiments.experiments.truth_table import TruthTable
+    return ExperimentConfig(
+        TruthTable,
+        runner.qubits,
+        args={
+            'circuit': id3_circuit(runner)
+        }
+    )
+
+@register_exp
+@add_readout_mitigation
+def phasetable_id3(runner):
+    from qutrit_experiments.experiments.phase_table import PhaseTable
+    return ExperimentConfig(
+        PhaseTable,
+        runner.qubits,
+        args={
+            'circuit': id3_circuit(runner)
         }
     )
