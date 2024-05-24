@@ -1,4 +1,8 @@
+# pylint: disable=import-outside-toplevel, function-redefined, unused-argument
+# pylint: disable=unexpected-keyword-arg, redundant-keyword-arg
 """Experiments for taking data shown in the qutrit Toffoli paper."""
+
+from typing import Union
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary as sel
@@ -7,20 +11,20 @@ from qiskit.transpiler.passes import BasisTranslator
 from qiskit_experiments.calibration_management import ParameterValue
 from qiskit_experiments.exceptions import CalibrationError
 
-from qutrit_experiments.configurations.common import add_readout_mitigation, add_qpt_readout_mitigation
-from qutrit_experiments.experiment_config import ExperimentConfig, register_exp
-from qutrit_experiments.gates import P2Gate, QutritCCZGate, X12Gate, XplusGate, XminusGate
-from qutrit_experiments.transpilation.qutrit_transpiler import (BASIS_GATES,
-                                                                transpile_qutrit_circuits, make_instruction_durations)
-from qutrit_experiments.transpilation.layout_and_translation import UndoLayout, generate_layout_passmanager
-from qutrit_experiments.transpilation.dynamical_decoupling import DDCalculator
-from qutrit_experiments.util.qutrit_toffoli import qutrit_toffoli_circuit
+from ..configurations.common import add_readout_mitigation, add_qpt_readout_mitigation
+from ..experiment_config import ExperimentConfig, register_exp
+from ..gates import P2Gate, X12Gate
+from ..runners import ExperimentsRunner
+from ..transpilation.qutrit_transpiler import BASIS_GATES, make_instruction_durations
+from ..transpilation.layout_and_translation import UndoLayout, generate_layout_passmanager
+from ..transpilation.dynamical_decoupling import DDCalculator
 
-###########################
-### Circuit definitions ###
-###########################
 
-def total_ccz_duration_nobc(runner):
+#######################
+# Circuit definitions #
+#######################
+
+def total_ccz_duration_nobc(runner: ExperimentsRunner) -> int:
     ecr_dur_c1c2 = runner.backend.target['ecr'][runner.qubits[:2]].calibration.duration
     ecr_dur_tc2 = runner.backend.target['ecr'][runner.qubits[2:0:-1]].calibration.duration
     x_dur = runner.backend.target['x'][runner.qubits[1:2]].calibration.duration
@@ -34,7 +38,8 @@ def total_ccz_duration_nobc(runner):
     duration += 2 * x_dur
     return duration
 
-def total_ccz_duration_bc(runner):
+
+def total_ccz_duration_bc(runner: ExperimentsRunner) -> int:
     ecr_dur_c1c2 = runner.backend.target['ecr'][runner.qubits[:2]].calibration.duration
     ecr_dur_tc2 = runner.backend.target['ecr'][runner.qubits[2:0:-1]].calibration.duration
     x_dur = runner.backend.target['x'][runner.qubits[1:2]].calibration.duration
@@ -55,7 +60,8 @@ def total_ccz_duration_bc(runner):
 
     return duration
 
-def xminusxplus_circuit(runner):
+
+def xminusxplus_circuit(runner: ExperimentsRunner) -> QuantumCircuit:
     x_dur = runner.backend.target['x'][runner.qubits[1:2]].calibration.duration
 
     circuit = QuantumCircuit(1)
@@ -67,7 +73,8 @@ def xminusxplus_circuit(runner):
 
     return circuit
 
-def xplus3_circuit(runner):
+
+def xplus3_circuit(runner: ExperimentsRunner) -> QuantumCircuit:
     x_dur = runner.backend.target['x'][runner.qubits[1:2]].calibration.duration
     delay = (total_ccz_duration_bc(runner) - 6 * x_dur) // 2
 
@@ -83,10 +90,12 @@ def xplus3_circuit(runner):
 
     return circuit
 
-def skeleton_cz_circuit_core(runner, ecr_tc2=False):
+
+def skeleton_cz_circuit_core(runner: ExperimentsRunner, ecr_tc2: bool = False) -> QuantumCircuit:
     """Skeleton CZ-like circuit."""
     instruction_durations = make_instruction_durations(runner.backend, runner.calibrations,
                                                        runner.qubits)
+
     def dur(gate, *qubits):
         return instruction_durations.get(gate, tuple(runner.qubits[iq] for iq in qubits))
 
@@ -126,7 +135,12 @@ def skeleton_cz_circuit_core(runner, ecr_tc2=False):
 
     return circuit
 
-def skeleton_cz_circuit(runner, delta_cz=0., ecr_tc2=False):
+
+def skeleton_cz_circuit(
+    runner: ExperimentsRunner,
+    delta_cz: float = 0.,
+    ecr_tc2: bool = False
+) -> QuantumCircuit:
     instruction_durations = make_instruction_durations(runner.backend, runner.calibrations,
                                                        runner.qubits)
     x_dur = instruction_durations.get('x', runner.qubits[2:])
@@ -142,10 +156,18 @@ def skeleton_cz_circuit(runner, delta_cz=0., ecr_tc2=False):
 
     return circuit
 
-def skeleton_ccz_circuit(runner, delta_cz=0., delta_ccz=0., ecr_c1c2=False, ecr_tc2=False):
+
+def skeleton_ccz_circuit(
+    runner: ExperimentsRunner,
+    delta_cz: float = 0.,
+    delta_ccz: float = 0.,
+    ecr_c1c2: bool = False,
+    ecr_tc2: bool = False
+) -> QuantumCircuit:
     """Skeleton CCZ-like circuit."""
     instruction_durations = make_instruction_durations(runner.backend, runner.calibrations,
                                                        runner.qubits)
+
     def dur(gate, *qubits):
         return instruction_durations.get(gate, tuple(runner.qubits[iq] for iq in qubits))
 
@@ -225,7 +247,11 @@ def skeleton_ccz_circuit(runner, delta_cz=0., delta_ccz=0., ecr_c1c2=False, ecr_
 
     return circuit
 
-def translate(circuit, runner):
+
+def translate(
+    circuit: Union[QuantumCircuit, list[QuantumCircuit]],
+    runner: ExperimentsRunner
+) -> Union[QuantumCircuit, list[QuantumCircuit]]:
     basis_gates = runner.backend.basis_gates + [g.gate_name for g in BASIS_GATES]
     pms = {
         'layout': generate_layout_passmanager(runner.qubits, runner.backend.coupling_map),
@@ -234,28 +260,32 @@ def translate(circuit, runner):
     }
     return StagedPassManager(list(pms.keys()), **pms).run(circuit)
 
-def id0_circuit(runner):
+
+def id0_circuit(runner: ExperimentsRunner) -> QuantumCircuit:
     """Circuit with only the Xpluses and DDs."""
     delta_cz = runner.calibrations.get_parameter_value('delta_cz_id', runner.qubits)
     delta_ccz = runner.calibrations.get_parameter_value('delta_ccz_id0', runner.qubits)
     circuit = skeleton_ccz_circuit(runner, delta_cz=delta_cz, delta_ccz=delta_ccz)
     return translate(circuit, runner)
 
-def id1_circuit(runner):
+
+def id1_circuit(runner: ExperimentsRunner) -> QuantumCircuit:
     """Circuit with Xpluses, DDs, and ECR(c1,c2)."""
     delta_cz = runner.calibrations.get_parameter_value('delta_cz_id', runner.qubits)
     delta_ccz = runner.calibrations.get_parameter_value('delta_ccz_id1', runner.qubits)
     circuit = skeleton_ccz_circuit(runner, delta_cz=delta_cz, delta_ccz=delta_ccz, ecr_c1c2=True)
     return translate(circuit, runner)
 
-def id2_circuit(runner):
+
+def id2_circuit(runner: ExperimentsRunner) -> QuantumCircuit:
     """Circuit with Xpluses, DDs, and ECR(t,c2)."""
     delta_cz = runner.calibrations.get_parameter_value('delta_cz', runner.qubits)
     delta_ccz = runner.calibrations.get_parameter_value('delta_ccz_id2', runner.qubits)
     circuit = skeleton_ccz_circuit(runner, delta_cz=delta_cz, delta_ccz=delta_ccz, ecr_tc2=True)
     return translate(circuit, runner)
 
-def id3_circuit(runner):
+
+def id3_circuit(runner: ExperimentsRunner) -> QuantumCircuit:
     """Circuit with 6 X+s."""
     x_dur = runner.backend.target['x'][runner.qubits[1:2]].calibration.duration
     circuit = QuantumCircuit(3)
@@ -269,13 +299,14 @@ def id3_circuit(runner):
 
     return circuit
 
-#######################################
-### Calibrations for error analysis ###
-#######################################
+
+###################################
+# Calibrations for error analysis #
+###################################
 
 @register_exp
 @add_readout_mitigation
-def cz_id_c2_phase(runner):
+def cz_id_c2_phase(runner: ExperimentsRunner) -> ExperimentConfig:
     from ..experiments.phase_table import DiagonalPhaseCal
 
     param_name = 'delta_cz_id'
@@ -297,9 +328,10 @@ def cz_id_c2_phase(runner):
         analysis_options={'outcome': '010'}
     )
 
+
 @register_exp
 @add_readout_mitigation
-def ccz_id0_c2_phase(runner):
+def ccz_id0_c2_phase(runner: ExperimentsRunner) -> ExperimentConfig:
     from ..experiments.phase_table import DiagonalPhaseCal
 
     param_name = 'delta_ccz_id0'
@@ -324,9 +356,10 @@ def ccz_id0_c2_phase(runner):
         analysis_options={'outcome': '010'}
     )
 
+
 @register_exp
 @add_readout_mitigation
-def ccz_id1_c2_phase(runner):
+def ccz_id1_c2_phase(runner: ExperimentsRunner) -> ExperimentConfig:
     from ..experiments.phase_table import DiagonalPhaseCal
 
     param_name = 'delta_ccz_id1'
@@ -352,9 +385,10 @@ def ccz_id1_c2_phase(runner):
         analysis_options={'outcome': '010'}
     )
 
+
 @register_exp
 @add_readout_mitigation
-def ccz_id2_c2_phase(runner):
+def ccz_id2_c2_phase(runner: ExperimentsRunner) -> ExperimentConfig:
     from ..experiments.phase_table import DiagonalPhaseCal
 
     param_name = 'delta_ccz_id2'
@@ -381,14 +415,14 @@ def ccz_id2_c2_phase(runner):
     )
 
 
-#################################
-### Basis-cycle demonstrators ###
-#################################
+#############################
+# Basis-cycle demonstrators #
+#############################
 
 @register_exp
 @add_readout_mitigation
-def c2phase_xminusxplus(runner):
-    from qutrit_experiments.experiments.phase_table import DiagonalCircuitPhaseShift
+def c2phase_xminusxplus(runner: ExperimentsRunner) -> ExperimentConfig:
+    from ..experiments.phase_table import DiagonalCircuitPhaseShift
 
     return ExperimentConfig(
         DiagonalCircuitPhaseShift,
@@ -399,10 +433,11 @@ def c2phase_xminusxplus(runner):
         }
     )
 
+
 @register_exp
 @add_qpt_readout_mitigation
-def qpt_xminusxplus(runner):
-    from qutrit_experiments.experiments.process_tomography import CircuitTomography
+def qpt_xminusxplus(runner: ExperimentsRunner) -> ExperimentConfig:
+    from ..experiments.process_tomography import CircuitTomography
 
     return ExperimentConfig(
         CircuitTomography,
@@ -415,10 +450,11 @@ def qpt_xminusxplus(runner):
         analysis_options={'target_bootstrap_samples': 100}
     )
 
+
 @register_exp
 @add_readout_mitigation
-def c2phase_xplus3(runner):
-    from qutrit_experiments.experiments.phase_table import DiagonalCircuitPhaseShift
+def c2phase_xplus3(runner: ExperimentsRunner) -> ExperimentConfig:
+    from ..experiments.phase_table import DiagonalCircuitPhaseShift
 
     return ExperimentConfig(
         DiagonalCircuitPhaseShift,
@@ -429,10 +465,11 @@ def c2phase_xplus3(runner):
         }
     )
 
+
 @register_exp
 @add_qpt_readout_mitigation
-def qpt_xplus3(runner):
-    from qutrit_experiments.experiments.process_tomography import CircuitTomography
+def qpt_xplus3(runner: ExperimentsRunner) -> ExperimentConfig:
+    from ..experiments.process_tomography import CircuitTomography
 
     return ExperimentConfig(
         CircuitTomography,
@@ -445,14 +482,15 @@ def qpt_xplus3(runner):
         analysis_options={'target_bootstrap_samples': 100}
     )
 
-######################
-### Error analysis ###
-######################
+
+##################
+# Error analysis #
+##################
 
 @register_exp
 @add_readout_mitigation(probability=False)
-def truthtable_id0(runner):
-    from qutrit_experiments.experiments.truth_table import TruthTable
+def truthtable_id0(runner: ExperimentsRunner) -> ExperimentConfig:
+    from ..experiments.truth_table import TruthTable
     return ExperimentConfig(
         TruthTable,
         runner.qubits,
@@ -461,10 +499,11 @@ def truthtable_id0(runner):
         }
     )
 
+
 @register_exp
 @add_readout_mitigation
-def phasetable_id0(runner):
-    from qutrit_experiments.experiments.phase_table import PhaseTable
+def phasetable_id0(runner: ExperimentsRunner) -> ExperimentConfig:
+    from ..experiments.phase_table import PhaseTable
     return ExperimentConfig(
         PhaseTable,
         runner.qubits,
@@ -473,10 +512,11 @@ def phasetable_id0(runner):
         }
     )
 
+
 @register_exp
 @add_readout_mitigation(probability=False)
-def truthtable_id1(runner):
-    from qutrit_experiments.experiments.truth_table import TruthTable
+def truthtable_id1(runner: ExperimentsRunner) -> ExperimentConfig:
+    from ..experiments.truth_table import TruthTable
     return ExperimentConfig(
         TruthTable,
         runner.qubits,
@@ -485,10 +525,11 @@ def truthtable_id1(runner):
         }
     )
 
+
 @register_exp
 @add_readout_mitigation
-def phasetable_id1(runner):
-    from qutrit_experiments.experiments.phase_table import PhaseTable
+def phasetable_id1(runner: ExperimentsRunner) -> ExperimentConfig:
+    from ..experiments.phase_table import PhaseTable
     return ExperimentConfig(
         PhaseTable,
         runner.qubits,
@@ -497,10 +538,11 @@ def phasetable_id1(runner):
         }
     )
 
+
 @register_exp
 @add_readout_mitigation(probability=False)
-def truthtable_id2(runner):
-    from qutrit_experiments.experiments.truth_table import TruthTable
+def truthtable_id2(runner: ExperimentsRunner) -> ExperimentConfig:
+    from ..experiments.truth_table import TruthTable
     return ExperimentConfig(
         TruthTable,
         runner.qubits,
@@ -509,10 +551,11 @@ def truthtable_id2(runner):
         }
     )
 
+
 @register_exp
 @add_readout_mitigation
-def phasetable_id2(runner):
-    from qutrit_experiments.experiments.phase_table import PhaseTable
+def phasetable_id2(runner: ExperimentsRunner) -> ExperimentConfig:
+    from ..experiments.phase_table import PhaseTable
     return ExperimentConfig(
         PhaseTable,
         runner.qubits,
@@ -521,10 +564,11 @@ def phasetable_id2(runner):
         }
     )
 
+
 @register_exp
 @add_readout_mitigation(probability=False)
-def truthtable_id3(runner):
-    from qutrit_experiments.experiments.truth_table import TruthTable
+def truthtable_id3(runner: ExperimentsRunner) -> ExperimentConfig:
+    from ..experiments.truth_table import TruthTable
     return ExperimentConfig(
         TruthTable,
         runner.qubits,
@@ -533,10 +577,11 @@ def truthtable_id3(runner):
         }
     )
 
+
 @register_exp
 @add_readout_mitigation
-def phasetable_id3(runner):
-    from qutrit_experiments.experiments.phase_table import PhaseTable
+def phasetable_id3(runner: ExperimentsRunner) -> ExperimentConfig:
+    from ..experiments.phase_table import PhaseTable
     return ExperimentConfig(
         PhaseTable,
         runner.qubits,

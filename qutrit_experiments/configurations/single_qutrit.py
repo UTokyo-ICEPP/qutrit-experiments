@@ -1,4 +1,3 @@
-# pylint: disable=import-outside-toplevel, function-redefined, unused-argument
 """Single qutrit calibration and characterization experiments."""
 from functools import wraps
 from .common import qubits_assignment_error, qubits_assignment_error_post
@@ -28,7 +27,7 @@ from .qutrit import (
 from ..experiment_config import register_exp, register_post
 
 
-def register_single_qutrit_exp(function):
+def _register_single_qutrit_exp(function):
     @wraps(function)
     def conf_gen(runner):
         return function(runner, runner.qubits[0])
@@ -59,7 +58,7 @@ qutrit_functions = [
     qutrit_x12_irb
 ]
 for func in qutrit_functions:
-    register_single_qutrit_exp(func)
+    _register_single_qutrit_exp(func)
 
 register_post(qutrit_discriminator_post, exp_type='qutrit_discriminator')
 register_post(qubits_assignment_error_post, exp_type='qubits_assignment_error')

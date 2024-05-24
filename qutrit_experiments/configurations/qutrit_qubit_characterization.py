@@ -1,16 +1,19 @@
 # pylint: disable=import-outside-toplevel, function-redefined, unused-argument
+# pylint: disable=unexpected-keyword-arg, redundant-keyword-arg
 """Experiment configurations for Toffoli gate calibration."""
-from functools import wraps
+
 import numpy as np
 from qiskit import QuantumCircuit, pulse
 from qiskit.circuit import Gate, Parameter
+from qiskit_experiments.framework import ExperimentData
 from ..experiment_config import ExperimentConfig, register_exp, register_post
+from ..runners import ExperimentsRunner
 from ..util.pulse_area import rabi_cycles_per_area
 from .common import add_readout_mitigation
 
 
 @add_readout_mitigation(logical_qubits=[1])
-def sizzle_template(runner, exp_type):
+def sizzle_template(runner: ExperimentsRunner, exp_type: str) -> ExperimentConfig:
     """Template for SiZZle measurement at a single frequency and amplitude combination.
 
     Frequency, amplitudes should be set in args.
@@ -35,9 +38,10 @@ def sizzle_template(runner, exp_type):
         exp_type=exp_type
     )
 
+
 @register_exp
 @add_readout_mitigation(logical_qubits=[1])
-def zzramsey(runner):
+def zzramsey(runner: ExperimentsRunner) -> ExperimentConfig:
     from ..experiments.qutrit_qubit.zzramsey import QutritZZRamsey
     return ExperimentConfig(
         QutritZZRamsey,
@@ -49,14 +53,16 @@ def zzramsey(runner):
         run_options={'shots': 2000}
     )
 
+
 @register_post
-def zzramsey(runner, experiment_data):
+def zzramsey(runner: ExperimentsRunner, experiment_data: ExperimentData) -> None:
     omega_zs = experiment_data.analysis_results('omega_zs', block=False).value
     runner.program_data['static_omega_zs'] = omega_zs
 
+
 @add_readout_mitigation(logical_qubits=[1])
 @register_exp
-def sizzle_frequency_scan(runner):
+def sizzle_frequency_scan(runner: ExperimentsRunner) -> ExperimentConfig:
     from ..experiments.qutrit_qubit.sizzle import SiZZleFrequencyScan
 
     control2, target = runner.qubits[1:]
@@ -93,8 +99,9 @@ def sizzle_frequency_scan(runner):
         experiment_options={'frequencies_of_interest': resonances}
     )
 
+
 @add_readout_mitigation(logical_qubits=[1], expval=True)
-def hcr_template(runner, exp_type):
+def hcr_template(runner: ExperimentsRunner, exp_type: str) -> ExperimentConfig:
     """CR HT with undefined amplitude."""
     from ..experiments.qutrit_qubit.qutrit_cr_hamiltonian import QutritCRHamiltonianTomography
 
@@ -120,9 +127,10 @@ def hcr_template(runner, exp_type):
         exp_type=exp_type
     )
 
+
 @register_exp
 @add_readout_mitigation(expval=True)
-def t_hx(runner):
+def t_hx(runner: ExperimentsRunner) -> ExperimentConfig:
     """Target qubit Rx tone Hamiltonian with amplitude set for two cycles in 2048 dt."""
     from ..experiments.hamiltonian_tomography import HamiltonianTomography
 
@@ -151,13 +159,15 @@ def t_hx(runner):
         }
     )
 
+
 @register_post
-def t_hx(runner, experiment_data):
+def t_hx(runner: ExperimentsRunner, experiment_data: ExperimentData) -> None:
     components = experiment_data.analysis_results('hamiltonian_components', block=False).value
     runner.program_data['target_rxtone_hamiltonian'] = components
 
+
 @add_readout_mitigation(logical_qubits=[1], expval=True)
-def hcr_singlestate_template(runner, exp_type):
+def hcr_singlestate_template(runner: ExperimentsRunner, exp_type: str) -> ExperimentConfig:
     """CR Hamiltonian tomography with a single control state and an offset Rx tone.
 
     Control state and cr_amp should be set through cr_rabi_init(state) and
@@ -199,9 +209,10 @@ def hcr_singlestate_template(runner, exp_type):
         exp_type=exp_type
     )
 
+
 @register_exp
 @add_readout_mitigation(logical_qubits=[1], expval=True)
-def hcr_amplitude_scan(runner):
+def hcr_amplitude_scan(runner: ExperimentsRunner) -> ExperimentConfig:
     from ..experiments.qutrit_qubit.qutrit_cr_hamiltonian import QutritCRHamiltonianTomographyScan
 
     control2, target = runner.qubits[1:]
@@ -234,8 +245,9 @@ def hcr_amplitude_scan(runner):
         }
     )
 
+
 @add_readout_mitigation(logical_qubits=[1], expval=True)
-def ucr_tomography_template(runner, exp_type):
+def ucr_tomography_template(runner: ExperimentsRunner, exp_type: str) -> ExperimentConfig:
     from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
 
     qubits = runner.qubits[1:]

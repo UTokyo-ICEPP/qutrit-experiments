@@ -3,11 +3,13 @@
 from collections.abc import Callable, Sequence
 from dataclasses import KW_ONLY, dataclass, field
 from functools import wraps
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from qiskit_experiments.framework import BaseExperiment, ExperimentData
 
 from .framework_overrides.batch_experiment import BatchExperiment
 from .framework_overrides.parallel_experiment import ParallelExperiment
+if TYPE_CHECKING:
+    from .runners import ExperimentsRunner
 
 
 @dataclass
@@ -61,6 +63,7 @@ class ParallelExperimentConfig(CompositeExperimentConfig):
 experiments = {}
 postexperiments = {}
 experiment_products = {}
+
 
 def register_exp(
     function: Optional[Callable[['ExperimentsRunner'], ExperimentConfigBase]] = None,
