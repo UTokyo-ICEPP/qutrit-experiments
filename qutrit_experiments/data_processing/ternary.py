@@ -1,3 +1,4 @@
+"""Function to create a DataProcessor for mid-circuit measured ternary discrimination."""
 from typing import Optional
 import numpy as np
 from qiskit_experiments.data_processing import DataProcessor
@@ -10,6 +11,13 @@ def get_ternary_data_processor(
     include_invalid: bool = False,
     serialize: bool = False
 ) -> DataProcessor:
+    """Return a DataProcessor for mid-circuit measured ternary discrimination.
+
+    Args:
+        assignment_matrix: Qubit readout assignment matrix.
+        include_invalid: Whether to include the invalid outcome.
+        serialize: Whether to serialize the multi-probability.
+    """
     nodes = []
     if assignment_matrix is not None:
         nodes.append(ReadoutMitigation(assignment_matrix))

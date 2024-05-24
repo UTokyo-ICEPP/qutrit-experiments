@@ -42,8 +42,8 @@ class ReadoutMitigation(CountsAction):
             sorted_indices = list(reversed(sorted(indices)))
             if indices != sorted_indices:
                 nq = len(indices)
-                transpose = [sorted_indices.index(i) for i in indices] # row reordering
-                transpose += [t + nq for t in transpose] # column reordering
+                transpose = [sorted_indices.index(i) for i in indices]  # row reordering
+                transpose += [t + nq for t in transpose]  # column reordering
                 cal_matrix = cal_matrix.reshape((2,) * (2 * nq))
                 cal_matrix = cal_matrix.transpose(transpose)
                 cal_matrix = cal_matrix.reshape((2 ** nq,) * 2)
@@ -71,8 +71,8 @@ class ReadoutMitigation(CountsAction):
             counts_arr = np.array([counts_dict.get(key_template.format(i), 0)
                                    for i in range(num_states)], dtype=float)
             nshots = np.sum(counts_arr)
-
-            constraints = {'type': 'eq', 'fun': lambda x: nshots - np.sum(x)} # pylint: disable=cell-var-from-loop
+            # pylint: disable-next=cell-var-from-loop
+            constraints = {'type': 'eq', 'fun': lambda x: nshots - np.sum(x)}
             bounds = sciopt.Bounds(0, nshots)
             res = sciopt.minimize(_objective, x0=counts_arr, args=(counts_arr, self._cal_matrix),
                                   method='SLSQP', constraints=constraints, bounds=bounds, tol=1.e-6)
