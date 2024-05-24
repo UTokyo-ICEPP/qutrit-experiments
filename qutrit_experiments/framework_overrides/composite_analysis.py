@@ -142,13 +142,13 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         if lock is None:
             try:
                 msg = CompositeAnalysis._postanalysis(analysis, parent_data, component_data)
-            except Exception as exc:
+            except Exception as exc:  # pylint: disable=broad-exception-caught
                 msg = exc
         elif analysis.options.get('parallelize_on_thread', False):
             try:
                 with lock:
                     msg = CompositeAnalysis._postanalysis(analysis, parent_data, component_data)
-            except Exception as exc:
+            except Exception as exc:  # pylint: disable=broad-exception-caught
                 msg = exc
         else:
             # Parallelizing the postanalyses - run as a subprocess to circumvent the GIL
@@ -159,7 +159,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             if callable(getattr(analysis, '_run_additional_analysis_threaded', None)):
                 try:
                     thread_output = analysis._run_additional_analysis_threaded(parent_data)
-                except Exception as exc:
+                except Exception as exc:  # pylint: disable=broad-exception-caught
                     if analysis.options.get('ignore_failed', False):
                         logger.warning('Ignoring postanalysis failure for %s:', parent_task_id)
                         traceback.print_exception(exc)
@@ -206,8 +206,8 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                 results, figures = analysis._combine_results(component_data)
 
             if (hasattr(analysis, '_run_additional_analysis_unthreaded')
-                and callable(analysis._run_additional_analysis_unthreaded)
-                and thread_output is not NO_THREAD):
+                    and callable(analysis._run_additional_analysis_unthreaded)
+                    and thread_output is not NO_THREAD):
                 results, figures = analysis._run_additional_analysis_unthreaded(parent_data,
                                                                                 results, figures,
                                                                                 thread_output)
@@ -342,7 +342,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                     sub_data[task_id].add_analysis_results(analysis_results)
                 if figures:
                     sub_data[task_id].add_figures([f.figure for f in figures],
-                                                   figure_names=[f.name for f in figures])
+                                                  figure_names=[f.name for f in figures])
 
         # Combine the child data if the analysis requires flattening
         # Entries in subdata_map is innermost-first
@@ -372,7 +372,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                     # Wait for completion
                     result = future.result()
                     if (isinstance(result, Exception)
-                        and analysis.options.get('ignore_failed', False)):
+                            and analysis.options.get('ignore_failed', False)):
                         raise AnalysisError(f'Postanalysis failed for {task_id}') from result
 
         try:

@@ -1,18 +1,16 @@
 """Override of qiskit_experiments.framework.composite.parallel_experiment."""
 
 from collections import defaultdict
-from typing import TYPE_CHECKING, Optional, Union
+from typing import Optional, Union
 import numpy as np
 from qiskit import QuantumCircuit
+from qiskit.providers import Backend
 from qiskit.qobj.utils import MeasLevel, MeasReturnType
 from qiskit.result import Counts
 from qiskit_experiments.framework import (BaseExperiment,
                                           ParallelExperiment as ParallelExperimentOrig)
 
 from .composite_analysis import CompositeAnalysis
-
-if TYPE_CHECKING:
-    from qiskit.providers import Backend
 
 
 class ParallelExperiment(ParallelExperimentOrig):
@@ -45,7 +43,7 @@ class ParallelExperiment(ParallelExperimentOrig):
         transpiled_sub_circuits = []
 
         for circuit in transpiled_circuits:
-            ## THIS IS ACTUALLY WRONG - cargs MUST BE REMAPPED
+            # THIS IS ACTUALLY WRONG - cargs MUST BE REMAPPED
             sub_circuits = []
             sub_circuit_map = {}
             for qubits in circuit.metadata['composite_qubits']:
