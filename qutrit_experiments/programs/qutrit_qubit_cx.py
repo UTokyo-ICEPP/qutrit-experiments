@@ -1,12 +1,14 @@
+"""Calibration of qutrit-qubit generalized CX."""
+
 import logging
 from typing import Optional
 import numpy as np
 from uncertainties import unumpy as unp
-from qiskit import QuantumCircuit, pulse
-from qiskit.circuit import Gate
+from qiskit import QuantumCircuit
 from qiskit.providers import Backend
 from qiskit_experiments.data_processing import (BasisExpectationValue, DataProcessor,
                                                 MarginalizeCounts, Probability)
+from qiskit_experiments.framework import ExperimentData
 
 from ..experiment_config import experiments
 from ..runners import ExperimentsRunner
@@ -14,7 +16,6 @@ from ..util.sizzle import sizzle_hamiltonian_shifts
 
 from ..experiment_config import ExperimentConfig
 from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomography
-from ..calibrations import get_qutrit_pulse_gate
 from ..configurations.common import configure_readout_mitigation
 from ..gates import QutritQubitCXType
 
@@ -27,7 +28,8 @@ def calibrate_qutrit_qubit_cx(
     refresh_readout_error: bool = True,
     calibrated: Optional[set[str]] = None,
     qutrit_qubit_index: Optional[tuple[int, int]] = None
-):
+) -> None:
+    """Calibrate the qutrit-qubit generalized CX gate."""
     if calibrated is None:
         calibrated = set()
     if qutrit_qubit_index is not None:
@@ -78,81 +80,23 @@ def calibrate_qutrit_qubit_cx(
     # RCR unitaries
     run_unitaries(runner, 'rcr_unitaries', prep_unitaries)
 
-    backend = runner.backend
-    calibrations = runner.calibrations
+    run_unitaries(runner, 'rcrplus_unitaries', prep_unitaries)
 
-    rcr_type = calibrations.get_parameter_value('rcr_type', runner.qubits)
-    x12 = get_qutrit_pulse_gate('x12', runner.qubits[0], calibrations, target=backend.target)
-    x_c = calibrations.get_schedule('x', runner.qubits[0])
-    x_t = calibrations.get_schedule('x', runner.qubits[1])
-    def x_dd():
-        with pulse.align_left():
-            pulse.call(x_c)
-            pulse.call(x_t)
-            pulse.call(x_t)
-
-    def x12_dd():
-        with pulse.align_left():
-            pulse.call(x12)
-            pulse.call(x_t)
-            pulse.call(x_t)
-
-    control_channel = backend.control_channel(runner.qubits)[0]
-    target_drive_channel = backend.drive_channel(runner.qubits[1])
-    cr = calibrations.get_schedule('cr', runner.qubits)
-
-    # RCR in CRCR
-    with pulse.build(name='rcr', default_alignment='sequential') as sched:
-        if rcr_type == 2:
-            x12_dd()
-            pulse.call(cr)
-            x_dd()
-            with pulse.phase_offset(np.pi, target_drive_channel):
-                pulse.call(cr)
-        else:
-            pulse.call(cr)
-            x12_dd()
-            with pulse.phase_offset(np.pi, target_drive_channel):
-                pulse.call(cr)
-            x_dd()
-
-    circuit = QuantumCircuit(2)
-    circuit.append(Gate('rcr', 2, []), [0, 1])
-    circuit.add_calibration('rcr', runner.qubits, sched)
-    run_unitaries(runner, 'rcrplus_unitaries', prep_unitaries, circuit)
-
-    with pulse.build(name='rcr', default_alignment='sequential') as sched:
-        with pulse.phase_offset(np.pi, control_channel):
-            if rcr_type == 2:
-                x12_dd()
-                with pulse.phase_offset(np.pi, target_drive_channel):
-                    pulse.call(cr)
-                x_dd()
-                pulse.call(cr)
-            else:
-                with pulse.phase_offset(np.pi, target_drive_channel):
-                    pulse.call(cr)
-                x12_dd()
-                pulse.call(cr)
-                x_dd()
-
-    circuit = QuantumCircuit(2)
-    circuit.append(Gate('rcr', 2, []), [0, 1])
-    circuit.add_calibration('rcr', runner.qubits, sched)
-    run_unitaries(runner, 'rcrminus_unitaries', prep_unitaries, circuit)
+    run_unitaries(runner, 'rcrminus_unitaries', prep_unitaries)
 
     # Validate
     for exp_type in ['crcr_unitaries', 'cx_unitaries']:
-        #runner.run_experiment(exp_type)
         run_unitaries(runner, exp_type, prep_unitaries)
 
     if qutrit_qubit_index is not None:
         runner.qubits = runner_qubits
 
 
-def eliminate_z(runner, rough_width_data):
+def eliminate_z(runner: ExperimentsRunner, rough_width_data: ExperimentData) -> None:
+    """Check if abs(omega_z) is greater than its stddev, and calibrate the Stark amp if needed."""
     rcr_type = runner.calibrations.get_parameter_value('rcr_type', runner.qubits)
     fit_params = rough_width_data.analysis_results('simul_fit_params').value[rcr_type]
+    # pylint: disable-next=no-member
     omega_z = fit_params[0] * unp.cos(fit_params[2]) / runner.backend.dt
     if abs(omega_z.n) > omega_z.std_dev:
         # Set the target Stark frequency from observed sign of Z
@@ -171,6 +115,7 @@ def get_stark_params(
     control_state: int,
     omega_z: float
 ) -> float:
+    """Return the best frequency and amplitude for Stark drive."""
     frequencies = nonresonant_frequencies(backend, qubits[1])
     hvars = backend.configuration().hamiltonian['vars']
     amp = 0.08
@@ -215,12 +160,21 @@ def nonresonant_frequencies(
     return test_points[np.logical_not(mask)]
 
 
-def run_unitaries(runner, config, prep_unitaries=None, circuit=None, block=False):
+def run_unitaries(
+    runner: ExperimentsRunner,
+    config: ExperimentConfig,
+    prep_unitaries: Optional[dict[int, np.ndarray]] = None,
+    circuit: Optional[QuantumCircuit] = None,
+    block: bool = False
+) -> ExperimentData:
+    """Run a QutritQubitTomography experiment with auto-configured qutrit assignment error
+    mitigation."""
     if isinstance(config, str):
         if circuit is None:
             config = experiments[config](runner)
         else:
             dp_nodes = [MarginalizeCounts({0}), Probability('1'), BasisExpectationValue()]
+            # pylint: disable-next=unexpected-keyword-arg, redundant-keyword-arg
             config = ExperimentConfig(
                 QutritQubitTomography,
                 runner.qubits,
@@ -232,7 +186,9 @@ def run_unitaries(runner, config, prep_unitaries=None, circuit=None, block=False
                 exp_type=config
             )
             configure_readout_mitigation(runner, config, logical_qubits=[1], expval=True)
-    config.analysis_options['qutrit_assignment_matrix'] = runner.program_data['qutrit_assignment_matrix'][runner.qubits[0]]
+
+    config.analysis_options['qutrit_assignment_matrix'] = \
+        runner.program_data['qutrit_assignment_matrix'][runner.qubits[0]]
     if prep_unitaries:
         config.args['measure_preparations'] = False
         config.analysis_options['prep_unitaries'] = prep_unitaries

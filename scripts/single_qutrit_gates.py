@@ -5,7 +5,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import logging
 
 if __name__ == '__main__':
-    from qutrit_experiments.programs.program_config import get_program_config
+    from qutrit_experiments.script_util.program_config import get_program_config
     program_config = get_program_config()
 
     try:

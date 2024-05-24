@@ -6,7 +6,7 @@ from functools import wraps
 import logging
 from typing import Optional
 import numpy as np
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit, pulse
 from qiskit.circuit import Gate
 from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.data_processing import (BasisExpectationValue, DataProcessor,
@@ -83,6 +83,95 @@ def cr_unitaries(runner: ExperimentsRunner) -> ExperimentConfig:
 def rcr_unitaries(runner: ExperimentsRunner) -> ExperimentConfig:
     from ..calibrations.qutrit_qubit_cx import get_rcr_gate
     sched = get_rcr_gate(runner.qubits, runner.calibrations, target=runner.backend.target)
+    return unitaries(runner, RCRGate([]), sched=sched)
+
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1], expval=True)
+def rcrplus_unitaries(runner: ExperimentsRunner) -> ExperimentConfig:
+    """Unitaries measurement for the RCR in CRCR."""
+    calibrations = runner.calibrations
+
+    rcr_type = calibrations.get_parameter_value('rcr_type', runner.qubits)
+    x12 = get_qutrit_pulse_gate('x12', runner.qubits[0], calibrations, target=runner.backend.target)
+    x_c = calibrations.get_schedule('x', runner.qubits[0])
+    x_t = calibrations.get_schedule('x', runner.qubits[1])
+
+    def x_dd():
+        with pulse.align_left():
+            pulse.call(x_c)
+            pulse.call(x_t)
+            pulse.call(x_t)
+
+    def x12_dd():
+        with pulse.align_left():
+            pulse.call(x12)
+            pulse.call(x_t)
+            pulse.call(x_t)
+
+    target_drive_channel = runner.backend.drive_channel(runner.qubits[1])
+    cr = calibrations.get_schedule('cr', runner.qubits)
+
+    # RCR in CRCR
+    with pulse.build(name='rcr', default_alignment='sequential') as sched:
+        if rcr_type == 2:
+            x12_dd()
+            pulse.call(cr)
+            x_dd()
+            with pulse.phase_offset(np.pi, target_drive_channel):
+                pulse.call(cr)
+        else:
+            pulse.call(cr)
+            x12_dd()
+            with pulse.phase_offset(np.pi, target_drive_channel):
+                pulse.call(cr)
+            x_dd()
+
+    return unitaries(runner, RCRGate([]), sched=sched)
+
+
+@register_exp
+@add_readout_mitigation(logical_qubits=[1], expval=True)
+def rcrminus_unitaries(runner: ExperimentsRunner) -> ExperimentConfig:
+    """Unitaries measurement for the RCR in CRCR."""
+    calibrations = runner.calibrations
+
+    rcr_type = calibrations.get_parameter_value('rcr_type', runner.qubits)
+    x12 = get_qutrit_pulse_gate('x12', runner.qubits[0], calibrations, target=runner.backend.target)
+    x_c = calibrations.get_schedule('x', runner.qubits[0])
+    x_t = calibrations.get_schedule('x', runner.qubits[1])
+
+    def x_dd():
+        with pulse.align_left():
+            pulse.call(x_c)
+            pulse.call(x_t)
+            pulse.call(x_t)
+
+    def x12_dd():
+        with pulse.align_left():
+            pulse.call(x12)
+            pulse.call(x_t)
+            pulse.call(x_t)
+
+    target_drive_channel = runner.backend.drive_channel(runner.qubits[1])
+    control_channel = runner.backend.control_channel(runner.qubits)[0]
+    cr = calibrations.get_schedule('cr', runner.qubits)
+
+    with pulse.build(name='rcr', default_alignment='sequential') as sched:
+        with pulse.phase_offset(np.pi, control_channel):
+            if rcr_type == 2:
+                x12_dd()
+                with pulse.phase_offset(np.pi, target_drive_channel):
+                    pulse.call(cr)
+                x_dd()
+                pulse.call(cr)
+            else:
+                with pulse.phase_offset(np.pi, target_drive_channel):
+                    pulse.call(cr)
+                x12_dd()
+                pulse.call(cr)
+                x_dd()
+
     return unitaries(runner, RCRGate([]), sched=sched)
 
 

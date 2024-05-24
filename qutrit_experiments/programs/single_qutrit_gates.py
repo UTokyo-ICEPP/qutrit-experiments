@@ -1,3 +1,4 @@
+"""Calibration of single qutrit gates."""
 from collections.abc import Sequence
 import logging
 from typing import Optional
@@ -15,6 +16,7 @@ def calibrate_single_qutrit_gates(
     plot_depth: int = -1,
     save_data: bool = False
 ):
+    """Calibrate x12 and sx12 gates."""
     if calibrated is None:
         calibrated = set()
     if qutrit_index is not None:
@@ -66,6 +68,7 @@ def characterize_qutrit(
     plot_depth: int = -1,
     save_data: bool = False
 ):
+    """Run characterization experiments for X12."""
     if qutrit_index is not None:
         runner_qubits = list(runner.qubits)
         runner.qubits = [runner.qubits[idx] for idx in qutrit_index]

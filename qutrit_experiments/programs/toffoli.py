@@ -1,7 +1,9 @@
+"""Calibration of the Toffoli/CCZ gate."""
 from itertools import product
 from typing import Optional
 import numpy as np
 from qiskit_experiments.data_processing import DataProcessor
+from qiskit_experiments.framework import ExperimentData
 
 from ..data_processing import ReadoutMitigation
 from ..experiments.circuit_runner import CircuitRunner
@@ -14,7 +16,8 @@ def calibrate_toffoli(
     runner: ExperimentsRunner,
     refresh_readout_error: bool = True,
     calibrated: Optional[set[str]] = None
-):
+) -> None:
+    """Calibrate the last few components of the Toffoli/CCZ gate."""
     if calibrated is None:
         calibrated = set()
     if 'readout_mitigator' not in runner.program_data:
@@ -34,7 +37,8 @@ def calibrate_toffoli(
 def characterize_ccz(
     runner: ExperimentsRunner,
     refresh_readout_error: bool = True
-):
+) -> None:
+    """Run characterization experiments for CCZ."""
     if 'readout_mitigator' not in runner.program_data:
         # Construct the error mitigation matrix and find the rough CR pulse width
         runner.run_experiment('qubits_assignment_error', force_resubmit=refresh_readout_error)
@@ -43,15 +47,16 @@ def characterize_ccz(
     runner.run_experiment('truthtable_ccz', analyze=False)
     runner.run_experiment('phasetable_ccz', analyze=False)
     runner.run_experiment('xminusxplus_c2_phase', analyze=False)
-    qpt_data = runner.run_experiment('qpt_ccz_bc', analyze=False)
+    runner.run_experiment('qpt_ccz_bc', analyze=False)
 
-    #recover_qpt_data(runner, qpt_data)
+    # recover_qpt_data(runner, qpt_data)
 
 
 def characterize_toffoli(
     runner: ExperimentsRunner,
     refresh_readout_error: bool = True
-):
+) -> None:
+    """Run characterization experiments for Toffoli."""
     if 'readout_mitigator' not in runner.program_data:
         # Construct the error mitigation matrix and find the rough CR pulse width
         runner.run_experiment('qubits_assignment_error', force_resubmit=refresh_readout_error)
@@ -60,7 +65,8 @@ def characterize_toffoli(
     runner.run_experiment('truthtable_toffoli')
 
 
-def ccz_qpt_expected():
+def ccz_qpt_expected() -> np.ndarray:
+    """Return the expected measurement results from a QPT experiment."""
     init_1q = np.array([
         [1., 0.],
         [0., 1.],
@@ -84,9 +90,13 @@ def ccz_qpt_expected():
     return np.square(np.abs(states))
 
 
-def recover_qpt_data(runner, qpt_data):
-    # Resubmit circuits with bad measurements
-    matrix = runner.program_data['readout_mitigator'][runner.qubits].assignment_matrix(runner.qubits)
+def recover_qpt_data(
+    runner: ExperimentsRunner,
+    qpt_data: ExperimentData
+) -> ExperimentData:
+    """Resubmit circuits with bad measurements"""
+    mitigator = runner.program_data['readout_mitigator'][runner.qubits]
+    matrix = mitigator.assignment_matrix(runner.qubits)
     dp = DataProcessor('counts', [ReadoutMitigation(matrix)])
 
     obss = []
@@ -106,6 +116,7 @@ def recover_qpt_data(runner, qpt_data):
 
     cc = runner.make_experiment('qpt_ccz_bc').circuits()
     circuits = [cc[ic] for ic in anomalous]
+    # pylint: disable-next=unexpected-keyword-arg, redundant-keyword-arg
     config = ExperimentConfig(
         CircuitRunner,
         runner.qubits,
