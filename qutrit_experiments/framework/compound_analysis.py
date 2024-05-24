@@ -3,16 +3,13 @@ from abc import abstractmethod
 from collections.abc import Callable
 import copy
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
+from matplotlib.figure import Figure
+from qiskit_experiments.framework import AnalysisResultData, ExperimentData
 
 from ..framework_overrides.composite_analysis import CompositeAnalysis
 
 logger = logging.getLogger(__name__)
-
-
-if TYPE_CHECKING:
-    from matplotlib.figure import Figure
-    from qiskit_experiments.framework import AnalysisResultData, ExperimentData
 
 
 class CompoundAnalysis(CompositeAnalysis):
@@ -21,8 +18,10 @@ class CompoundAnalysis(CompositeAnalysis):
     def _propagated_option_keys(cls) -> list[str]:
         return ['outcome', 'data_processor', 'plot']
 
-    def _set_subanalysis_options(self, experiment_data: 'ExperimentData'):
-        logger.debug('Setting options for %d subanalyses of %s', len(self._analyses), self.__class__)
+    # pylint: disable-next=unused-argument
+    def _set_subanalysis_options(self, experiment_data: ExperimentData):
+        logger.debug('Setting options for %d subanalyses of %s',
+                     len(self._analyses), self.__class__)
         for key in self._propagated_option_keys():
             if (value := self.options.get(key)) is not None:
                 for analysis in self._analyses:

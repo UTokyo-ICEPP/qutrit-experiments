@@ -4,7 +4,7 @@ from qiskit_experiments.framework import CompositeAnalysis, ExperimentData
 
 def set_child_data_structure(experiment_data: ExperimentData):
     """Recursively create data parent-child hierarchy for CompositeExperiment results."""
-    #composite_analysis._add_child_data(experiment_data)
+    # composite_analysis._add_child_data(experiment_data)
     _add_child_data(experiment_data)
     for child_data in experiment_data.child_data():
         if 'component_types' in child_data.metadata:

@@ -1,6 +1,5 @@
 """Custom calibration updaters."""
 from typing import Optional, Union
-import numpy as np
 from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.framework import ExperimentData
 from qiskit_experiments.calibration_management import Calibrations

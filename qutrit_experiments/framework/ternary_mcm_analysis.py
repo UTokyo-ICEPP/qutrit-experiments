@@ -1,11 +1,12 @@
 """Analysis for experiments with ternary results classified with MCM (measure-X-measure)."""
+from typing import Optional
 import lmfit
 import numpy as np
-from typing import Optional
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.framework import ExperimentData, Options
 
 from ..data_processing import get_ternary_data_processor
+
 
 class TernaryMCMResultAnalysis(curve.CurveAnalysis):
     """Analysis for experiments with ternary results classified with MCM (measure-Xminus-measure).
