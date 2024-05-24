@@ -11,8 +11,8 @@ from qiskit_experiments.calibration_management import Calibrations, ParameterVal
 from ..util.update_schedule_dependency import update_add_schedule
 from .qubit import add_dd, add_ecr, add_x, set_dd_default, set_ecr_default, set_x_default
 
-
 logger = logging.getLogger(__name__)
+
 
 def make_toffoli_calibrations(
     backend: Backend,
@@ -20,7 +20,18 @@ def make_toffoli_calibrations(
     set_defaults: bool = True,
     qubits: Optional[Sequence[int]] = None
 ) -> Calibrations:
-    """Define parameters and schedules for qutrit-qubit CX gate."""
+    """Define parameters and schedules for qutrit-qubit CX gate.
+
+    Args:
+        backend: Backend to use.
+        calibrations: Calibrations object. If not given, a new instance is created from the backend.
+        set_defaults: If True (default), sets the default values of the parameters.
+        qubits: Qubits to set the default parameter values on. If not given, all qubits in the
+            backend will be used.
+
+    Returns:
+        The passed or newly created Calibrations instance.
+    """
     if calibrations is None:
         calibrations = Calibrations.from_backend(backend)
     if type(calibrations.add_schedule).__name__ == 'method':
@@ -46,9 +57,16 @@ def make_toffoli_calibrations(
 
 
 def set_cz_ccz_default(
-    backend: Backend,
+    backend: Backend,  # pylint: disable=unused-argument
     calibrations: Calibrations,
     qubits: Sequence[int]
 ) -> None:
+    """Set the default values for local phase corrections of cz and ccz.
+
+    Args:
+        backend: Backend from which to retrieve the reference parameter values.
+        calibrations: Calibrations object to define the schedules in.
+        qubits: Qubits to set the parameters for. If not given, all qubits in the backend are used.
+    """
     calibrations.add_parameter_value(ParameterValue(0.), 'delta_cz', qubits)
     calibrations.add_parameter_value(ParameterValue(0.), 'delta_ccz', qubits)

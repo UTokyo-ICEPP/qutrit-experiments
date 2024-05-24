@@ -1,3 +1,6 @@
+"""
+Functions for defining single-qubit calibrations.
+"""
 from collections.abc import Sequence
 import logging
 from typing import Optional
@@ -24,6 +27,9 @@ def add_x(
     the recall overhead of the schedule (plus we lose the pulse names specific to the drive
     channels). However, for the unbound compound schedules to be able to reference this schedule,
     it needs to be defined unbounded.
+
+    Args:
+        calibrations: Calibrations to define the unbound schedule in.
     """
     with pulse.build(name='x') as sched:
         pulse.play(
@@ -41,6 +47,13 @@ def set_x_default(
     calibrations: Calibrations,
     qubits: Optional[Sequence[int]] = None
 ) -> None:
+    """Set the default parameter values for the X schedule.
+
+    Args:
+        backend: Backend from which to retrieve the reference parameter values.
+        calibrations: Calibrations object to define the schedules in.
+        qubits: Qubits to set the parameters for. If not given, all qubits in the backend are used.
+    """
     inst_map = backend.defaults().instruction_schedule_map
     operational_qubits = get_operational_qubits(backend, qubits=qubits)
 
@@ -48,7 +61,7 @@ def set_x_default(
     for qubit in operational_qubits:
         x_pulse = inst_map.get('x', qubit).instructions[0][1].pulse
         if not (isinstance(x_pulse, ScalableSymbolicPulse)
-                    and x_pulse.pulse_type == 'Drag'):
+                and x_pulse.pulse_type == 'Drag'):
             raise RuntimeError(f'Pulse of q{qubit} x is not Drag')
         for pname, value in x_pulse.parameters.items():
             calibrations.add_parameter_value(ParameterValue(value), pname, qubits=[qubit],
@@ -58,7 +71,11 @@ def set_x_default(
 def add_dd(
     calibrations: Calibrations
 ) -> None:
-    """Add templates for DD sequences (X-delay-X)."""
+    """Add templates for DD sequences (X-delay-X).
+
+    Args:
+        calibrations: Calibrations to define the unbound schedule in.
+    """
     duration = Parameter('duration')
     pulse_duration = Parameter('pulse_duration')
     interval = (duration - 2 * pulse_duration) / 2
@@ -105,14 +122,20 @@ def set_dd_default(
     calibrations: Calibrations,
     qubits: Optional[Sequence[int]] = None
 ) -> None:
-    """Copy the backend defaults X parameter values into DoubleDrag."""
+    """Copy the backend defaults X parameter values into DoubleDrag.
+
+    Args:
+        backend: Backend from which to retrieve the reference parameter values.
+        calibrations: Calibrations object to define the schedules in.
+        qubits: Qubits to set the parameters for. If not given, all qubits in the backend are used.
+    """
     inst_map = backend.defaults().instruction_schedule_map
     operational_qubits = get_operational_qubits(backend, qubits=qubits)
     for qubit in operational_qubits:
         x_sched = inst_map.get('x', qubit)
         x_pulse = x_sched.instructions[0][1].pulse
         if not (isinstance(x_pulse, ScalableSymbolicPulse)
-                    and x_pulse.pulse_type == 'Drag'):
+                and x_pulse.pulse_type == 'Drag'):
             raise RuntimeError(f'Pulse of q{qubit} x is not Drag')
         x_duration = x_sched.duration
         pvalues = [
@@ -134,7 +157,11 @@ def set_dd_default(
 def add_ecr(
     calibrations: Calibrations
 ) -> None:
-    """Add the ECR schedule for CX-based backends."""
+    """Add the ECR schedule for CX-based backends.
+
+    Args:
+        calibrations: Calibrations to define the unbound schedule in.
+    """
     duration = Parameter('duration')
     sigma = Parameter('sigma')
     width = Parameter('width')
@@ -149,22 +176,21 @@ def add_ecr(
         with pulse.align_left():
             pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=cr_amp,
                                             angle=cr_angle, name='CR90p_u'),
-                    control_channel,
-                    name='CR90p_u')
-            pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=rotary_amp,
+                       control_channel, name='CR90p_u')
+            pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width,
+                                            amp=rotary_amp,
                                             angle=rotary_angle, name='CR90p_d'),
-                    drive_channel,
-                    name='CR90p_d')
+                       drive_channel, name='CR90p_d')
         pulse.reference('x', 'q0')
         with pulse.align_left():
             pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=cr_amp,
                                             angle=cr_angle + np.pi, name='CR90m_u'),
-                    control_channel,
-                    name='CR90m_u')
-            pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width, amp=rotary_amp,
+                       control_channel, name='CR90m_u')
+            pulse.play(pulse.GaussianSquare(duration=duration, sigma=sigma, width=width,
+                                            amp=rotary_amp,
                                             angle=rotary_angle + np.pi, name='CR90m_d'),
-                    drive_channel,
-                    name='CR90m_d')
+                       drive_channel,
+                       name='CR90m_d')
     calibrations.add_schedule(sched, num_qubits=2)
 
 
@@ -173,7 +199,13 @@ def set_ecr_default(
     calibrations: Calibrations,
     qubits: Optional[Sequence[int]] = None
 ) -> None:
-    """Copy the background defaults CX parameter values into ECR."""
+    """Copy the background defaults CX parameter values into ECR.
+
+    Args:
+        backend: Backend from which to retrieve the reference parameter values.
+        calibrations: Calibrations object to define the schedules in.
+        qubits: Qubits to set the parameters for. If not given, all qubits in the backend are used.
+    """
     operational_qubits = get_operational_qubits(backend, qubits=qubits)
     for qubits, cx_spec in backend.target['cx'].items():
         if not set(qubits) <= operational_qubits:
@@ -183,14 +215,14 @@ def set_ecr_default(
         try:
             cr_pulse = next(inst.pulse for _, inst in cx_sched.instructions
                             if isinstance(inst, pulse.Play)
-                               and isinstance(inst.channel, pulse.ControlChannel)
-                               and inst.name.startswith('CR90p_u'))
+                            and isinstance(inst.channel, pulse.ControlChannel)
+                            and inst.name.startswith('CR90p_u'))
             rotary_pulse = next(inst.pulse for _, inst in cx_sched.instructions
-                            if isinstance(inst, pulse.Play)
-                               and isinstance(inst.channel, pulse.DriveChannel)
-                               and inst.name.startswith('CR90p_d'))
-        except StopIteration:
-            raise CalibrationError(f'Default ECR CR pulse not found for qubits {qubits}.')
+                                if isinstance(inst, pulse.Play)
+                                and isinstance(inst.channel, pulse.DriveChannel)
+                                and inst.name.startswith('CR90p_d'))
+        except StopIteration as exc:
+            raise CalibrationError(f'Default ECR CR pulse not found for qubits {qubits}.') from exc
 
         pvalues = [
             ('duration', cr_pulse.duration),

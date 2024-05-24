@@ -9,7 +9,6 @@ from qiskit.providers import Backend
 from qiskit.pulse import ScalableSymbolicPulse
 from qiskit_experiments.calibration_management import Calibrations, ParameterValue
 
-from ..constants import LO_SIGN
 from ..pulse_library import ModulatedDrag
 # Temporary patch for qiskit-experiments 0.5.1
 from ..util.update_schedule_dependency import update_add_schedule
@@ -24,7 +23,18 @@ def make_single_qutrit_gate_calibrations(
     set_defaults: bool = True,
     qubits: Optional[Sequence[int]] = None,
 ) -> Calibrations:
-    """Define parameters and schedules for single-qutrit gates."""
+    """Define parameters and schedules for single-qutrit gates.
+
+    Args:
+        backend: Backend to use.
+        calibrations: Calibrations object. If not given, a new instance is created from the backend.
+        set_defaults: If True (default), sets the default values of the parameters.
+        qubits: Qubits to set the default parameter values on. If not given, all qubits in the
+            backend will be used.
+
+    Returns:
+        The passed or newly created Calibrations instance.
+    """
     if calibrations is None:
         calibrations = Calibrations.from_backend(backend)
     if type(calibrations.add_schedule).__name__ == 'method':
@@ -46,7 +56,13 @@ def set_f12_default(
     calibrations: Calibrations,
     qubits: Optional[Sequence[int]] = None
 ) -> None:
-    """Give default values to f12."""
+    """Give default values to f12.
+
+    Args:
+        backend: Backend from which to retrieve the reference parameter values.
+        calibrations: Calibrations object to define the schedules in.
+        qubits: Qubits to set the parameters for. If not given, all qubits in the backend are used.
+    """
     operational_qubits = get_operational_qubits(backend, qubits=qubits)
     for qubit in operational_qubits:
         qubit_props = backend.qubit_properties(qubit)
@@ -79,11 +95,12 @@ def add_x12_sx12(
 
     .. math::
 
-        U_{\xi}(\theta; \delta) = \begin{pmatrix}
-                                  e^{-i\delta/2} & 0                        & 0 \\
-                                  0              & \cos \frac{\theta}{2}    & -i \sin \frac{\theta} \\
-                                  0              & -i \sin \frac{\theta}{2} & \cos \frac{\theta}{2}
-                                  \end{pmatrix},
+        U_{\xi}(\theta; \delta) =
+        \begin{pmatrix}
+        e^{-i\delta/2} & 0                        & 0 \\
+        0              & \cos \frac{\theta}{2}    & -i \sin \frac{\theta} \\
+        0              & -i \sin \frac{\theta}{2} & \cos \frac{\theta}{2}
+        \end{pmatrix},
 
     with $\theta=\pi$ or $\pi/2$. The Stark shift-induced phase $\delta$ as well as the geometric
     phases can be corrected with P_0 and P_2 gates. The final
@@ -95,6 +112,9 @@ def add_x12_sx12(
         SX = P2(\delta_{SX}/2 - \pi/4) U_{x}(\pi/2; \delta_{SX}) \\
         \Xi = P0(\delta_{\Xi}/2 - \pi/2) U_{\xi}(\pi; \delta_{\Xi}) \\
         S\Xi = P0(\delta_{S\Xi}/2 - \pi/4) U_{\xi}(\pi/2; \delta_{S\Xi}).
+
+    Args:
+        calibrations: Calibrations to define the unbound schedule in.
     """
     drive_channel = pulse.DriveChannel(Parameter('ch0'))
 
@@ -118,6 +138,13 @@ def set_x12_sx12_default(
     calibrations: Calibrations,
     qubits: Optional[Sequence[int]] = None
 ) -> None:
+    """Set the default values for x12 and sx12 calibrations.
+
+    Args:
+        backend: Backend from which to retrieve the reference parameter values.
+        calibrations: Calibrations object to define the schedules in.
+        qubits: Qubits to set the parameters for. If not given, all qubits in the backend are used.
+    """
     # Parameter default values and phase corrections
     inst_map = backend.defaults().instruction_schedule_map
     operational_qubits = get_operational_qubits(backend, qubits=qubits)

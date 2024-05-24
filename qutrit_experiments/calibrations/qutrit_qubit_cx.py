@@ -56,7 +56,11 @@ def add_qutrit_qubit_cr(
     calibrations: Calibrations
 ) -> None:
     """Define CR and counter tones with ModulatedGaussianSquare potentiallly with an additional
-    off-resonant component."""
+    off-resonant component.
+
+    Args:
+        calibrations: Calibrations to define the unbound schedule in.
+    """
     rsr = Parameter('rsr')
     sigma = Parameter('sigma')
     width = Parameter('width')
@@ -100,7 +104,13 @@ def set_qutrit_qubit_cr_default(
     calibrations: Calibrations,
     qubits: Optional[Sequence[int]] = None
 ) -> None:
-    """Give default values to CR parameters."""
+    """Give default values to CR parameters.
+
+    Args:
+        backend: Backend from which to retrieve the reference parameter values.
+        calibrations: Calibrations object to define the schedules in.
+        qubits: Qubits to set the parameters for. If not given, all qubits in the backend are used.
+    """
     operational_qubits = get_operational_qubits(backend, qubits=qubits)
     try:
         twoq_target = backend.target['cx']
@@ -122,7 +132,7 @@ def set_qutrit_qubit_cr_default(
         try:
             default_cr = next(inst.pulse for inst in control_instructions
                               if inst.name.startswith('CR90p'))
-        except StopIteration: # Direct CX
+        except StopIteration:  # Direct CX
             try:
                 default_cr = next(inst.pulse for inst in control_instructions
                                   if inst.name.startswith('CX'))
@@ -161,7 +171,11 @@ def set_qutrit_qubit_cr_default(
 def add_qutrit_qubit_rcr(
     calibrations: Calibrations
 ) -> None:
-    """Add the RCR and CX schedules."""
+    """Add the RCR and CX schedules.
+
+    Args:
+        calibrations: Calibrations to define the unbound schedule in.
+    """
     control_channel = pulse.ControlChannel(Parameter('ch0.1'))
     target_drive_channel = pulse.DriveChannel(Parameter('ch1'))
 
@@ -236,6 +250,11 @@ def add_qutrit_qubit_rcr(
 def add_qutrit_qubit_cx(
     calibrations: Calibrations
 ) -> None:
+    """Add unbound schedule for qutrit-qubit CX.
+
+    Args:
+        calibrations: Calibrations to define the unbound schedule in.
+    """
     # Offset Rx for CX (template)
     duration = Parameter('duration')
     amp = Parameter('amp')
@@ -266,12 +285,12 @@ def add_qutrit_qubit_cx(
     # Geometric phase correction (template)
     cx_sign = Parameter('cx_sign')
     with pulse.build(name='cx_geometric_phase') as geom_sched:
-        #pulse.shift_phase(LO_SIGN * cx_sign * np.pi / 3., drive_channel, name='rz') # Rz(pi/3)
-        #pulse.shift_phase(LO_SIGN * cx_sign * np.pi / 6., drive_channel, name='rz12') # Rz12(-pi/3)
-        # The transpiler creates -LO_SIGN * cx_sign * pi/2 EF phase from above two lines. This
-        # implementation, although with a clearer physics picture, is kind of stupid, so we instead
-        # consolidate the lines to a single pi/2 GE phase shift + -pi/2 EF phase shift, where the
-        # second line below will be removed from the schedule by the transpiler.
+        # pulse.shift_phase(LO_SIGN * cx_sign * np.pi / 3., drive_channel, name='rz')
+        # pulse.shift_phase(LO_SIGN * cx_sign * np.pi / 6., drive_channel, name='rz12')
+        #  The transpiler creates -LO_SIGN * cx_sign * pi/2 EF phase from above two lines. This
+        #  implementation, although with a clearer physics picture, is kind of stupid, so we instead
+        #  consolidate the lines to a single pi/2 GE phase shift + -pi/2 EF phase shift, where the
+        #  second line below will be removed from the schedule by the transpiler.
         pulse.shift_phase(LO_SIGN * cx_sign * np.pi / 2., drive_channel)
         pulse.shift_phase(-LO_SIGN * cx_sign * np.pi / 2., drive_channel, name='ef_phase')
     calibrations.add_schedule(geom_sched, num_qubits=1)
@@ -346,6 +365,11 @@ def instantiate_qutrit_qubit_cx(
 
     Since the last shift_phases are parts of Rz, which must be applied to variable number of
     channels, we instantiate a full schedule for each qubit.
+
+    Args:
+        backend: Backend from which to retrieve the reference parameter values.
+        calibrations: Calibrations object to define the schedules in.
+        qubits: Qubits to set the parameters for. If not given, all qubits in the backend are used.
     """
     operational_qubits = get_operational_qubits(backend, qubits=qubits)
 
@@ -364,7 +388,7 @@ def instantiate_qutrit_qubit_cx(
         drive_channel = sx_inst.channel
         rz_sched = backend.target['rz'][gate_qubits[1:]].calibration
         rz_channels = [inst.channel for _, inst in rz_sched.instructions]
-        rz_channels.remove(drive_channel) # The template already has drive_channel
+        rz_channels.remove(drive_channel)  # The template already has drive_channel
 
         rx_sched = calibrations.get_template('cx_offset_rx')
         angle = rx_sched.get_parameters('angle')[0]
@@ -395,7 +419,7 @@ def instantiate_qutrit_qubit_cx(
         drive_channel = backend.target['x'][gate_qubits[:1]].calibration.instructions[0][1].channel
         rz_sched = backend.target['rz'][gate_qubits[:1]].calibration
         rz_channels = [inst.channel for _, inst in rz_sched.instructions]
-        rz_channels.remove(drive_channel) # Already in the template
+        rz_channels.remove(drive_channel)  # Already in the template
 
         geom_sched = calibrations.get_template('cx_geometric_phase')
         cx_sign = geom_sched.get_parameters('cx_sign')[0]
@@ -420,6 +444,17 @@ def get_rcr_gate(
     assign_params: Optional[dict[str, ParameterValueType]] = None,
     group: str = 'default'
 ) -> ScheduleBlock:
+    """Return the RCR gate according to the rcr_type of the qutrit-qubit system.
+
+    Args:
+        physical_qubits: (qutrit, qubit)
+        calibrations: Calibrations object.
+        freq_shift: Frequency difference between EF and GE transitions, in 1/dt as returned by
+            ``.util.get_qutrit_freq_shift()``.
+        target: Backend transpiler target.
+        assign_params: Optional parameter values to assign.
+        group: Calibration group name.
+    """
     rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
     return get_qutrit_qubit_composite_gate(f'rcr{rcr_type}', physical_qubits, calibrations,
                                            freq_shift=freq_shift, target=target,
@@ -434,6 +469,17 @@ def get_crcr_gate(
     assign_params: Optional[dict[str, ParameterValueType]] = None,
     group: str = 'default'
 ) -> ScheduleBlock:
+    """Return the CRCR gate according to the rcr_type of the qutrit-qubit system.
+
+    Args:
+        physical_qubits: (qutrit, qubit)
+        calibrations: Calibrations object.
+        freq_shift: Frequency difference between EF and GE transitions, in 1/dt as returned by
+            ``.util.get_qutrit_freq_shift()``.
+        target: Backend transpiler target.
+        assign_params: Optional parameter values to assign.
+        group: Calibration group name.
+    """
     rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
     return get_qutrit_qubit_composite_gate(f'crcr{rcr_type}', physical_qubits, calibrations,
                                            freq_shift=freq_shift, target=target,
@@ -448,6 +494,17 @@ def get_qutrit_qubit_cx_gate(
     assign_params: Optional[dict[str, ParameterValueType]] = None,
     group: str = 'default'
 ) -> ScheduleBlock:
+    """Return the Qutrit-qubit generalized CX gate according to the rcr_type.
+
+    Args:
+        physical_qubits: (qutrit, qubit)
+        calibrations: Calibrations object.
+        freq_shift: Frequency difference between EF and GE transitions, in 1/dt as returned by
+            ``.util.get_qutrit_freq_shift()``.
+        target: Backend transpiler target.
+        assign_params: Optional parameter values to assign.
+        group: Calibration group name.
+    """
     rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits)
     return get_qutrit_qubit_composite_gate(f'qutrit_qubit_cx_rcr{rcr_type}', physical_qubits,
                                            calibrations, freq_shift=freq_shift, target=target,
