@@ -41,7 +41,8 @@ def qutrit_toffoli_translator(
     do_phase_corr: bool = True,
     do_dd: bool = True
 ) -> StagedPassManager:
-    """Return a pass manager to translate a qubit-qutrit-qubit circuit containing QutritCCXGate or something similar."""
+    """Return a pass manager to translate a qubit-qutrit-qubit circuit containing QutritCCXGate or
+    something similar."""
     physical_qubits = tuple(physical_qubits)
 
     rcr_type = calibrations.get_parameter_value('rcr_type', physical_qubits[-2:])
@@ -60,7 +61,7 @@ def qutrit_toffoli_translator(
         instruction_durations.update([('cr', physical_qubits[-2:], cr_duration)])
     if not ecr_based:
         ecrs = []
-        for name, qubits in instruction_durations.duration_by_name_qubits.keys():
+        for name, qubits in instruction_durations.duration_by_name_qubits:
             if name == 'cx' and set(qubits) <= set(physical_qubits):
                 ecr_duration = calibrations.get_schedule('ecr', qubits).duration
                 ecrs.append(('ecr', qubits, ecr_duration))

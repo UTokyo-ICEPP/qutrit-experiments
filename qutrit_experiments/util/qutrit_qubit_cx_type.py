@@ -33,5 +33,5 @@ def qutrit_qubit_cx_type(
     cr_inst = next(inst for _, inst in ecr_sched.instructions
                    if isinstance(inst.channel, ControlChannel))
     if cr_inst.channel == control_channel:
-        return QutritQubitCXType.UNKNOWN
+        return QutritQubitCXType.CRCR
     return QutritQubitCXType.REVERSE

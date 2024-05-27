@@ -1,5 +1,4 @@
 """Driver for parallel single-qubit experiments."""
-
 import copy
 import logging
 import math
@@ -60,6 +59,7 @@ class ParallelRunner(ExperimentsRunner):
 
         # Determine the grouping based on the topology + mask
         coupling_map = BackendData(self.backend).coupling_map
+
         # substitute for BackendV2 backend.coupling_map.neighbors
         def neighbors(qubit):
             return (set(cpl[1] for cpl in coupling_map if cpl[0] == qubit)
@@ -71,7 +71,7 @@ class ParallelRunner(ExperimentsRunner):
             group_candidates = []
             for group in qubit_grouping:
                 if (not any((neighbor in group) for neighbor in neighbors(qubit))
-                    and (max_group_size <= 0 or len(group) < max_group_size)):
+                        and (max_group_size <= 0 or len(group) < max_group_size)):
                     group_candidates.append(group)
 
             if len(group_candidates) == 0:
@@ -122,7 +122,8 @@ class ParallelRunner(ExperimentsRunner):
                     composite_config['run_options'].update(qubit_config.run_options)
                     if qubit_config.restless:
                         composite_config['run_options'].update(RESTLESS_RUN_OPTIONS)
-                    composite_config['max_circuits'] = qubit_config.experiment_options.get('max_circuits')
+                    composite_config['max_circuits'] = \
+                        qubit_config.experiment_options.get('max_circuits')
                     composite_config['calibration_criterion'] = qubit_config.calibration_criterion
 
                 parallel_conf.subexperiments.append(qubit_config)
@@ -181,14 +182,14 @@ class ParallelRunner(ExperimentsRunner):
 
         if isinstance(config, ExperimentConfig):
             qubit_grouping = None
-            # If we are unpickling saved experiment data, initialize the batch configuration following
-            # the qubit grouping used to create the data.
+            # If we are unpickling saved experiment data, initialize the batch configuration
+            # following the qubit grouping used to create the data.
             if not force_resubmit and self.saved_data_exists(config.exp_type):
                 exp_data = self.load_data(config.exp_type)
                 qubit_grouping = [sorted(par_data.metadata['physical_qubits'])
                                   for par_data in exp_data.child_data()]
-                logger.debug('Loaded experiment data for %s with qubit grouping %s', config.exp_type,
-                             qubit_grouping)
+                logger.debug('Loaded experiment data for %s with qubit grouping %s',
+                             config.exp_type, qubit_grouping)
             batch_config = self.make_batch_config(config, qubit_grouping=qubit_grouping)
         else:
             batch_config = config

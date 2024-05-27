@@ -1,7 +1,9 @@
 """Theoretical predictions for siZZle."""
 from collections.abc import Sequence
-from typing import Optional
+from numbers import Number
+from typing import Optional, Union
 import numpy as np
+array_like = Union[Number, np.ndarray, Sequence[Number]]  # pylint: disable=invalid-name
 
 twopi = 2. * np.pi
 
@@ -112,7 +114,8 @@ def free_hamiltonian(
     qudit_energies = []
     for qubit in qubits:
         energies = np.arange(nlevels) * hvars[f'wq{qubit}']
-        energies += np.concatenate([[0.], np.cumsum(np.arange(nlevels - 1))]) * hvars[f'delta{qubit}']
+        energies += (np.concatenate([[0.], np.cumsum(np.arange(nlevels - 1))])
+                     * hvars[f'delta{qubit}'])
         qudit_energies.append(energies)
 
     # Free Hamiltonian eigenvalues

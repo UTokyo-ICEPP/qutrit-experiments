@@ -34,13 +34,17 @@ from ..framework_overrides.batch_experiment import BatchExperiment
 from ..framework_overrides.composite_analysis import CompositeAnalysis
 from ..framework_overrides.parallel_experiment import ParallelExperiment
 from ..transpilation.qutrit_transpiler import (BASIS_GATES, QutritTranspileOptions,
-                                               make_instruction_durations, transpile_qutrit_circuits)
+                                               make_instruction_durations,
+                                               transpile_qutrit_circuits)
 
-def display(_): # pylint: disable=missing-function-docstring
+
+def display(_):  # pylint: disable=missing-function-docstring
     pass
+
+
 if 'backend_inline' in matplotlib.rcParams['backend']:
     try:
-        from IPython.display import display
+        from IPython.display import display  # noqa: F811
     except ImportError:
         pass
 
@@ -173,7 +177,8 @@ class ExperimentsRunner:
         if isinstance(config, CompositeExperimentConfig):
             # CompositeExperiment creates a CompositeAnalysisOrig by default; overwrite to the
             # serial version
-            if type(experiment.analysis) is CompositeAnalysisOrig: # pylint: disable=unidiomatic-typecheck
+            # pylint: disable-next=unidiomatic-typecheck
+            if type(experiment.analysis) is CompositeAnalysisOrig:
                 analyses = experiment.analysis.component_analysis()
                 flatten_results = experiment.analysis._flatten_results
                 experiment.analysis = CompositeAnalysis(analyses, flatten_results=flatten_results)
@@ -213,7 +218,7 @@ class ExperimentsRunner:
             self.delete_data(exp_type)
 
         if exp_data is None:
-            ## Try retrieving exp_data from the pickle
+            # Try retrieving exp_data from the pickle
             if self.saved_data_exists(exp_type):
                 exp_data = self.load_data(exp_type)
             else:
@@ -221,9 +226,9 @@ class ExperimentsRunner:
                 # Finalize the experiment before executions
                 experiment._finalize()
                 # Initialize the result container
-                # This line comes after _transpiled_circuits in the original BaseExperiment.run() (see
-                # below) but in terms of good object design there shouldn't be any dependencies between the
-                # two methods
+                # This line comes after _transpiled_circuits in the original BaseExperiment.run()
+                # (see below) but in terms of good object design there shouldn't be any dependencies
+                # between the two methods
                 exp_data = experiment._initialize_experiment_data()
 
                 if self.code_test:
@@ -286,8 +291,10 @@ class ExperimentsRunner:
                 logger.info('Performing the postexperiment for %s.', exp_type)
             else:
                 logger.info('Reserving the postexperiment for %s.', exp_type)
+
             def postexperiment(exp_data):
                 postexp(self, exp_data)
+
             with exp_data._analysis_callbacks.lock:
                 exp_data.add_analysis_callback(postexperiment)
 
@@ -326,13 +333,14 @@ class ExperimentsRunner:
                 experiment.set_transpile_options(
                     # By setting the basis_gates, PassManagerConfig.from_backend() will not take the
                     # target from the backend, making target absent everywhere in the preset pass
-                    # manager. When the target is None, HighLevelSynthesis (responsible for translating
-                    # all gates to basis gates) will reference the passed basis_gates list and leaves
-                    # all gates appearing in the list untouched.
+                    # manager. When the target is None, HighLevelSynthesis (responsible for
+                    # translating all gates to basis gates) will reference the passed basis_gates
+                    # list and leaves all gates appearing in the list untouched.
                     basis_gates=self._backend.basis_gates + [g.gate_name for g in BASIS_GATES],
-                    # Scheduling method has to be specified in case there are delay instructions that
-                    # violate the alignment constraints, in which case a ConstrainedRescheduling is
-                    # triggered, which fails without precalculated node_start_times.
+                    # Scheduling method has to be specified in case there are delay instructions
+                    # that violate the alignment constraints, in which case a
+                    # ConstrainedRescheduling is triggered, which fails without precalculated
+                    # node_start_times.
                     scheduling_method='alap',
                     # And to run the scheduler, durations of all gates must be known.
                     instruction_durations=instruction_durations
@@ -537,7 +545,7 @@ class ExperimentsRunner:
         allow_missing: bool = False
     ):
         if (not self._data_dir
-            or not os.path.isdir(pdata_path := os.path.join(self._data_dir, 'program_data'))):
+                or not os.path.isdir(pdata_path := os.path.join(self._data_dir, 'program_data'))):
             raise RuntimeError('Program data directory does not exist')
         if not keys:
             keys = map(lambda s: s.replace('.pkl', ''), os.listdir(pdata_path))
@@ -598,8 +606,7 @@ class ExperimentsRunner:
                         except (IBMRuntimeError, IBMNotAuthorizedError) as ex:
                             if self.job_retry_interval < 0.:
                                 raise
-                            else:
-                                logger.error('IBMRuntimeError during job submission: %s', ex.message)
+                            logger.error('IBMRuntimeError during job submission: %s',  ex.message)
 
                         time.sleep(self.job_retry_interval)
 
@@ -627,7 +634,7 @@ class ExperimentsRunner:
     def _check_job_status(self, experiment_data: ExperimentData):
         logger.info('Checking the job status of %s', experiment_data.experiment_type)
 
-        ## Check the job status
+        # Check the job status
         if (job_status := experiment_data.job_status()) != JobStatus.DONE:
             if self._data_dir:
                 job_ids_path = os.path.join(self._data_dir,
@@ -642,7 +649,7 @@ class ExperimentsRunner:
 
             raise RuntimeError(f'Job status = {job_status.value}')
 
-        ## Fix a bug in ExperimentData (https://github.com/Qiskit/qiskit-experiments/issues/963)
+        # Fix a bug in ExperimentData (https://github.com/Qiskit/qiskit-experiments/issues/963)
         now = datetime.now(timezone.utc).astimezone()
         for job in experiment_data._jobs.values():
             # job can be None if the added job data has an unknown job id for some reason
@@ -749,7 +756,7 @@ class ExperimentsRunner:
             group=to_group
         )
         self.calibrations.add_parameter_value(to_value, to_param, qubits=to_qubits,
-                                               schedule=to_schedule)
+                                              schedule=to_schedule)
 
     @staticmethod
     def _split_circuits(experiment, circuits):
@@ -766,7 +773,7 @@ class ExperimentsRunner:
         if max_circuits and len(circuits) > max_circuits:
             # Split jobs for backends that have a maximum job size
             job_circuits = [
-                circuits[i : i + max_circuits] for i in range(0, len(circuits), max_circuits)
+                circuits[i:i + max_circuits] for i in range(0, len(circuits), max_circuits)
             ]
         else:
             # Run as single job

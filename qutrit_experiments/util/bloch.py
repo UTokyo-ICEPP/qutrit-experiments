@@ -5,7 +5,7 @@ from typing import Union
 import numpy as np
 from uncertainties import unumpy as unp
 
-array_like = Union[Number, np.ndarray, Sequence[Number]]
+array_like = Union[Number, np.ndarray, Sequence[Number]]  # pylint: disable=invalid-name
 twopi = 2. * np.pi
 # Define math functions not in unp
 for fname in ['array', 'square', 'sum', 'tensordot', 'matmul', 'eye', 'diagflat', 'roll',
@@ -27,8 +27,9 @@ def so3_polar(theta: array_like, psi: array_like, phi: array_like, npmod=np) -> 
     cphi = npmod.cos(phi)
     sphi = npmod.sin(phi)
 
-    A = spsi * npmod.sqrt(((cpsi * cphi) ** 2) + (sphi ** 2))
-    B = spsi * npmod.sqrt(((cpsi * sphi) ** 2) + (cphi ** 2))
+    A = spsi * npmod.sqrt(((cpsi * cphi) ** 2) + (sphi ** 2))  # pylint: disable=invalid-name
+    B = spsi * npmod.sqrt(((cpsi * sphi) ** 2) + (cphi ** 2))  # pylint: disable=invalid-name
+    # pylint: disable=invalid-name
     C = npmod.sqrt((spsi ** 4) * (sphi ** 2) * (cphi ** 2) + (cpsi ** 2))
     alpha = npmod.arctan2(-sphi, -cpsi * cphi)
     beta = npmod.arctan2(cphi, -cpsi * sphi)
@@ -149,8 +150,8 @@ def normalized_rotation_axis(xyz: array_like, npmod=np):
         rot_axis = xyz / np.where(unp.nominal_values(norm) == 0., 1., norm)[..., None]
     else:
         # This procedure and another "where" below cures the gradient becoming nan at the origin but
-        # at the cost of it becoming zero (where the true limit is nonzero but depends on the direction
-        # of approach)
+        # at the cost of it becoming zero (where the true limit is nonzero but depends on the
+        # direction of approach)
         norm = npmod.where(npmod.isclose(norm, 0.), 0., norm)
         rot_axis = xyz / npmod.where(norm == 0., 1., norm)[..., None]
     return rot_axis, norm

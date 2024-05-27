@@ -10,7 +10,6 @@ from qiskit_experiments.framework import BaseAnalysis, BaseExperiment, Experimen
 
 from ..constants import DEFAULT_SHOTS
 from ..transpilation import map_and_translate
-from ..util.get_metadata import get_metadata
 
 
 class CircuitRunner(BaseExperiment):
@@ -110,17 +109,22 @@ class DataExtraction(curve.CurveAnalysis):
     ):
         super()._initialize(experiment_data)
 
-        if self.options.composite_index is None:
+        if (compidx := self.options.composite_index) is None:
             return
+
+        if isinstance(compidx, int):
+            compidx = [compidx]
 
         # "Flatten" the metadata if the experiment is composite
         # (CurveAnalysis assumes x values and data filter keys to be in the top-level metadata)
         for datum in experiment_data.data():
-            metadata = datum['metadata']
-            child_metadata = get_metadata(metadata, self.options.composite_index)
+            child_metadata = datum['metadata']
+            for idx in compidx:
+                child_metadata = child_metadata['composite_metadata'][idx]
+
             for key, value in child_metadata.items():
-                if key not in metadata:
-                    metadata[key] = value
+                if key not in datum['metadata']:
+                    datum['metadata'][key] = value
 
     def _run_curve_fit(
         self,

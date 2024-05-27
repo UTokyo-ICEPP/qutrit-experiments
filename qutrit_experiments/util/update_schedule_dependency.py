@@ -1,7 +1,6 @@
+"""A fix for qiskit-experiments bug."""
 from typing import Tuple, Union, Optional
-
 from qiskit.pulse import ScheduleBlock
-
 from qiskit_experiments.exceptions import CalibrationError
 from qiskit_experiments.calibration_management.calibration_utils import (
     validate_channels,
@@ -9,9 +8,10 @@ from qiskit_experiments.calibration_management.calibration_utils import (
     _get_node_index
 )
 from qiskit_experiments.calibration_management.calibration_key_types import ScheduleKey
+from rustworkx import PyDiGraph  # pylint: disable=no-name-in-module
 
 
-def update_schedule_dependency(schedule: ScheduleBlock, dag: 'PyDiGraph', key: ScheduleKey):
+def update_schedule_dependency(schedule: ScheduleBlock, dag: PyDiGraph, key: ScheduleKey):
     """Update a DAG of schedule dependencies.
 
     Args:
@@ -32,11 +32,11 @@ def update_schedule_dependency(schedule: ScheduleBlock, dag: 'PyDiGraph', key: S
         parent_idx = dag.add_node(key)
 
     for reference in schedule.references:
-        # BEGIN EDIT yiiyama
-        #ref_key = ScheduleKey(reference[0], key.qubits)
+        #  BEGIN EDIT yiiyama
+        # ref_key = ScheduleKey(reference[0], key.qubits)
         ref_schedule_name, ref_qubits = reference_info(reference, key.qubits)
         ref_key = ScheduleKey(ref_schedule_name, ref_qubits)
-        # END EDIT yiiyama
+        #  END EDIT yiiyama
         dag.add_edge(parent_idx, _get_node_index(ref_key, dag), None)
 
 
@@ -110,8 +110,8 @@ def update_add_schedule(self):
 
         # Check that subroutines are present.
         for reference in schedule.references:
-            # BEGIN EDIT yiiyama
-            #self.get_template(*reference_info(reference, qubits))
+            #  BEGIN EDIT yiiyama
+            # self.get_template(*reference_info(reference, qubits))
             ref_name, ref_qubits = reference_info(reference, qubits)
             if len(qubits) == 0:
                 # ref_qubits is a tuple of "logical" qubits
@@ -135,7 +135,7 @@ def update_add_schedule(self):
                         raise CalibrationError(msg)
             else:
                 self.get_template(ref_name, ref_qubits)
-            # END EDIT yiiyama
+            #  END EDIT yiiyama
 
         # Clean the parameter to schedule mapping. This is needed if we overwrite a schedule.
         self._clean_parameter_map(schedule.name, qubits)

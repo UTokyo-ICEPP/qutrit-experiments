@@ -21,11 +21,11 @@ logger = logging.getLogger(__name__)
 twopi = 2. * np.pi
 
 
-def schedule_to_block(schedule: Schedule, name: Optional[str] = None) -> ScheduleBlock:
+def schedule_to_block(sched: Schedule, name: Optional[str] = None) -> ScheduleBlock:
     """Convert a Schedule to ScheduleBlock. Am I sure this doesn't exist in Qiskit proper?"""
     # Convert to ScheduleBlock
-    with pulse.build(name=(name or schedule.name)) as schedule_block:
-        pulse.call(schedule)
+    with pulse.build(name=(name or sched.name)) as schedule_block:
+        pulse.call(sched)
     return schedule_block
 
 
@@ -137,7 +137,7 @@ def circuit_to_matrix(
 
 
 def schedule_to_matrix(
-    schedule: Union[Schedule, ScheduleBlock],
+    sched: Union[Schedule, ScheduleBlock],
     backend: Backend,
     calibrations: Calibrations,
     physical_qubits: Sequence[int],
@@ -296,7 +296,7 @@ def schedule_to_matrix(
             zrot = phase_shift_op(phase, 2)
 
         return _embed_1q(iq, bare_op, zrot)
-    
+
     def embed_rotary(gate_name, channel, control, angle):
         iq = drive_channels[channel]
         phase = angle - reference_angles[gate_name][iq] + channel_phases[channel]
@@ -336,7 +336,7 @@ def schedule_to_matrix(
 
     sched_unitary = np.eye(np.prod(dims), dtype=complex)
 
-    for time, inst in schedule.instructions:
+    for time, inst in sched.instructions:
         tmax = max(time + inst.duration, tmax)
 
         if isinstance(inst, (pulse.Delay, pulse.instructions.RelativeBarrier)):
@@ -344,7 +344,8 @@ def schedule_to_matrix(
         if isinstance(inst, pulse.ShiftPhase):
             try:
                 logger.debug('Updating phase of %s %f -> %f', inst.channel,
-                             channel_phases[inst.channel], channel_phases[inst.channel] + inst.phase)
+                             channel_phases[inst.channel],
+                             channel_phases[inst.channel] + inst.phase)
                 channel_phases[inst.channel] += inst.phase
             except KeyError:
                 pass
@@ -370,9 +371,11 @@ def schedule_to_matrix(
                 logger.debug('Rotary drive for CR%d->%d on %s', control,
                              drive_channels[inst.channel], control_channel_name)
                 if inst.name.startswith('CR90p_d'):
-                    op_unitary = embed_rotary('rzx45p_rotary', inst.channel, control, inst.pulse.angle)
+                    op_unitary = embed_rotary('rzx45p_rotary', inst.channel, control,
+                                              inst.pulse.angle)
                 else:
-                    op_unitary = embed_rotary('rzx45m_rotary', inst.channel, control, inst.pulse.angle)
+                    op_unitary = embed_rotary('rzx45m_rotary', inst.channel, control,
+                                              inst.pulse.angle)
             else:
                 raise RuntimeError(f'Unhandled 1q drive {inst} at time {time}')
         elif isinstance(inst.channel, pulse.ControlChannel):
@@ -414,6 +417,7 @@ def circuit_to_pulse_circuit(
     physical_qubits: Sequence[int],
     qutrit_transpile_options: Optional[dict] = None
 ) -> Union[QuantumCircuit, list[QuantumCircuit]]:
+    # pylint: disable=import-outside-toplevel
     from ..transpilation.qutrit_transpiler import transpile_qutrit_circuits
 
     list_input = isinstance(circuits, list)
@@ -435,5 +439,5 @@ def circuit_to_pulse_circuit(
                                 schedule_to_block(sched, name='full_schedule'))
 
         pulse_circuits.append(circuit)
-    
+
     return pulse_circuits if list_input else pulse_circuits[0]

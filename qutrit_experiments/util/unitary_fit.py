@@ -19,16 +19,17 @@ logger = logging.getLogger(__name__)
 axes = ['x', 'y', 'z']
 twopi = 2. * np.pi
 data_processor_lock = Lock()
-default_maxiter = 10000
-default_tol = 1.e-4
+DEFAULT_MAXITER = 10000
+DEFAULT_TOL = 1.e-4
 
 
 def fit_unitary(
     data: list[dict[str, Any]],
     data_processor: Optional[DataProcessor] = None,
-    maxiter: int = default_maxiter,
-    tol: float = default_tol
+    maxiter: int = DEFAULT_MAXITER,
+    tol: float = DEFAULT_TOL
 ) -> tuple[np.ndarray, NamedTuple, np.ndarray, np.ndarray, tuple]:
+    """Fit a unitary to observed data."""
     expvals, initial_states, meas_bases, signs = extract_input_values(data, data_processor)
     popt_ufloats, state = fit_unitary_to_expval(expvals, initial_states, meas_bases, signs=signs,
                                                 maxiter=maxiter, tol=tol)
@@ -41,6 +42,7 @@ def extract_input_values(
     data: list[dict[str, Any]],
     data_processor: Optional[DataProcessor] = None
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Extract the input values to the fit."""
     if data_processor is None:
         data_processor = DataProcessor('counts', [Probability('1'), BasisExpectationValue()])
         data_processor.train(data=data)
@@ -70,9 +72,10 @@ def fit_unitary_to_expval(
     initial_states: np.ndarray,
     meas_bases: np.ndarray,
     signs: Optional[np.ndarray] = None,
-    maxiter: int = default_maxiter,
-    tol: float = default_tol
+    maxiter: int = DEFAULT_MAXITER,
+    tol: float = DEFAULT_TOL
 ) -> tuple[np.ndarray, NamedTuple]:
+    """Do the fit."""
     logger.debug('Fit unitary to expval %d datapoints maxiter %s tol %s', len(expvals), maxiter,
                  tol)
     if signs is None:
@@ -140,6 +143,7 @@ def plot_unitary_fit(
     meas_bases: np.ndarray,
     signs: Optional[np.ndarray] = None
 ) -> Figure:
+    """Make a plot from the fit result."""
     expvals_pred = so3_cartesian(unp.nominal_values(popt_ufloats))[..., meas_bases, initial_states]
     if signs is not None:
         expvals_pred *= signs
@@ -150,11 +154,11 @@ def plot_unitary_fit(
     ax.set_ylabel('Pauli expectation')
     ax.axhline(0., color='black', linestyle='--')
     ec = ax.errorbar(xvalues, unp.nominal_values(expvals), unp.std_devs(expvals), fmt='o',
-                        label='observed')
+                     label='observed')
     ax.bar(xvalues, np.zeros_like(xvalues), 1., bottom=expvals_pred, fill=False,
            edgecolor=ec.lines[0].get_markerfacecolor(), label='fit result')
     xticks = [f'{axes[basis]}|{axes[init]}{"+" if sign > 0 else "-"}'
-                for init, sign, basis in zip(initial_states, signs, meas_bases)]
+              for init, sign, basis in zip(initial_states, signs, meas_bases)]
     ax.set_xticks(xvalues, labels=xticks)
     ax.legend()
     return ax.get_figure()
@@ -177,8 +181,8 @@ class UnitaryFitObjective:
         cls,
         num_args: int = 9,
         num_guesses: int = 6,
-        maxiter: int = default_maxiter,
-        tol: float = default_tol
+        maxiter: int = DEFAULT_MAXITER,
+        tol: float = DEFAULT_TOL
     ):
         key = (num_args, num_guesses, maxiter, tol)
         with cls._lock:
@@ -193,8 +197,8 @@ class UnitaryFitObjective:
         self,
         num_args: int = 9,
         num_guesses: int = 6,
-        maxiter: int = default_maxiter,
-        tol: float = default_tol
+        maxiter: int = DEFAULT_MAXITER,
+        tol: float = DEFAULT_TOL
     ):
         pass
 

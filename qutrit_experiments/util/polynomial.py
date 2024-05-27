@@ -1,7 +1,9 @@
+"""Polynomial definitions."""
 from collections.abc import Callable, Sequence
 from typing import Optional, Union
 import numpy as np
 import numpy.polynomial as poly
+
 
 def sparse_poly_fitfunc(powers: Sequence[int]) -> Callable:
     """Return a sparse polynomial function to be used with scipy.optimize.curve_fit."""
@@ -16,6 +18,7 @@ def sparse_poly_fitfunc(powers: Sequence[int]) -> Callable:
 
 
 class PolynomialOrder:
+    """Representation of polynomial order."""
     def __init__(
         self,
         order: Union[int, Sequence[int], 'PolynomialOrder'],

@@ -1,3 +1,4 @@
+"""Subroutines to compute the pulse areas."""
 from typing import Optional
 import numpy as np
 import scipy.special as scispc
@@ -8,6 +9,7 @@ from qiskit_experiments.calibration_management import Calibrations
 
 def grounded_gauss_area(sigma: float, rsr: float, gs_factor: bool = False) -> float:
     """Area of a truncated Gaussian with ends grounded to zero and peak normalized to unity."""
+    # pylint: disable=no-member
     gauss_area = np.sqrt(2. * np.pi) * sigma * scispc.erf(rsr / np.sqrt(2.))
     # +1/sigma follows the Qiskit definition
     pedestal = np.exp(-0.5 * ((rsr + 1. / sigma) ** 2))
@@ -20,7 +22,7 @@ def grounded_gauss_area(sigma: float, rsr: float, gs_factor: bool = False) -> fl
         return area / 1.16
     else:
         return area
-    
+
 
 def gs_effective_duration(
     calibrations: Calibrations,
@@ -33,7 +35,7 @@ def gs_effective_duration(
     rsr = calibrations.get_parameter_value('rsr', qubits, schedule)
     if width is None:
         width = calibrations.get_parameter_value('width', qubits, schedule)
-        
+
     return grounded_gauss_area(sigma, rsr, gs_factor=True) + width
 
 
