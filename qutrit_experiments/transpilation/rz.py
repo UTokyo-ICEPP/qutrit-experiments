@@ -75,7 +75,7 @@ class ConsolidateRZAngle(TransformationPass):
                 and not node.op.is_parameterized()
             )
 
-        for run in rx.collect_runs(dag._multi_graph, filter_fn):
+        for run in rx.collect_runs(dag._multi_graph, filter_fn):  # pylint: disable=no-member
             angle = (sum(node.op.params[0] for node in run) + np.pi) % twopi - np.pi
             subdag = DAGCircuit()
             subdag.add_qreg((qreg := QuantumRegister(len(run[0].qargs))))
@@ -116,14 +116,14 @@ class CastRZToAngle(TransformationPass):
 
         self._channel_map = channel_map
         self._inst_map = inst_map
-        self._sched_cache = {} # Container for schedules cache
+        self._sched_cache = {}  # Container for schedules cache
 
     def run(self, dag: DAGCircuit) -> DAGCircuit:
         try:
             node_start_time = self.property_set.pop('node_start_time')
         except KeyError:
             node_start_time = None
-        self._sched_cache = {} # Clear the cache
+        self._sched_cache = {}  # Clear the cache
         replaced_calibrations = set()
 
         cumul_phase = defaultdict(float)

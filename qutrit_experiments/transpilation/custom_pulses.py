@@ -42,7 +42,7 @@ class AttachCalibration(TransformationPass):
 
     def run(self, dag: DAGCircuit) -> DAGCircuit:
         for node in dag.topological_op_nodes():
-            if not node.op.name in self.gates:
+            if node.op.name not in self.gates:
                 continue
 
             qubits = tuple(dag.find_bit(q).index for q in node.qargs)

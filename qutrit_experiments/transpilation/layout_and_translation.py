@@ -100,10 +100,10 @@ class UndoLayout(TransformationPass):
         for node in dag.topological_op_nodes():
             try:
                 qargs = [physical_to_virtual[dag.find_bit(q).index] for q in node.qargs]
-            except KeyError:
+            except KeyError as exc:
                 if isinstance(node.op, Delay):
                     continue
-                raise TranspilerError('Op node on unused qubit found')
+                raise TranspilerError('Op node on unused qubit found') from exc
             new_dag.apply_operation_back(node.op, qargs, node.cargs, check=False)
 
         self.property_set.pop('layout')
@@ -152,6 +152,7 @@ def map_and_translate(
 
 
 class TranslateAndClearTiming(BasisTranslator):
+    """BasisTranslator that removes node_start_time from the property set."""
     def run(self, dag: DAGCircuit) -> DAGCircuit:
         dag = super().run(dag)
         try:

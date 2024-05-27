@@ -1,3 +1,4 @@
+"""Transpiler pass for qutrit-qubit backward generalized CX."""
 from typing import Optional
 import numpy as np
 from qiskit import QuantumCircuit
@@ -13,10 +14,10 @@ class ReverseCXDecomposition(TransformationPass):
     """Decompose QutritQubitCXGate to the double reverse ECR sequence with basis cycling.
 
     The circuit for CZ with basis cycling is the following:
-         ┌─────┐┌─=─┐┌───────────┐┌───────────┐┌─=====─┐┌─────┐┌───┐┌───────────────────┐┌─────┐┌───┐
-    q_0: ┤ X12 ├┤ X ├┤1          ├┤1          ├┤ Rx(-π)├┤ X12 ├┤ X ├┤ Delay(delay2[dt]) ├┤ X12 ├┤ X ├
-         └─────┘└─=─┘│  Rzx(π/2) ││  Rzx(π/2) │├─=====┬┘└─────┘└───┘└───────────────────┘└─────┘└───┘
-    q_1: ────────────┤0          ├┤0          ├┤ Rz(π)├──────────────────────────────────────────────
+         ┌─────┐┌─=─┐┌───────────┐┌───────────┐┌─=====─┐┌─────┐┌───┐┌───────────────┐┌─────┐┌───┐
+    q_0: ┤ X12 ├┤ X ├┤1          ├┤1          ├┤ Rx(-π)├┤ X12 ├┤ X ├┤ Delay(d2[dt]) ├┤ X12 ├┤ X ├
+         └─────┘└─=─┘│  Rzx(π/2) ││  Rzx(π/2) │├─=====┬┘└─────┘└───┘└───────────────┘└─────┘└───┘
+    q_1: ────────────┤0          ├┤0          ├┤ Rz(π)├──────────────────────────────────────────
                      └───────────┘└───────────┘└──────┘
     where X and Rx(-π) cancel to P2(-π/2).
     """
@@ -40,7 +41,7 @@ class ReverseCXDecomposition(TransformationPass):
             qids = tuple(dag.find_bit(q).index for q in node.qargs)
             rcr_type = self.calibrations.get_parameter_value('rcr_type', qids)
             if rcr_type != QutritQubitCXType.REVERSE:
-                  continue
+                continue
 
             circuit = reverse2q_decomposition_circuit(node.op.name, qids, self.inst_durations,
                                                       apply_dd=self.apply_dd,

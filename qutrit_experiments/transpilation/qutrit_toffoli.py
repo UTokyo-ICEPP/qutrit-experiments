@@ -83,20 +83,20 @@ class QutritMCGateDecomposition(TransformationPass):
          └─────┘└───┘└───────────────────┘└─────┘└───┘ ░ └───────:::─┘└─~~~~~~~~─┘ ░ ┌──┴─────┴──┐»
     q_2: ──────────────────────────────────────────────░───────────────────────────░─┤ Rx(theta) ├»
                                                        ░                           ░ └───────────┘»
-    «                                                                                               ░ »
-    «q_0: ──────────────────────────────────────────────────────────────────────────────────────────░─»
-    «     ┌──────┐┌───┐┌──────┐┌─────┐┌──────┐┌───┐┌──────┐┌─────┐┌──────┐┌───┐┌──────┐┌──────────┐ ░ »
-    «q_1: ┤0     ├┤ X ├┤0     ├┤ X12 ├┤0     ├┤ X ├┤0     ├┤ X12 ├┤0     ├┤ X ├┤0     ├┤ Rz(±π/2) ├─░─»
-    «     │  CR- │└───┘│  CR- │└─────┘│  CR+ │└───┘│  CR+ │└─────┘│  CR+ │└───┘│  CR+ │└──────────┘ ░ »
-    «q_2: ┤1     ├─────┤1     ├───────┤1     ├─────┤1     ├───────┤1     ├─────┤1     ├─────────────░─»
-    «     └──────┘     └──────┘       └──────┘     └──────┘       └──────┘     └──────┘             ░ »
-    «     ┌─+++++++─┐┌──:::───────┐ ░
-    «q_0: ┤ Rz(π/2) ├┤0           ├─░─────────────
-    «     ├─+++++++─┤│  Rzx(-π/2) │ ░ ┌─────┐┌───┐
-    «q_1: ┤ Rx(π/2) ├┤1           ├─░─┤ X12 ├┤ X ├
-    «     └─────────┘└──:::───────┘ ░ └─────┘└───┘
-    «q_2: ──────────────────────────░─────────────
-    «                               ░
+    «                                                                                   ░ »
+    «q_0: ──────────────────────────────────────────────────────────────────────────────░─»
+    «     ┌──────┐┌───┐┌──────┐┌─────┐┌──────┐┌───┐┌──────┐┌─────┐┌──────┐┌───┐┌──────┐ ░ »
+    «q_1: ┤0     ├┤ X ├┤0     ├┤ X12 ├┤0     ├┤ X ├┤0     ├┤ X12 ├┤0     ├┤ X ├┤0     ├─░─»
+    «     │  CR- │└───┘│  CR- │└─────┘│  CR+ │└───┘│  CR+ │└─────┘│  CR+ │└───┘│  CR+ │ ░ »
+    «q_2: ┤1     ├─────┤1     ├───────┤1     ├─────┤1     ├───────┤1     ├─────┤1     ├─░─»
+    «     └──────┘     └──────┘       └──────┘     └──────┘       └──────┘     └──────┘ ░ »
+    «                 ┌─+++++++─┐┌──:::───────┐ ░
+    «q_0: ────────────┤ Rz(π/2) ├┤0           ├─░─────────────
+    «     ┌──────────┐├─+++++++─┤│  Rzx(-π/2) │ ░ ┌─────┐┌───┐
+    «q_1: ┤ Rz(±π/2) ├┤ Rx(π/2) ├┤1           ├─░─┤ X12 ├┤ X ├
+    «     └──────────┘└─────────┘└──:::───────┘ ░ └─────┘└───┘
+    «q_2: ──────────────────────────────────────░─────────────
+    «                                           ░
     Most of the cancellations happen similarly. Same for CRCR type X12.
     """
     def __init__(
@@ -238,7 +238,7 @@ def qutrit_toffoli_decomposition_circuit(
     else:
         circuit.delay(2 * xplus_dur + refocusing_delay, [0, 2])
 
-    circuit.barrier() # For refocusing analysis
+    circuit.barrier()  # For refocusing analysis
     circuit.ecr(0, 1)
 
     if apply_dd:
@@ -344,95 +344,104 @@ class QutritToffoliRefocusing(TransformationPass):
         self.pulse_alignment = pulse_alignment
         self.calibrations = None
 
-    def run(self, dag: DAGCircuit) -> DAGCircuit:
-        # Invalidate node_start_time
-        node_start_time = self.property_set.pop('node_start_time')
+    def _refocus_toffoli(
+        self,
+        dag,
+        begin_node,
+    ):
+        node_start_time = self.property_set['node_start_time']
 
+        c2 = begin_node.qargs[0]
+        x12_node = next(dag.successors(begin_node))
+        node = x12_node
+        while True:
+            if len((node := next(dag.successors(node))).qargs) == 3:
+                break
+        barrier = node
+        c1 = barrier.qargs[0]
+        t = barrier.qargs[2]
+
+        qids = tuple(dag.find_bit(q).index for q in [c1, c2, t])
+
+        rcr_type = self.calibrations.get_parameter_value('rcr_type', qids[1:])
+
+        subdag = DAGCircuit()
+        qreg = QuantumRegister(3)
+        subdag.add_qreg(qreg)
+
+        def dur(gate, *iqs):
+            return self.inst_durations.get(gate, [qids[i] for i in iqs])
+
+        def add_op(op, *iqs):
+            subdag.apply_operation_back(op, [qreg[iq] for iq in iqs])
+
+        def add_delay(delay, *iqs):
+            add_op(Delay(delay), *iqs)
+
+        if any((isinstance(node, DAGOpNode) and isinstance(node.op, HGate))
+                for node in dag.ancestors(barrier)):
+            add_delay(dur('sx', 2), 0)
+            add_delay(dur('sx', 2), 1)
+            add_op(HGate(), 2)
+
+        if rcr_type == QutritQubitCXType.REVERSE:
+            alpha = dur('x12', 1) + 2 * dur('ecr', 2, 1) + dur('x', 2)
+        else:
+            alpha = 2 * dur('cr', 1, 2) + dur('x', 1) + dur('x12', 1)
+
+        node = barrier
+        while True:
+            node = next(n for n in dag.successors(node)
+                        if isinstance(n, DAGOpNode) and c2 in n.qargs)
+            if isinstance(node.op, XplusGate) and node.op.label == 'qutrit_toffoli_end':
+                end_node = node
+                break
+        # d + s
+        # For the reverse CX implementation, delay >= 0 only if T[ECR01] >= T[ECR21]. If
+        # otherwise, we need to adjust the timing in the CZ sequence
+        added_time = -3 * alpha + (node_start_time[end_node] - node_start_time[x12_node])
+
+        if added_time >= dur('xplus', 1):
+            add_op(XplusGate(label='qutrit_toffoli_begin'), 1)
+            if (delay := added_time - dur('xplus', 1)):
+                add_delay(delay, 1)
+            add_op(X12Gate(), 1)
+            add_op(SXGate(), 1)
+            add_op(P2Gate(-np.pi / 4.), 1)
+            if self.apply_dd:
+                ddcalc = DDCalculator(qids, self.inst_durations, self.pulse_alignment)
+                taus = ddcalc.calculate_delays(0, added_time + dur('x12', 1) + dur('sx', 1),
+                                               distribution='left')
+                for tau in taus[1:]:
+                    add_op(XGate(), 0)
+                    add_delay(tau, 0)
+                taus = ddcalc.calculate_delays(2, added_time + dur('x12', 1) + dur('sx', 1),
+                                               distribution='right')
+                for tau in taus[:-1]:
+                    add_delay(tau, 2)
+                    add_op(XGate(), 2)
+        else:
+            add_op(XminusGate(label='qutrit_toffoli_begin'), 1)
+            add_op(RZGate(np.pi), 1)
+            add_op(SXGate(), 1)
+            add_op(RZGate(-np.pi), 1)
+            add_op(P2Gate(np.pi / 4.), 1)
+            raise NotImplementedError('Someday I will')
+
+        # dag.remove_ancestors_of(barrier._node_id) # Does not work due to a bug
+        for anc in dag.ancestors(barrier):
+            if isinstance(anc, DAGOpNode):
+                dag.remove_op_node(anc)
+        dag.substitute_node_with_dag(barrier, subdag)
+
+    def run(self, dag: DAGCircuit) -> DAGCircuit:
         toffoli_begins = [node for node in dag.topological_op_nodes()
                           if node.op.label == 'qutrit_toffoli_begin']
 
         for begin_node in toffoli_begins:
-            c2 = begin_node.qargs[0]
-            x12_node = next(dag.successors(begin_node))
-            node = x12_node
-            while True:
-                if len((node := next(dag.successors(node))).qargs) == 3:
-                    break
-            barrier = node
-            c1 = barrier.qargs[0]
-            t = barrier.qargs[2]
+            self._refocus_toffoli(dag, begin_node)
 
-            qids = tuple(dag.find_bit(q).index for q in [c1, c2, t])
-
-            rcr_type = self.calibrations.get_parameter_value('rcr_type', qids[1:])
-
-            subdag = DAGCircuit()
-            qreg = QuantumRegister(3)
-            subdag.add_qreg(qreg)
-
-            def dur(gate, *iqs):
-                return self.inst_durations.get(gate, [qids[i] for i in iqs])
-
-            def add_op(op, *iqs):
-                subdag.apply_operation_back(op, [qreg[iq] for iq in iqs])
-
-            def add_delay(delay, *iqs):
-                add_op(Delay(delay), *iqs)
-
-            if any((isinstance(node, DAGOpNode) and isinstance(node.op, HGate))
-                   for node in dag.ancestors(barrier)):
-                add_delay(dur('sx', 2), 0)
-                add_delay(dur('sx', 2), 1)
-                add_op(HGate(), 2)
-
-            if rcr_type == QutritQubitCXType.REVERSE:
-                alpha = dur('x12', 1) + 2 * dur('ecr', 2, 1) + dur('x', 2)
-            else:
-                alpha = 2 * dur('cr', 1, 2) + dur('x', 1) + dur('x12', 1)
-
-            node = barrier
-            while True:
-                node = next(n for n in dag.successors(node)
-                            if isinstance(n, DAGOpNode) and c2 in n.qargs)
-                if isinstance(node.op, XplusGate) and node.op.label == 'qutrit_toffoli_end':
-                    end_node = node
-                    break
-            # d + s
-            # For the reverse CX implementation, delay >= 0 only if T[ECR01] >= T[ECR21]. If
-            # otherwise, we need to adjust the timing in the CZ sequence
-            added_time = -3 * alpha + (node_start_time[end_node] - node_start_time[x12_node])
-
-            if added_time >= dur('xplus', 1):
-                add_op(XplusGate(label='qutrit_toffoli_begin'), 1)
-                if (delay := added_time - dur('xplus', 1)):
-                    add_delay(delay, 1)
-                add_op(X12Gate(), 1)
-                add_op(SXGate(), 1)
-                add_op(P2Gate(-np.pi / 4.), 1)
-                if self.apply_dd:
-                    ddcalc = DDCalculator(qids, self.inst_durations, self.pulse_alignment)
-                    taus = ddcalc.calculate_delays(0, added_time + dur('x12', 1) + dur('sx', 1),
-                                                   distribution='left')
-                    for tau in taus[1:]:
-                        add_op(XGate(), 0)
-                        add_delay(tau, 0)
-                    taus = ddcalc.calculate_delays(2, added_time + dur('x12', 1) + dur('sx', 1),
-                                                   distribution='right')
-                    for tau in taus[:-1]:
-                        add_delay(tau, 2)
-                        add_op(XGate(), 2)
-            else:
-                add_op(XminusGate(label='qutrit_toffoli_begin'), 1)
-                add_op(RZGate(np.pi), 1)
-                add_op(SXGate(), 1)
-                add_op(RZGate(-np.pi), 1)
-                add_op(P2Gate(np.pi / 4.), 1)
-                raise NotImplementedError('Someday I will')
-
-            # dag.remove_ancestors_of(barrier._node_id) # Does not work due to a bug
-            for anc in dag.ancestors(barrier):
-                if isinstance(anc, DAGOpNode):
-                    dag.remove_op_node(anc)
-            dag.substitute_node_with_dag(barrier, subdag)
+        # Invalidate node_start_time
+        self.property_set.pop('node_start_time')
 
         return dag

@@ -1,12 +1,10 @@
+"""Common utility functions for qutrit transpilation."""
 from collections.abc import Sequence
 from typing import Optional
-from qiskit import QuantumCircuit, QuantumRegister
+from qiskit import QuantumRegister
 from qiskit.circuit import Delay, Gate, Qubit
 from qiskit.circuit.library import RZGate, XGate
-from qiskit.dagcircuit import DAGCircuit
-from qiskit.converters import circuit_to_dag, dag_to_circuit
 from qiskit.dagcircuit import DAGCircuit, DAGOpNode
-from qiskit.transpiler.basepasses import AnalysisPass
 
 
 def insert_rz(
@@ -17,6 +15,7 @@ def insert_rz(
     node_start_time: Optional[dict[DAGOpNode, int]] = None,
     op_duration: int = 0
 ) -> DAGOpNode:
+    """Insert an Rz gate to the DAG before and after the given node."""
     subdag = DAGCircuit()
     subdag.add_qreg((qreg := QuantumRegister(len(node.qargs))))
     if pre_angles is None:

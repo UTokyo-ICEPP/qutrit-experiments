@@ -1,12 +1,14 @@
 """Transpiler passes to transpile qutrit circuits."""
 from collections import defaultdict
 import logging
+from typing import Optional
 import numpy as np
 from qiskit import pulse
 from qiskit.circuit import Parameter
 from qiskit.circuit.library import ECRGate, RZGate, SXGate, XGate
-from qiskit.dagcircuit import DAGCircuit
+from qiskit.dagcircuit import DAGCircuit, DAGOpNode
 from qiskit.pulse import ScheduleBlock
+from qiskit.pulse.channels import Channel
 from qiskit.transpiler import AnalysisPass, Target, TransformationPass, TranspilerError
 from qiskit_experiments.calibration_management import Calibrations
 
@@ -67,76 +69,207 @@ class AddQutritCalibrations(TransformationPass):
         self.calibrations: Calibrations = None
         self.target = target
 
+    def _get_rz_channels(self, rz_channels, qubit):
+        if (channels := rz_channels.get(qubit)) is None:
+            sched = self.target['rz'][(qubit,)].calibration
+            channels = set(inst.channel for _, inst in sched.instructions
+                           if isinstance(inst, pulse.ShiftPhase))
+            rz_channels[qubit] = channels
+        return channels
+
+    def _insert_ef_phase_shifts(
+        self,
+        original_sched: ScheduleBlock,
+        channel_qutrit_map: dict[pulse.DriveChannel, int],
+        rz_channels: dict[int, set[Channel]],
+        ef_phase_params: Optional[dict[int, list[Parameter]]] = None,
+        ef_phase_shifts: Optional[dict[int, float]] = None
+    ) -> tuple[ScheduleBlock, dict[int, list[Parameter]]]:
+        if ef_phase_params is None:
+            ef_phase_params = defaultdict(list)
+        if ef_phase_shifts is None:
+            ef_phase_shifts = defaultdict(float)
+
+        copy = ScheduleBlock.initialize_from(original_sched)
+        for block in original_sched.blocks:
+            if isinstance(block, ScheduleBlock):
+                if block.name in ['x12', 'sx12']:
+                    drive_channel = block.blocks[0].channel
+                    qutrit = channel_qutrit_map[drive_channel]
+                    idx = len(ef_phase_params[qutrit])
+                    param = Parameter(f'ef_phase_q{qutrit}_{idx}')
+                    ef_phase_params[qutrit].append(param)
+                    shift = ef_phase_shifts[qutrit]
+                    delta = self.calibrations.get_parameter_value(f'delta_{block.name}', qutrit)
+                    geom_phase = np.pi / 2. if block.name == 'x12' else np.pi / 4.
+                    # Need to apply PO(delta/2 - geom) to effect the full X12 gate
+                    offset = LO_SIGN * (geom_phase - delta / 2.)
+                    channels = self._get_rz_channels(rz_channels, qutrit)
+                    logger.debug('  Inserting placeholder %d for qubit %d', idx, qutrit)
+                    copy.append(pulse.ShiftPhase(param + shift, drive_channel))
+                    copy.append(block)
+                    copy.append(pulse.ShiftPhase(-(param + shift) + offset, drive_channel))
+                    for channel in [ch for ch in channels if ch != drive_channel]:
+                        logger.debug('    Offset %.2f to channel %s', offset, channel)
+                        copy.append(pulse.ShiftPhase(offset, channel))
+                else:
+                    copy.append(
+                        self._insert_ef_phase_shifts(block, channel_qutrit_map, rz_channels,
+                                                     ef_phase_params, ef_phase_shifts)[0]
+                    )
+            elif isinstance(block, pulse.ShiftPhase) and block.name is not None:
+                logger.debug('  Found phase shift labeled as %s', block.name)
+                drive_channel = block.channel
+                qutrit = channel_qutrit_map[drive_channel]
+                if block.name == 'rz':
+                    copy.append(block)
+                    ef_phase_shifts[qutrit] -= block.phase / 2.
+                elif block.name == 'rz12':
+                    copy.append(block)
+                    # block.phase is the ge phase
+                    ef_phase_shifts[qutrit] -= block.phase * 2.
+                elif block.name == 'ef_phase':
+                    # Skip the instruction in copy
+                    ef_phase_shifts[qutrit] += block.phase
+            else:
+                copy.append(block)
+        return copy, ef_phase_params
+
+    def _process_qutrit_pulse_gate(
+        self,
+        dag: DAGCircuit,
+        node: DAGOpNode,
+        qubits: tuple[int, ...],
+        freq_diffs: dict[int, float],
+        cumul_angle_ge: dict[int, float],
+        cumul_angle_ef: dict[int, float]
+    ):
+        node_start_time = self.property_set['node_start_time']
+
+        # Find the schedule in dag.calibrations
+        calib_key = (qubits, tuple(node.op.params))
+        if (cal := dag.calibrations.get(node.op.name, {}).get(calib_key)) is None:
+            # If not found, get the schedule from calibrations if the gate is x12/sx12
+            if isinstance(node.op, (X12Gate, SX12Gate)):
+                cal = get_qutrit_pulse_gate(node.op.name, qubits[0], self.calibrations,
+                                            freq_shift=freq_diffs[qubits[0]])
+                dag.add_calibration(node.op.name, qubits, cal)
+                logger.debug('%s%s Adding calibration', node.op.name, qubits)
+            else:
+                raise TranspilerError(f'Calibration for {node.op.name} {calib_key} missing')
+
+        # Calculate the phase shifts for each qubit
+        pre_angles = []
+        post_angles = []
+        for qubit, is_qutrit in zip(qubits, node.op.as_qutrit):
+            if not is_qutrit:
+                pre_angles.append(0.)
+                post_angles.append(0.)
+                continue
+
+            # Phase of the EF frame relative to the GE frame
+            ef_lo_phase = LO_SIGN * node_start_time[node] * twopi * freq_diffs[qubit]
+            # Change of frame - Bloch rotation from 0 to the EF frame angle
+            # Because we share the same channel for GE and EF drives, GE angle must be
+            # offset
+            pre_angles.append(ef_lo_phase + cumul_angle_ef[qubit] - cumul_angle_ge[qubit])
+            post_angles.append(-pre_angles[-1])
+
+            if isinstance(node.op, (X12Gate, SX12Gate)):
+                delta = self.calibrations.get_parameter_value(f'delta_{node.op.name}', qubit)
+                geom_phase = np.pi / 2. if isinstance(node.op, X12Gate) else np.pi / 4.
+                offset = geom_phase - delta / 2.
+                post_angles[-1] += offset
+                cumul_angle_ge[qubit] += offset
+                logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qubit, offset)
+
+        logger.debug('%s[%s] inserting Rz pre=%s post=%s', node.op.name, qubits, pre_angles,
+                     post_angles)
+        # Phase shifts are realized with Rz gates
+        insert_rz(dag, node, pre_angles=pre_angles, post_angles=post_angles,
+                  node_start_time=node_start_time, op_duration=cal.duration)
+
+    def _process_qutrit_composite_gate(
+        self,
+        dag: DAGCircuit,
+        node: DAGOpNode,
+        qubits: tuple[int, ...],
+        channel_qutrit_map: dict[pulse.DriveChannel, int],
+        rz_channels: dict[int, set[Channel]],
+        freq_diffs: dict[int, float],
+        cumul_angle_ge: dict[int, float],
+        cumul_angle_ef: dict[int, float]
+    ):
+        node_start_time = self.property_set['node_start_time']
+
+        # Find the schedule in dag.calibrations
+        calib_key = (qubits, tuple(node.op.params))
+        if (cal := dag.calibrations.get(node.op.name, {}).get(calib_key)) is None:
+            # If not found, get the schedule from calibrations if the gate is cx
+            if isinstance(node.op, QutritQubitCXGate):
+                cal = get_qutrit_qubit_cx_gate(qubits, self.calibrations,
+                                               freq_shift=freq_diffs[qubits[0]])
+                dag.add_calibration(node.op.name, qubits, cal, node.op.params)
+                logger.debug('%s%s Adding calibration', node.op.name, qubits)
+            else:
+                raise TranspilerError(f'Calibration for {node.op.name} {calib_key} missing')
+
+        # Make sure all qubit drive channels are known
+        for qubit, is_qutrit in zip(qubits, node.op.as_qutrit):
+            if is_qutrit and qubit not in channel_qutrit_map.values():
+                x_inst = self.target.get_calibration('x', (qubit,))
+                drive_channel = next(inst.channel for _, inst in x_inst.instructions
+                                     if isinstance(inst, pulse.Play))
+                channel_qutrit_map[drive_channel] = qubit
+
+        # Make a new ScheduleBlock with placeholder parameters for EF phase shifts
+        logger.debug('%s[%s] inserting EF phase shift placeholders', node.op.name, qubits)
+        cal, ef_phase_params = self._insert_ef_phase_shifts(cal, channel_qutrit_map, rz_channels)
+
+        # Assign phase shift values to the placeholders
+        start_time = node_start_time[node]
+        assign_map = {}
+        for inst_time, inst in cal.instructions:
+            if (not isinstance(inst, pulse.Play)
+                    or (qutrit := channel_qutrit_map.get(inst.channel)) is None):
+                continue
+            if inst.name.startswith('Xp'):
+                delta = self.calibrations.get_parameter_value('delta_x', qutrit)
+                cumul_angle_ef[qutrit] += delta / 2. - np.pi / 2.
+            elif inst.name.startswith('X90p'):
+                delta = self.calibrations.get_parameter_value('delta_sx', qutrit)
+                cumul_angle_ef[qutrit] += delta / 2. - np.pi / 4.
+            elif inst.name.startswith('Ξp') or inst.name.startswith('Ξ90p'):
+                # See comments on X12Gate
+                ef_lo_phase = LO_SIGN * (start_time + inst_time) * twopi * freq_diffs[qutrit]
+                parameter = ef_phase_params[qutrit].pop(0)
+                assign_map[parameter] = (ef_lo_phase + cumul_angle_ef[qutrit]
+                                         - cumul_angle_ge[qutrit]) % twopi
+                logger.debug('  Assigning %.2f to %s', assign_map[parameter], parameter)
+                if inst.name.startswith('Ξp'):
+                    delta = self.calibrations.get_parameter_value('delta_x12', qutrit)
+                    cumul_angle_ge[qutrit] += np.pi / 2. - delta / 2.
+                else:
+                    delta = self.calibrations.get_parameter_value('delta_sx12', qutrit)
+                    cumul_angle_ge[qutrit] += np.pi / 4. - delta / 2.
+
+        assert set(len(lev) for lev in ef_phase_params.values()) == {0}
+
+        node.op.params.append(start_time)
+        cal.assign_parameters(assign_map, inplace=True)
+        dag.add_calibration(node.op.name, qubits, cal, node.op.params)
+
     def run(self, dag: DAGCircuit) -> DAGCircuit:
         node_start_time = self.property_set['node_start_time']
         dag_qutrits = self.property_set['qutrits']
 
         freq_diffs = {}
-        cumul_angle_ge = defaultdict(float) # Angle in the g-e (|0>-|1>) sphere
-        cumul_angle_ef = defaultdict(float) # Angle in the e-f (|1>-|2>) sphere
+        cumul_angle_ge = defaultdict(float)  # Angle in the g-e (|0>-|1>) sphere
+        cumul_angle_ef = defaultdict(float)  # Angle in the e-f (|1>-|2>) sphere
         # Rz channels cache
         rz_channels = {}
         # Drive channel to qubit mapping
         channel_qutrit_map = {}
-
-        def get_rz_channels(qubit):
-            if (channels := rz_channels.get(qubit)) is None:
-                sched = self.target['rz'][(qubit,)].calibration
-                channels = set(inst.channel for _, inst in sched.instructions
-                               if isinstance(inst, pulse.ShiftPhase))
-                rz_channels[qubit] = channels
-            return channels
-
-        def insert_ef_phase_shifts(original, ef_phase_params=None, ef_phase_shifts=None):
-            if ef_phase_params is None:
-                ef_phase_params = defaultdict(list)
-            if ef_phase_shifts is None:
-                ef_phase_shifts = defaultdict(float)
-
-            copy = ScheduleBlock.initialize_from(original)
-            for block in original.blocks:
-                if isinstance(block, ScheduleBlock):
-                    if block.name in ['x12', 'sx12']:
-                        drive_channel = block.blocks[0].channel
-                        qutrit = channel_qutrit_map[drive_channel]
-                        idx = len(ef_phase_params[qutrit])
-                        param = Parameter(f'ef_phase_q{qutrit}_{idx}')
-                        ef_phase_params[qutrit].append(param)
-                        shift = ef_phase_shifts[qutrit]
-                        delta = self.calibrations.get_parameter_value(f'delta_{block.name}', qutrit)
-                        geom_phase = np.pi / 2. if block.name == 'x12' else np.pi / 4.
-                        # Need to apply PO(delta/2 - geom) to effect the full X12 gate
-                        offset = LO_SIGN * (geom_phase - delta / 2.)
-                        channels = get_rz_channels(qutrit)
-                        logger.debug('  Inserting placeholder %d for qubit %d', idx, qutrit)
-                        copy.append(pulse.ShiftPhase(param + shift, drive_channel))
-                        copy.append(block)
-                        copy.append(pulse.ShiftPhase(-(param + shift) + offset, drive_channel))
-                        for channel in channels:
-                            if channel != drive_channel:
-                                logger.debug('    Offset %.2f to channel %s', offset, channel)
-                                copy.append(pulse.ShiftPhase(offset, channel))
-                    else:
-                        copy.append(
-                            insert_ef_phase_shifts(block, ef_phase_params, ef_phase_shifts)[0]
-                        )
-                elif isinstance(block, pulse.ShiftPhase) and block.name is not None:
-                    logger.debug('  Found phase shift labeled as %s', block.name)
-                    drive_channel = block.channel
-                    qutrit = channel_qutrit_map[drive_channel]
-                    if block.name == 'rz':
-                        copy.append(block)
-                        ef_phase_shifts[qutrit] -= block.phase / 2.
-                    elif block.name == 'rz12':
-                        copy.append(block)
-                        # block.phase is the ge phase
-                        ef_phase_shifts[qutrit] -= block.phase * 2.
-                    elif block.name == 'ef_phase':
-                        # Skip the instruction in copy
-                        ef_phase_shifts[qutrit] += block.phase
-                else:
-                    copy.append(block)
-            return copy, ef_phase_params
 
         for node in list(dag.topological_op_nodes()):
             if node not in node_start_time:
@@ -200,118 +333,16 @@ class AddQutritCalibrations(TransformationPass):
                     if is_qutrit and qubit not in freq_diffs:
                         freq_diffs[qubit] = get_qutrit_freq_shift(qubit, self.target,
                                                                   self.calibrations)
-                        logger.debug('%s[%s] EF modulation frequency %f for qutrit %d', node.op.name,
-                                     qubits, freq_diffs[qubit], qubit)
+                        logger.debug('%s[%s] EF modulation frequency %f for qutrit %d',
+                                     node.op.name, qubits, freq_diffs[qubit], qubit)
 
                 if node.op.gate_type == GateType.PULSE:
-                    # Find the schedule in dag.calibrations
-                    calib_key = (qubits, tuple(node.op.params))
-                    if (cal := dag.calibrations.get(node.op.name, {}).get(calib_key)) is None:
-                        # If not found, get the schedule from calibrations if the gate is x12/sx12
-                        if isinstance(node.op, (X12Gate, SX12Gate)):
-                            cal = get_qutrit_pulse_gate(node.op.name, qubits[0], self.calibrations,
-                                                        freq_shift=freq_diffs[qubits[0]])
-                            dag.add_calibration(node.op.name, qubits, cal)
-                            logger.debug('%s%s Adding calibration', node.op.name, qubits)
-                        else:
-                            raise TranspilerError(f'Calibration for {node.op.name} {calib_key}'
-                                                  ' missing')
-
-                    # Calculate the phase shifts for each qubit
-                    pre_angles = []
-                    post_angles = []
-                    for qubit, is_qutrit in zip(qubits, node.op.as_qutrit):
-                        if not is_qutrit:
-                            pre_angles.append(0.)
-                            post_angles.append(0.)
-                            continue
-
-                        # Phase of the EF frame relative to the GE frame
-                        ef_lo_phase = LO_SIGN * node_start_time[node] * twopi * freq_diffs[qubit]
-                        # Change of frame - Bloch rotation from 0 to the EF frame angle
-                        # Because we share the same channel for GE and EF drives, GE angle must be offset
-                        pre_angles.append(ef_lo_phase + cumul_angle_ef[qubit]
-                                          - cumul_angle_ge[qubit])
-                        post_angles.append(-pre_angles[-1])
-
-                        if isinstance(node.op, (X12Gate, SX12Gate)):
-                            delta = self.calibrations.get_parameter_value(f'delta_{node.op.name}',
-                                                                          qubit)
-                            geom_phase = np.pi / 2. if isinstance(node.op, X12Gate) else np.pi / 4.
-                            offset = geom_phase - delta / 2.
-                            post_angles[-1] += offset
-                            cumul_angle_ge[qubit] += offset
-                            logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qubit, offset)
-
-                    logger.debug('%s[%s] inserting Rz pre=%s post=%s', node.op.name, qubits,
-                                 pre_angles, post_angles)
-                    # Phase shifts are realized with Rz gates
-                    insert_rz(dag, node, pre_angles=pre_angles, post_angles=post_angles,
-                              node_start_time=node_start_time, op_duration=cal.duration)
-
+                    self._process_qutrit_pulse_gate(dag, node, qubits, freq_diffs, cumul_angle_ge,
+                                                    cumul_angle_ef)
                 elif node.op.gate_type == GateType.COMPOSITE:
-                    # Find the schedule in dag.calibrations
-                    calib_key = (qubits, tuple(node.op.params))
-                    if (cal := dag.calibrations.get(node.op.name, {}).get(calib_key)) is None:
-                        # If not found, get the schedule from calibrations if the gate is cx
-                        if isinstance(node.op, QutritQubitCXGate):
-                            cal = get_qutrit_qubit_cx_gate(qubits, self.calibrations,
-                                                           freq_shift=freq_diffs[qubits[0]])
-                            dag.add_calibration(node.op.name, qubits, cal, node.op.params)
-                            logger.debug('%s%s Adding calibration', node.op.name, qubits)
-                        else:
-                            raise TranspilerError(f'Calibration for {node.op.name} {calib_key}'
-                                                  ' missing')
-
-                    # Make sure all qubit drive channels are known
-                    for qubit, is_qutrit in zip(qubits, node.op.as_qutrit):
-                        if is_qutrit and qubit not in channel_qutrit_map.values():
-                            x_inst = self.target.get_calibration('x', (qubit,))
-                            drive_channel = next(inst.channel for _, inst in x_inst.instructions
-                                                 if isinstance(inst, pulse.Play))
-                            channel_qutrit_map[drive_channel] = qubit
-
-                    # Make a new ScheduleBlock with placeholder parameters for EF phase shifts
-                    logger.debug('%s[%s] inserting EF phase shift placeholders', node.op.name,
-                                 qubits)
-                    cal, ef_phase_params = insert_ef_phase_shifts(cal)
-
-                    # Assign phase shift values to the placeholders
-                    start_time = node_start_time[node]
-                    assign_map = {}
-                    for inst_time, inst in cal.instructions:
-                        if not isinstance(inst, pulse.Play):
-                            continue
-                        if (qutrit := channel_qutrit_map.get(inst.channel)) is None:
-                            # Instruction with control channel etc.
-                            continue
-                        if inst.name.startswith('Xp'):
-                            delta = self.calibrations.get_parameter_value('delta_x', qutrit)
-                            cumul_angle_ef[qutrit] += delta / 2. - np.pi / 2.
-                        elif inst.name.startswith('X90p'):
-                            delta = self.calibrations.get_parameter_value('delta_sx', qutrit)
-                            cumul_angle_ef[qutrit] += delta / 2. - np.pi / 4.
-                        elif inst.name.startswith('Ξp') or inst.name.startswith('Ξ90p'):
-                            # See comments on X12Gate
-                            ef_lo_phase = (LO_SIGN * (start_time + inst_time) * twopi
-                                           * freq_diffs[qutrit])
-                            parameter = ef_phase_params[qutrit].pop(0)
-                            assign_map[parameter] = (ef_lo_phase + cumul_angle_ef[qutrit]
-                                                     - cumul_angle_ge[qutrit]) % twopi
-                            logger.debug('  Assigning %.2f to %s', assign_map[parameter], parameter)
-                            if inst.name.startswith('Ξp'):
-                                delta = self.calibrations.get_parameter_value('delta_x12', qutrit)
-                                cumul_angle_ge[qutrit] += np.pi / 2. - delta / 2.
-                            else:
-                                delta = self.calibrations.get_parameter_value('delta_sx12', qutrit)
-                                cumul_angle_ge[qutrit] += np.pi / 4. - delta / 2.
-
-                    assert set(len(l) for l in ef_phase_params.values()) == {0}
-
-                    node.op.params.append(start_time)
-                    cal.assign_parameters(assign_map, inplace=True)
-                    dag.add_calibration(node.op.name, qubits, cal, node.op.params)
-
+                    self._process_qutrit_composite_gate(dag, node, qubits, channel_qutrit_map,
+                                                        rz_channels, freq_diffs, cumul_angle_ge,
+                                                        cumul_angle_ef)
                 else:
                     raise TranspilerError(f'Unhandled qutrit gate {node.op.name}')
 

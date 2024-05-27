@@ -7,6 +7,7 @@ from qiskit.transpiler import InstructionDurations, TransformationPass
 
 
 class DDCalculator:
+    """Class to calculate delays to be inserted for qubit dynamical decoupling."""
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -14,7 +15,7 @@ class DDCalculator:
         pulse_alignment: int
     ):
         self._x_durations = {lq: instruction_durations.get('x', [pq])
-                            for lq, pq in enumerate(physical_qubits)}
+                             for lq, pq in enumerate(physical_qubits)}
         self._alignment = pulse_alignment
 
     def _constrained_length(self, values: Sequence[float]) -> np.ndarray:
@@ -30,6 +31,12 @@ class DDCalculator:
         """Compute the delay durations to perform DD with the specified number of X pairs.
 
         Logic copied from qiskit.transpiler.passes.scheduling.padding.dynamical_decoupling.
+
+        Args:
+            qubit: Qubit to apply DD on.
+            duration: Overall duration of the idle time.
+            num_pairs: Number of X gate pairs to insert.
+            distribution: 'left', 'right', or 'symmetric'.
         """
         assert duration % self._alignment == 0, \
             f'Duration {duration} is not a multiple of pulse alignment {self._alignment}'
@@ -73,6 +80,15 @@ class DDCalculator:
         num_pairs: int = 1,
         distribution: str = 'symmetric'
     ) -> None:
+        """Calculate the DD delays and append X gates and delays to the QuantumCircuit.
+
+        Args:
+            circuit: QuantumCircuit to append the DD sequence to.
+            qubit: Qubit to apply DD on.
+            duration: Overall duration of the idle time.
+            num_pairs: Number of X gate pairs to insert.
+            distribution: 'left', 'right', or 'symmetric'.
+        """
         taus = self.calculate_delays(qubit, duration, num_pairs, distribution=distribution)
         for tau in taus[:-1]:
             if tau:

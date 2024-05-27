@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 from qiskit import QuantumCircuit, transpile
 from qiskit.providers import Backend
-from qiskit.transpiler import InstructionDurations, PassManager, TranspilerError
+from qiskit.transpiler import InstructionDurations, PassManager
 from qiskit.transpiler.passes import ALAPScheduleAnalysis
 from qiskit_experiments.calibration_management import Calibrations
 from qiskit_experiments.exceptions import CalibrationError
@@ -125,7 +125,7 @@ def transpile_qutrit_circuits(
     pm.append(ContainsQutritInstruction())
     scheduling = ALAPScheduleAnalysis(instruction_durations)
     add_cal = AddQutritCalibrations(backend.target)
-    add_cal.calibrations = calibrations # See the comment in the class for why we do this
+    add_cal.calibrations = calibrations  # See the comment in the class for why we do this
     pm.append([scheduling, add_cal], condition=contains_qutrit_gate)
     if LO_SIGN > 0.:
         pm.append(InvertRZSign())
