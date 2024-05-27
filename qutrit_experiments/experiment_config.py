@@ -46,6 +46,7 @@ class CompositeExperimentConfig(ExperimentConfigBase):
         raise NotImplementedError('CompositeExperimentConfig is an ABC')
 
 
+# pylint: disable=too-few-public-methods
 class BatchExperimentConfig(CompositeExperimentConfig):
     """Configuration of a BatchExperiment."""
     @property
@@ -53,6 +54,7 @@ class BatchExperimentConfig(CompositeExperimentConfig):
         return BatchExperiment
 
 
+# pylint: disable=too-few-public-methods
 class ParallelExperimentConfig(CompositeExperimentConfig):
     """Configuration of a ParallelExperiment."""
     @property

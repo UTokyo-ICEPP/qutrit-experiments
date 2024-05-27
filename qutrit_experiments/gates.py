@@ -8,14 +8,15 @@ from qiskit import QuantumCircuit, QuantumRegister
 from qiskit.circuit import Barrier, Gate, Parameter
 from qiskit.circuit.library import ECRGate, HGate, RZGate, SXGate, XGate, ZGate
 from qiskit.circuit.equivalence_library import SessionEquivalenceLibrary as sel
-#from qiskit.circuit.parameterexpression import ParameterValueType
-# For some reason Pylance fails to recognize imported ParameterValueType as a valid type alias so
-# I'm redefining it here
+# from qiskit.circuit.parameterexpression import ParameterValueType
+#  For some reason Pylance fails to recognize imported ParameterValueType as a valid type alias so
+#  I'm redefining it here
 from qiskit.circuit.parameterexpression import ParameterExpression
 ParameterValueType = Union[ParameterExpression, float]
 
 
 class GateType(Enum):
+    """Gate type descriptors."""
     PULSE = auto()
     VIRTUAL = auto()
     COMPOSITE = auto()
@@ -53,6 +54,7 @@ class QutritCompositeGate(QutritGate):
     gate_type = GateType.COMPOSITE
 
 
+# pylint: disable=too-few-public-methods
 class StaticProperties:
     """Mixin for qutrit gates with properties defined at class level. Copies of the properties will
     be set on instances through __init__()."""
@@ -61,6 +63,7 @@ class StaticProperties:
             params = []
         else:
             params = list(params)
+        # pylint: disable=no-member
         super().__init__(self.__class__.gate_name, self.__class__.as_qutrit, params, *args,
                          label=label, duration=duration, unit=unit, **kwargs)
 
@@ -88,6 +91,7 @@ class QutritQubitCompositeGate(StaticProperties, QutritCompositeGate):
 class X12Gate(OneQutritPulseGate):
     """The single-qubit X gate on EF subspace."""
     gate_name = 'x12'
+
     def __init__(self, label: Optional[str] = None):
         """Create new X12 gate."""
         super().__init__([], label=label)
@@ -96,6 +100,7 @@ class X12Gate(OneQutritPulseGate):
 class SX12Gate(OneQutritPulseGate):
     """The single-qubit Sqrt(X) gate on EF subspace."""
     gate_name = 'sx12'
+
     def __init__(self, label: Optional[str] = None):
         """Create new SX12 gate."""
         super().__init__([], label=label)
@@ -104,6 +109,7 @@ class SX12Gate(OneQutritPulseGate):
 class RZ12Gate(OneQutritVirtualGate):
     """The RZ gate on EF subspace."""
     gate_name = 'rz12'
+
     def __init__(self, phi: ParameterValueType, label: Optional[str] = None):
         """Create new RZ12 gate."""
         super().__init__([phi], label=label)
@@ -112,6 +118,7 @@ class RZ12Gate(OneQutritVirtualGate):
 class SetF12Gate(OneQutritVirtualGate):
     """Set the qutrit frequency to a specific value."""
     gate_name = 'set_f12'
+
     def __init__(self, freq: ParameterValueType, label: Optional[str] = None):
         """Create new SetF12 gate."""
         super().__init__([freq], label=label)
@@ -120,6 +127,7 @@ class SetF12Gate(OneQutritVirtualGate):
 class U12Gate(OneQutritCompositeGate):
     """U gate composed of SX12 and RZ12."""
     gate_name = 'u12'
+
     def __init__(
         self,
         theta: ParameterValueType,
@@ -140,6 +148,7 @@ class U12Gate(OneQutritCompositeGate):
 class XplusGate(OneQutritCompositeGate):
     """X+ gate."""
     gate_name = 'xplus'
+
     def __init__(self, label: Optional[str] = None):
         super().__init__([], label=label)
 
@@ -147,6 +156,7 @@ class XplusGate(OneQutritCompositeGate):
 class XminusGate(OneQutritCompositeGate):
     """X- gate."""
     gate_name = 'xminus'
+
     def __init__(self, label: Optional[str] = None):
         super().__init__([], label=label)
 
@@ -154,6 +164,7 @@ class XminusGate(OneQutritCompositeGate):
 class P2Gate(OneQutritCompositeGate):
     """P2 gate."""
     gate_name = 'p2'
+
     def __init__(self, phi: ParameterValueType, label: Optional[str] = None):
         """Create new P2 gate."""
         super().__init__([phi], label=label)
@@ -189,6 +200,7 @@ class CrossResonanceMinusGate(CrossResonanceGate):
 
 
 class QutritQubitCXType(IntEnum):
+    """Type of qutrit-qubit generalized CX gate."""
     X = 2
     X12 = 0
     REVERSE = -1
@@ -218,6 +230,7 @@ class CRCRGate(QutritQubitCompositeGate):
     Type X12(0) -> 2 * (θ_1 + θ_2 - 2*θ_0)
     """
     gate_name = 'crcr'
+
     def __init__(
         self,
         params: Optional[Sequence[ParameterValueType]] = None,
@@ -229,6 +242,7 @@ class CRCRGate(QutritQubitCompositeGate):
 class QutritQubitCXGate(QutritQubitCompositeGate):
     """CX gate with a control qutrit and target qubit."""
     gate_name = 'qutrit_qubit_cx'
+
     def __init__(
         self,
         params: Optional[Sequence[ParameterValueType]] = None,
@@ -240,6 +254,7 @@ class QutritQubitCXGate(QutritQubitCompositeGate):
 class QutritQubitCZGate(QutritQubitCompositeGate):
     """CZ gate with a control qutrit and target qubit."""
     gate_name = 'qutrit_qubit_cz'
+
     def __init__(
         self,
         params: Optional[Sequence[ParameterValueType]] = None,
@@ -292,16 +307,16 @@ class QutritCCZGate(QutritMCGate):
 
 
 q = QuantumRegister(1, 'q')
-theta = Parameter('theta')
-phi = Parameter('phi')
-lam = Parameter('lam')
-qasm_def = QuantumCircuit(q, global_phase=(lam + phi - np.pi) / 2)
-qasm_def.append(RZ12Gate(lam), [0])
+_theta = Parameter('theta')
+_phi = Parameter('phi')
+_lam = Parameter('lam')
+qasm_def = QuantumCircuit(q, global_phase=(_lam + _phi - np.pi) / 2)
+qasm_def.append(RZ12Gate(_lam), [0])
 qasm_def.append(SX12Gate(), [0])
-qasm_def.append(RZ12Gate(theta + np.pi), [0])
+qasm_def.append(RZ12Gate(_theta + np.pi), [0])
 qasm_def.append(SX12Gate(), [0])
-qasm_def.append(RZ12Gate(phi + 3 * np.pi), [0])
-sel.add_equivalence(U12Gate(theta, phi, lam), qasm_def)
+qasm_def.append(RZ12Gate(_phi + 3 * np.pi), [0])
+sel.add_equivalence(U12Gate(_theta, _phi, _lam), qasm_def)
 
 q = QuantumRegister(1, 'q')
 qasm_def = QuantumCircuit(q)
@@ -316,11 +331,11 @@ qasm_def.append(X12Gate(), [0])
 sel.add_equivalence(XminusGate(), qasm_def)
 
 q = QuantumRegister(1, 'q')
-phi = Parameter('phi')
+_phi = Parameter('phi')
 qasm_def = QuantumCircuit(q)
-qasm_def.rz(phi * 2. / 3., 0)
-qasm_def.append(RZ12Gate(phi * 4. / 3.), [0])
-sel.add_equivalence(P2Gate(phi), qasm_def)
+qasm_def.rz(_phi * 2. / 3., 0)
+qasm_def.append(RZ12Gate(_phi * 4. / 3.), [0])
+sel.add_equivalence(P2Gate(_phi), qasm_def)
 
 # Compact version of reverse CX
 q = QuantumRegister(2, 'q')

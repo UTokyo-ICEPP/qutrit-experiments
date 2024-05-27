@@ -1,8 +1,11 @@
 #!/usr/bin/env python
+# flake8: noqa
+# pylint: disable=ungrouped-imports, unused-import
+"""Experiments to calibrate the qutrit Toffoli gate."""
 import os
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import logging
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 if __name__ == '__main__':
     from qutrit_experiments.script_util.program_config import get_program_config
@@ -11,10 +14,10 @@ if __name__ == '__main__':
     try:
         import gpustat
     except ImportError:
-        gpu_id = 0
+        GPU_ID = 0
     else:
-        gpu_id = max(gpustat.new_query(), key=lambda g: g.memory_free).index
-    os.environ['CUDA_VISIBLE_DEVICES'] = f'{gpu_id}'
+        GPU_ID = max(gpustat.new_query(), key=lambda g: g.memory_free).index
+    os.environ['CUDA_VISIBLE_DEVICES'] = f'{GPU_ID}'
     import jax
     jax.config.update('jax_enable_x64', True)
     import jax.numpy as jnp
@@ -23,23 +26,38 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger('qutrit_experiments').setLevel(logging.INFO)
 
-    from qutrit_experiments.calibrations import (make_single_qutrit_gate_calibrations,
-                                                 make_qutrit_qubit_cx_calibrations,
-                                                 make_toffoli_calibrations)
-    from qutrit_experiments.configurations.common import (qubits_assignment_error as _assign_error,
-                                                          qubits_assignment_error_post as _assign_post)
+    from qutrit_experiments.calibrations import (
+        make_single_qutrit_gate_calibrations,
+        make_qutrit_qubit_cx_calibrations,
+        make_toffoli_calibrations
+    )
+    from qutrit_experiments.configurations.common import (
+        qubits_assignment_error as _assign_error,
+        qubits_assignment_error_post as _assign_post
+    )
     import qutrit_experiments.configurations.qutrit_qubit_cx
     import qutrit_experiments.configurations.toffoli
-    from qutrit_experiments.experiment_config import (ExperimentConfig, ParallelExperimentConfig,
-                                                      experiments, register_exp, register_post)
+    from qutrit_experiments.experiment_config import (
+        ExperimentConfig,
+        ParallelExperimentConfig,
+        register_exp,
+        register_post
+    )
     from qutrit_experiments.experiments.readout_error import CorrelatedReadoutError
     from qutrit_experiments.gates import QutritQubitCXType
-    from qutrit_experiments.programs.common import (load_calibrations, setup_backend,
-                                                    setup_data_dir, setup_runner)
     from qutrit_experiments.programs.single_qutrit_gates import calibrate_single_qutrit_gates
     from qutrit_experiments.programs.qutrit_qubit_cx import calibrate_qutrit_qubit_cx
-    from qutrit_experiments.programs.toffoli import (calibrate_toffoli, characterize_toffoli,
-                                                     characterize_ccz)
+    from qutrit_experiments.programs.toffoli import (
+        calibrate_toffoli,
+        characterize_toffoli,
+        characterize_ccz
+    )
+    from qutrit_experiments.script_util import (
+        load_calibrations,
+        setup_backend,
+        setup_data_dir,
+        setup_runner
+    )
     from qutrit_experiments.util.qutrit_qubit_cx_type import qutrit_qubit_cx_type
 
     # Create the data directory
@@ -54,30 +72,30 @@ if __name__ == '__main__':
     if len(all_qubits) == 3:
         # Single Toffoli gate calibration
         import qutrit_experiments.configurations.single_qutrit
-        qutrit_runner_cls = None
+        qutrit_runner_cls = None  # pylint: disable=invalid-name
         qutrits = [all_qubits[1]]
 
         # Overwrite qubits_assignment_error registration
         @register_exp
-        def qubits_assignment_error(runner):
-            return _assign_error(runner, all_qubits)
+        def qubits_assignment_error(rnr):
+            return _assign_error(rnr, all_qubits)
 
     else:
         # Multiple Toffoli gates calibration (serial)
         import qutrit_experiments.configurations.full_backend_qutrits
         from qutrit_experiments.runners.parallel_runner import ParallelRunner
-        qutrit_runner_cls = ParallelRunner
+        qutrit_runner_cls = ParallelRunner  # pylint: disable=invalid-name
         qutrits = all_qubits[1::3]
 
         @register_exp
-        def qubits_assignment_error(runner):
+        def qubits_assignment_error(_):
             # Readout mitigation in groups of three
             config = ParallelExperimentConfig(
                 run_options={'shots': 10000},
                 exp_type='qubits_assignment_error_parallel'
             )
-            for ic1 in range(0, len(all_qubits), 3):
-                qubits = all_qubits[ic1:ic1 + 3]
+            for ictrl1 in range(0, len(all_qubits), 3):
+                qubits = all_qubits[ictrl1:ictrl1 + 3]
                 subconf = ExperimentConfig(
                     CorrelatedReadoutError,
                     qubits,
@@ -88,9 +106,9 @@ if __name__ == '__main__':
             return config
 
         @register_post
-        def qubits_assignment_error(runner, data):
+        def qubits_assignment_error(rnr, data):  # noqa: F811
             for ibatch in range(len(all_qubits) // 3):
-                _assign_post(runner, data.child_data(ibatch))
+                _assign_post(rnr, data.child_data(ibatch))
 
     # Define all schedules to be calibrated
     calibrations = make_single_qutrit_gate_calibrations(backend, qubits=qutrits)
@@ -118,7 +136,7 @@ if __name__ == '__main__':
             qutrit_runner.program_data = runner.program_data
             qutrit_runner.runtime_session = runner.runtime_session
             qutrit_runner.job_retry_interval = 120
-            qutrit_index = None
+            qutrit_index = None  # pylint: disable=invalid-name
 
         # Single qutrit gates
         calibrate_single_qutrit_gates(qutrit_runner,

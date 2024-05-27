@@ -1,9 +1,12 @@
 #!/usr/bin/env python
+# flake8: noqa
+# pylint: disable=ungrouped-imports, unused-import
 """Experiments characterizing the CCZ sequence for the qutrit Toffoli paper."""
 import os
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import logging
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 if __name__ == '__main__':
     from qutrit_experiments.script_util.program_config import get_program_config
@@ -26,10 +29,10 @@ if __name__ == '__main__':
     try:
         import gpustat
     except ImportError:
-        gpu_id = 0
+        GPU_ID = 0
     else:
-        gpu_id = max(gpustat.new_query(), key=lambda g: g.memory_free).index
-    os.environ['CUDA_VISIBLE_DEVICES'] = f'{gpu_id}'
+        GPU_ID = max(gpustat.new_query(), key=lambda g: g.memory_free).index
+    os.environ['CUDA_VISIBLE_DEVICES'] = f'{GPU_ID}'
     import jax
     jax.config.update('jax_enable_x64', True)
     import jax.numpy as jnp
@@ -42,28 +45,39 @@ if __name__ == '__main__':
 
     from qiskit.circuit import Parameter
     from qiskit_experiments.library.tomography.tomography_experiment import TomographyExperiment
-    from qutrit_experiments.calibrations import (make_single_qutrit_gate_calibrations,
-                                                 make_qutrit_qubit_cx_calibrations,
-                                                 make_toffoli_calibrations)
-    from qutrit_experiments.configurations.common import (configure_qpt_readout_mitigation,
-                                                          configure_readout_mitigation,
-                                                          qubits_assignment_error as _assign_error,
-                                                          qubits_assignment_error_post as _assign_post)
+    from qutrit_experiments.calibrations import (
+        make_single_qutrit_gate_calibrations,
+        make_qutrit_qubit_cx_calibrations,
+        make_toffoli_calibrations
+    )
+    from qutrit_experiments.configurations.common import (
+        configure_qpt_readout_mitigation,
+        configure_readout_mitigation,
+        qubits_assignment_error as _assign_error,
+        qubits_assignment_error_post as _assign_post
+    )
     import qutrit_experiments.configurations.full_backend_qutrits
     import qutrit_experiments.configurations.qutrit_qubit_cx
     import qutrit_experiments.configurations.toffoli
     import qutrit_experiments.configurations.qutrit_toffoli_paper
-    from qutrit_experiments.experiment_config import (BatchExperimentConfig,
-                                                      CompositeExperimentConfig,
-                                                      ParallelExperimentConfig,
-                                                      experiments, postexperiments)
+    from qutrit_experiments.experiment_config import (
+        BatchExperimentConfig,
+        CompositeExperimentConfig,
+        ParallelExperimentConfig,
+        experiments,
+        postexperiments
+    )
     from qutrit_experiments.experiments.truth_table import TruthTable
     from qutrit_experiments.gates import QutritQubitCXType
-    from qutrit_experiments.programs.common import (load_calibrations, run_experiment, setup_backend,
-                                                    setup_data_dir, setup_runner)
+    from qutrit_experiments.programs.common import run_experiment
     from qutrit_experiments.programs.single_qutrit_gates import calibrate_single_qutrit_gates
     from qutrit_experiments.runners.parallel_runner import ParallelRunner
-
+    from qutrit_experiments.script_util import (
+        load_calibrations,
+        setup_backend,
+        setup_data_dir,
+        setup_runner
+    )
 
     # Create the data directory
     setup_data_dir(program_config)
@@ -95,29 +109,29 @@ if __name__ == '__main__':
     runner.job_retry_interval = 120
     runner.default_print_level = 1
 
-    def parallelized(exp_type, gen=None, qidx=None):
-        config = ParallelExperimentConfig(exp_type=exp_type)
+    def parallelized(typ, genfn=None, qidx=None):
+        cfg = ParallelExperimentConfig(exp_type=typ)
         runner_qubits = runner.qubits
-        for qubits in qubits_list:
+        for pqs in qubits_list:
             if qidx:
-                runner.qubits = [qubits[iq] for iq in qidx]
+                runner.qubits = [pqs[iq] for iq in qidx]
             else:
-                runner.qubits = qubits
-            if gen:
-                subconfig = gen(runner)
+                runner.qubits = pqs
+            if genfn:
+                subcfg = genfn(runner)
             else:
-                subconfig = experiments[exp_type](runner)
-            config.subexperiments.append(subconfig)
+                subcfg = experiments[typ](runner)
+            cfg.subexperiments.append(subcfg)
 
         runner.qubits = runner_qubits
-        return config
+        return cfg
 
     try:
         # Load the calibrations if source is specified in program_config
         calibrated = load_calibrations(runner, program_config)
 
         config = parallelized('qubits_assignment_error',
-                              gen=lambda runner: _assign_error(runner, runner.qubits))
+                              genfn=lambda runner: _assign_error(runner, runner.qubits))
         config.run_options = {'shots': 10000}
         postexperiments.pop('qubits_assignment_error')
         rem_data = run_experiment(runner, config, plot_depth=-1,
@@ -126,16 +140,16 @@ if __name__ == '__main__':
 
         def rem_post():
             rem_data.block_for_results()
-            for qubits, child_data in zip(qubits_list, rem_data.child_data()):
-                runner.qubits = qubits
-                _assign_post(runner, child_data)
+            for pqs, chd in zip(qubits_list, rem_data.child_data()):
+                runner.qubits = pqs
+                _assign_post(runner, chd)
 
         if not program_config['no_cal']:
             rem_post()
 
             # Define a ParallelRunner to calibrate single qutrit gates in parallel
             qutrit_runner = setup_runner(backend, program_config, calibrations=calibrations,
-                                        qubits=qutrits, runner_cls=ParallelRunner)
+                                         qubits=qutrits, runner_cls=ParallelRunner)
             qutrit_runner.program_data = runner.program_data
             qutrit_runner.runtime_session = runner.runtime_session
             qutrit_runner.job_retry_interval = 120
@@ -151,7 +165,7 @@ if __name__ == '__main__':
             # Update the qubits list to exclude combinations with bad qutrits
             good_qutrits = set(qutrit_runner.qubits)
             qubits_list = [all_qubits[i:i + 3] for i in range(0, len(all_qubits), 3)
-                        if all_qubits[i + 1] in good_qutrits]
+                           if all_qubits[i + 1] in good_qutrits]
 
             if (exp_type := 'tc2_cr_rotary_delta') not in calibrated:
                 config = parallelized(exp_type, qidx=(1, 2))
@@ -184,12 +198,12 @@ if __name__ == '__main__':
         exp_data = {}
 
         if not program_config['no_qpt']:
-            def gen(runner):
-                config = experiments['qpt_ccz_bc'](runner)
-                config.analysis_options.pop('target_bootstrap_samples')
-                return config
+            def gen(rnr):
+                cfg = experiments['qpt_ccz_bc'](rnr)
+                cfg.analysis_options.pop('target_bootstrap_samples')
+                return cfg
 
-            config = parallelized('qpt_ccz_bc', gen=gen)
+            config = parallelized('qpt_ccz_bc', genfn=gen)
             config.experiment_options = {'max_circuits': 100}
             config.run_options = {'shots': 2000}
 
@@ -233,20 +247,21 @@ if __name__ == '__main__':
 
     if program_config['no_cal']:
         rem_post()
-        def set_rem(config):
-            if isinstance(config, CompositeExperimentConfig):
-                for subconfig in config.subexperiments:
-                    set_rem(subconfig)
+
+        def set_rem(cfg):
+            if isinstance(cfg, CompositeExperimentConfig):
+                for subcfg in cfg.subexperiments:
+                    set_rem(subcfg)
                 return
             runner.qubits = next(qubits for qubits in qubits_list
-                                if set(config.physical_qubits) <= set(qubits))
-            if issubclass(config.cls, TomographyExperiment):
-                configure_qpt_readout_mitigation(runner, config)
+                                 if set(cfg.physical_qubits) <= set(qubits))
+            if issubclass(cfg.cls, TomographyExperiment):
+                configure_qpt_readout_mitigation(runner, cfg)
             else:
-                configure_readout_mitigation(runner, config,
-                                             probability=not issubclass(config.cls, TruthTable))
+                configure_readout_mitigation(runner, cfg,
+                                             probability=not issubclass(cfg.cls, TruthTable))
     else:
-        def set_rem(config):
+        def set_rem(_):
             pass
 
     for config in configs:
@@ -255,14 +270,14 @@ if __name__ == '__main__':
         logger.info('Analyzing %s', config.exp_type)
         exp.analysis.run(exp_data[config.exp_type]).block_for_results()
 
-    def save_figure(child_data):
-        exp_type = child_data.experiment_type
-        qubits = child_data.metadata['physical_qubits']
-        for name in child_data.figure_names:
+    def save_figure(chd):
+        typ = chd.experiment_type
+        pqs = chd.metadata['physical_qubits']
+        for name in chd.figure_names:
             file_name = os.path.join(runner.data_dir,
                                      'program_data',
-                                     f'{exp_type}_{"_".join(map(str, qubits))}_{name}')
-            figure = child_data.figure(name).figure
+                                     f'{typ}_{"_".join(map(str, pqs))}_{name}')
+            figure = chd.figure(name).figure
             figure.savefig(file_name + '.pdf')
             figure.savefig(file_name + '.jpg')
 
@@ -272,7 +287,8 @@ if __name__ == '__main__':
         for child_data in data_qpt.child_data():
             qubits = tuple(child_data.metadata['physical_qubits'])
             runner.program_data['choi'][qubits] = child_data.analysis_results('state').value
-            runner.program_data['process_fidelity'][qubits] = child_data.analysis_results('process_fidelity').value
+            runner.program_data['process_fidelity'][qubits] = \
+                child_data.analysis_results('process_fidelity').value
 
     for seq_name in ['ccz', 'id0', 'id1', 'id2', 'id3']:
         if (bdata := exp_data.get(f'characterization_{seq_name}')) is None:
@@ -295,9 +311,11 @@ if __name__ == '__main__':
             for child_data in pdata.child_data():
                 qubits = tuple(child_data.metadata['physical_qubits'])
                 if exp_type.startswith('c2phase'):
-                    runner.program_data[exp_type][qubits] = child_data.analysis_results('phase_offset').value
+                    runner.program_data[exp_type][qubits] = \
+                        child_data.analysis_results('phase_offset').value
                 else:
-                    runner.program_data[exp_type][qubits] = child_data.analysis_results('process_fidelity').value
+                    runner.program_data[exp_type][qubits] = \
+                        child_data.analysis_results('process_fidelity').value
                 save_figure(child_data)
 
     runner.save_program_data()

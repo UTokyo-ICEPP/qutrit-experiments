@@ -1,8 +1,10 @@
 #!/usr/bin/env python
+# pylint: disable=ungrouped-imports, unused-import
+"""Reference (default & 8CX implementation) Toffoli gate fidelity measurements."""
 import os
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import logging
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 if __name__ == '__main__':
     from qutrit_experiments.script_util.program_config import get_program_config
@@ -12,21 +14,16 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger('qutrit_experiments').setLevel(logging.INFO)
 
-    from qiskit_ibm_runtime import QiskitRuntimeService, Session
-    from qiskit import QuantumCircuit, transpile, schedule
+    from qiskit import QuantumCircuit, transpile
     from qiskit_experiments.library.characterization import CorrelatedReadoutError
-    from qiskit_experiments.library.tomography import ProcessTomography
-    from qiskit_experiments.data_processing import DataProcessor
-    from qutrit_experiments.data_processing import ReadoutMitigation
-    from qutrit_experiments.experiments.process_tomography import CircuitTomography, CircuitTomographyAnalysis
-    from qutrit_experiments.experiment_config import ExperimentConfig, ParallelExperimentConfig
-    from qutrit_experiments.programs.common import (load_calibrations, setup_backend,
-                                                    setup_data_dir, setup_runner)
-    from qutrit_experiments.runners.experiments_runner import ExperimentsRunner
-    from qutrit_experiments.configurations.common import configure_qpt_readout_mitigation
 
-    def qubits_suffix(qubits):
-        return '_'.join(map(str, qubits))
+    from qutrit_experiments.configurations.common import configure_qpt_readout_mitigation
+    from qutrit_experiments.experiments.process_tomography import CircuitTomography
+    from qutrit_experiments.experiment_config import ExperimentConfig, ParallelExperimentConfig
+    from qutrit_experiments.script_util import setup_backend, setup_data_dir, setup_runner
+
+    def qubits_suffix(pqs):
+        return '_'.join(map(str, pqs))
 
     # Create the data directory
     setup_data_dir(program_config)
@@ -41,8 +38,7 @@ if __name__ == '__main__':
     runner = setup_runner(backend, program_config)
     runner.job_retry_interval = 120
 
-    ## Readout mitigation
-
+    # Readout mitigation
     config = ParallelExperimentConfig(
         [
             ExperimentConfig(
@@ -59,10 +55,10 @@ if __name__ == '__main__':
     runner.program_data['readout_mitigator'] = {}
     for child_data in data.child_data():
         mitigator = child_data.analysis_results('Correlated Readout Mitigator').value
-        runner.program_data['readout_mitigator'][tuple(child_data.metadata['physical_qubits'])] = mitigator
+        qubits = tuple(child_data.metadata['physical_qubits'])
+        runner.program_data['readout_mitigator'][qubits] = mitigator
 
-    ## Default decomposition
-
+    # Default decomposition
     circuit = QuantumCircuit(3)
     circuit.ccx(0, 1, 2)
 
@@ -79,6 +75,7 @@ if __name__ == '__main__':
             mapped_qargs = [qmap[tcirc.find_bit(i).index] for i in qargs]
             lcirc._append(inst, mapped_qargs, [])
 
+        # pylint: disable=unexpected-keyword-arg
         subconfig = ExperimentConfig(
             CircuitTomography,
             qubits,
@@ -89,8 +86,7 @@ if __name__ == '__main__':
         config.subexperiments.append(subconfig)
     data_default = runner.run_experiment(config, block_for_results=False)
 
-    ## 8CX decomposition
-
+    # 8CX decomposition
     circuit = QuantumCircuit(3)
     circuit.t(0)
     circuit.t(1)
@@ -126,6 +122,7 @@ if __name__ == '__main__':
             mapped_qargs = [qmap[tcirc.find_bit(i).index] for i in qargs]
             lcirc._append(inst, mapped_qargs, [])
 
+        # pylint: disable=unexpected-keyword-arg
         subconfig = ExperimentConfig(
             CircuitTomography,
             qubits,
@@ -140,5 +137,7 @@ if __name__ == '__main__':
     data_default.block_for_results()
     data_8cx.block_for_results()
 
-    print('Default decomposition:', [child_data.analysis_results('process_fidelity').value for child_data in data_default.child_data()])
-    print('8CX decomposition:', [child_data.analysis_results('process_fidelity').value for child_data in data_8cx.child_data()])
+    print('Default decomposition:', [child_data.analysis_results('process_fidelity').value
+                                     for child_data in data_default.child_data()])
+    print('8CX decomposition:', [child_data.analysis_results('process_fidelity').value
+                                 for child_data in data_8cx.child_data()])
