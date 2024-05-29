@@ -84,32 +84,36 @@ if __name__ == '__main__':
     assert program_config['qubits'] is not None and len(program_config['qubits']) % 3 == 0
     print('Starting toffoli:', program_config['name'])
 
-    need_calibration = program_config['calibrations'] is None
-
     # Instantiate the backend
     backend = setup_backend(program_config)
     all_qubits = tuple(program_config['qubits'])
     qubits_list = [all_qubits[i:i + 3] for i in range(0, len(all_qubits), 3)]
     qutrits = [qubits[1] for qubits in qubits_list]
 
-    # Define all schedules to be calibrated
-    calibrations = make_single_qutrit_gate_calibrations(backend, qubits=qutrits)
-    make_qutrit_qubit_cx_calibrations(backend, calibrations=calibrations, qubits=all_qubits)
-    make_toffoli_calibrations(backend, calibrations=calibrations, qubits=all_qubits)
-    calibrations._register_parameter(Parameter('delta_cz_id'), ())
-    calibrations._register_parameter(Parameter('delta_ccz_id0'), ())
-    calibrations._register_parameter(Parameter('delta_ccz_id1'), ())
-    calibrations._register_parameter(Parameter('delta_ccz_id2'), ())
+    calibrations = None
+    if program_config['calibrations'] is None:
+        # Define all schedules to be calibrated
+        calibrations = make_single_qutrit_gate_calibrations(backend, qubits=qutrits)
+        make_qutrit_qubit_cx_calibrations(backend, calibrations=calibrations, qubits=all_qubits)
+        make_toffoli_calibrations(backend, calibrations=calibrations, qubits=all_qubits)
+        calibrations._register_parameter(Parameter('delta_cz_id'), ())
+        calibrations._register_parameter(Parameter('delta_ccz_id0'), ())
+        calibrations._register_parameter(Parameter('delta_ccz_id1'), ())
+        calibrations._register_parameter(Parameter('delta_ccz_id2'), ())
 
-    for qubits in qubits_list:
-        calibrations.add_parameter_value(int(QutritQubitCXType.REVERSE), 'rcr_type', qubits[1:])
+        for qubits in qubits_list:
+            calibrations.add_parameter_value(int(QutritQubitCXType.REVERSE), 'rcr_type', qubits[1:])
 
     # Define the main ExperimentsRunner and run the readout mitigation measurements
     runner = setup_runner(backend, program_config, calibrations=calibrations)
     runner.job_retry_interval = 120
     runner.default_print_level = 1
 
+    # Load the calibrations if source is specified in program_config
+    calibrated = load_calibrations(runner, program_config)
+
     def parallelized(typ, genfn=None, qidx=None):
+        """Return a ParallelExperimentConfig."""
         cfg = ParallelExperimentConfig(exp_type=typ)
         runner_qubits = runner.qubits
         for pqs in qubits_list:
@@ -127,9 +131,6 @@ if __name__ == '__main__':
         return cfg
 
     try:
-        # Load the calibrations if source is specified in program_config
-        calibrated = load_calibrations(runner, program_config)
-
         config = parallelized('qubits_assignment_error',
                               genfn=lambda runner: _assign_error(runner, runner.qubits))
         config.run_options = {'shots': 10000}
@@ -139,6 +140,7 @@ if __name__ == '__main__':
                                   block_for_results=not program_config['no_cal'])
 
         def rem_post():
+            """Postexperiment for readout error mitigation."""
             rem_data.block_for_results()
             for pqs, chd in zip(qubits_list, rem_data.child_data()):
                 runner.qubits = pqs

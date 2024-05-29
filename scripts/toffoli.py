@@ -110,28 +110,29 @@ if __name__ == '__main__':
             for ibatch in range(len(all_qubits) // 3):
                 _assign_post(rnr, data.child_data(ibatch))
 
-    # Define all schedules to be calibrated
-    calibrations = make_single_qutrit_gate_calibrations(backend, qubits=qutrits)
-    make_qutrit_qubit_cx_calibrations(backend, calibrations=calibrations, qubits=all_qubits)
-    make_toffoli_calibrations(backend, calibrations=calibrations, qubits=all_qubits)
+    calibrations = None
+    if program_config['calibrations'] is None:
+        # Define all schedules to be calibrated
+        calibrations = make_single_qutrit_gate_calibrations(backend, qubits=qutrits)
+        make_qutrit_qubit_cx_calibrations(backend, calibrations=calibrations, qubits=all_qubits)
+        make_toffoli_calibrations(backend, calibrations=calibrations, qubits=all_qubits)
 
     # Define the main ExperimentsRunner and run the readout mitigation measurements
     runner = setup_runner(backend, program_config, calibrations=calibrations)
     runner.job_retry_interval = 120
+    # Load the calibrations if source is specified in program_config
+    calibrated = load_calibrations(runner, program_config)
 
     try:
         runner.run_experiment('qubits_assignment_error',
                               force_resubmit=program_config['refresh_readout'])
-
-        # Load the calibrations if source is specified in program_config
-        calibrated = load_calibrations(runner, program_config)
 
         if qutrit_runner_cls is None:
             qutrit_runner = runner
             qutrit_index = [1]
         else:
             # Define a ParallelRunner to calibrate single qutrit gates in parallel
-            qutrit_runner = setup_runner(backend, program_config, calibrations=calibrations,
+            qutrit_runner = setup_runner(backend, program_config, calibrations=runner.calibrations,
                                          qubits=qutrits, runner_cls=qutrit_runner_cls)
             qutrit_runner.program_data = runner.program_data
             qutrit_runner.runtime_session = runner.runtime_session
