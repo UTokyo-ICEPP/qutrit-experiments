@@ -12,7 +12,6 @@ from uncertainties import ufloat, correlated_values, unumpy as unp
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
 import qiskit_experiments.curve_analysis as curve
-from qiskit_experiments.curve_analysis.base_curve_analysis import PARAMS_ENTRY_PREFIX
 from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 from qiskit_experiments.exceptions import AnalysisError
 from qiskit_experiments.framework import Options, ExperimentData, AnalysisResultData
@@ -294,8 +293,7 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         analysis_results, figures = curve.CurveAnalysis._run_analysis(self, experiment_data)
 
-        fit_result = next(res.value for res in analysis_results
-                          if res.name == PARAMS_ENTRY_PREFIX + self.name)
+        fit_result = next(res.data for res in analysis_results if res.name == 'fit_summary')
         popt = fit_result.ufloat_params
         # Divide the omegas by factor two to interpret as coefficients of single-qubit X, Y, Z
         analysis_results.append(
@@ -344,12 +342,12 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
                     parent_metadata[key] = value
 
         component_index = experiment_data.metadata['component_child_index']
-        for analysis, child_index in zip(self._analyses, component_index):
+        for child_index in component_index:
             child_data = experiment_data.child_data(child_index)
-            child_result = child_data.analysis_results(PARAMS_ENTRY_PREFIX + analysis.name)
+            child_result = child_data.artifacts('fit_summary')[0].data
             init = child_data.metadata['init']
             meas_basis = child_data.metadata['meas_basis']
-            self._component_results[f'{meas_basis}|{init}'] = child_result.value.ufloat_params
+            self._component_results[f'{meas_basis}|{init}'] = child_result.ufloat_params
 
     def _generate_fit_guesses(
         self,

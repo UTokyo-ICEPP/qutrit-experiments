@@ -9,9 +9,9 @@ from qiskit import pulse
 from qiskit.circuit import Parameter
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
-from qiskit_experiments.curve_analysis.base_curve_analysis import PARAMS_ENTRY_PREFIX
 from qiskit_experiments.curve_analysis.utils import convert_lmfit_result, eval_with_uncertainties
 from qiskit_experiments.framework import AnalysisResultData, BackendData, ExperimentData, Options
+from qiskit_experiments.framework.containers import ArtifactData
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ...framework.compound_analysis import CompoundAnalysis
@@ -45,7 +45,7 @@ def build_sizzle_schedule(
     if target_channel is None:
         target_channel = backend_data.drive_channel(target)
 
-    width = Parameter('delay') # SpectatorRamseyXY requires the parameter to be named delay
+    width = Parameter('delay')  # SpectatorRamseyXY requires the parameter to be named delay
     with pulse.build(name='sizzle', default_alignment='left') as sizzle_sched:
         if pre_delay:
             pulse.delay(pre_delay, control_channel)
@@ -184,6 +184,7 @@ class SiZZle(QutritZZRamsey):
                          delay_schedule=sizzle_schedule, extra_metadata=metadata,
                          backend=backend)
 
+
 class SiZZleShift(BatchExperiment):
     """SiZZle + reference SpectatorRamseyXY to compute the frequency shifts."""
     def __init__(
@@ -230,6 +231,7 @@ class SiZZleShiftAnalysis(CompoundAnalysis):
 
 class SiZZleFrequencyScan(BatchExperiment):
     """Frequency scan of SiZZle."""
+    @classmethod
     def _default_experiment_options(cls) -> Options:
         options = super()._default_experiment_options()
         options.frequencies_of_interest = {}
@@ -270,7 +272,7 @@ class SiZZleFrequencyScan(BatchExperiment):
         metadata['measure_shift'] = self.measure_shift
         hvars = self._backend.configuration().hamiltonian['vars']
         keys = sum(([f'wq{qubit}', f'delta{qubit}', f'omegad{qubit}']
-                     for qubit in self.physical_qubits), [])
+                    for qubit in self.physical_qubits), [])
         keys += [f'jq{min(self.physical_qubits)}q{max(self.physical_qubits)}']
         metadata['hvars'] = {key: hvars[key] for key in keys}
         return metadata
@@ -424,8 +426,7 @@ class SiZZlePhaseScanAnalysis(CompoundAnalysis):
         options = super()._default_options()
         options.plot = True
         options.base_omegas = np.zeros(3)
-        options.return_fit_parameters = False
-        options.expected_signs = [-1, 1, -1] # Iz, zz, ζz
+        options.expected_signs = [-1, 1, -1]  # Iz, zz, ζz
         return options
 
     def _run_additional_analysis(
@@ -506,11 +507,7 @@ class SiZZlePhaseScanAnalysis(CompoundAnalysis):
             quality = 'bad'
 
         if self.options.return_fit_parameters:
-            analysis_results.append(AnalysisResultData(
-                name=PARAMS_ENTRY_PREFIX + self.__class__.__name__,
-                value=fit_data,
-                quality=quality,
-            ))
+            analysis_results.append(ArtifactData(name='fit_summary', data=fit_data))
 
         if self.options.plot:
             plotter = CurvePlotter(MplDrawer())
@@ -688,10 +685,6 @@ class SiZZleAmplitudeScanAnalysis(CompoundAnalysis):
                     params = model.make_params(c=c)
                 else:
                     model = lmfit.models.QuadraticModel()
-                    if base_omegas.dtype == np.dtype('O'):
-                        nom_base_omegas = unp.nominal_values(base_omegas)
-                    else:
-                        nom_base_omegas = base_omegas
                     diff_amp = np.diff(xval)
                     a = np.mean(np.diff(np.diff(yval) / diff_amp) / diff_amp[:-1] / 2.)
                     c = yval[0] - a * np.square(xval[0])
@@ -722,12 +715,7 @@ class SiZZleAmplitudeScanAnalysis(CompoundAnalysis):
             else:
                 quality = 'bad'
 
-            if self.options.return_fit_parameters:
-                analysis_results.append(AnalysisResultData(
-                    name=PARAMS_ENTRY_PREFIX + self.__class__.__name__ + f'_{op}',
-                    value=fit_data[op],
-                    quality=quality,
-                ))
+            analysis_results.append(ArtifactData(name='fit_summary', data=fit_data[op]))
 
         if self.options.plot:
             x_interp = np.linspace(amplitudes[0], amplitudes[-1], 100)
@@ -754,7 +742,6 @@ class SiZZleAmplitudeScanAnalysis(CompoundAnalysis):
                     #             op,
                     #             y_interp_err=y_interp_err
                     #         )
-
 
             figures.append(plotter.figure())
 

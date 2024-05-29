@@ -59,7 +59,6 @@ import jaxopt
 import numpy as np
 from sklearn.cluster import KMeans
 from uncertainties import unumpy as unp
-from qiskit_experiments.curve_analysis.base_curve_analysis import PARAMS_ENTRY_PREFIX
 from qiskit_experiments.data_processing import DataProcessor
 
 if TYPE_CHECKING:
@@ -148,9 +147,7 @@ def ef_discriminator_analysis(
     maxiter: int = 10000,
     convergence: float = 1.e-4
 ) -> tuple[float, float]:
-    fit_results = next(res for res in experiment_data.analysis_results()
-                       if res.name.startswith(PARAMS_ENTRY_PREFIX))
-    popt = fit_results.value.params
+    popt = experiment_data.artifacts('fit_summary')[0].data.params
 
     wval = np.array(list(d['metadata']['xval'] for d in experiment_data.data()))
     samples = unp.nominal_values(DataProcessor('memory')(experiment_data.data()))

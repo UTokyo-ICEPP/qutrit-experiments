@@ -12,7 +12,6 @@ from qiskit.qobj.utils import MeasReturnType
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.framework import Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
-from qiskit_experiments.curve_analysis.base_curve_analysis import PARAMS_ENTRY_PREFIX
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData
 from qiskit_experiments.library import EFSpectroscopy
 
@@ -94,9 +93,9 @@ class GaussianResonanceAnalysis(curve.CurveAnalysis):
 
         if x0:
             for result in analysis_results:
-                if result.name == PARAMS_ENTRY_PREFIX + self.name:
-                    result.value.params['freq'] += x0
-                    result.value.x_data += x0
+                if result.name == 'fit_summary':
+                    result.data.params['freq'] += x0
+                    result.data.x_data += x0
                 elif result.name == 'f12':
                     result.value += x0
                 elif result.name == 'curve_data':

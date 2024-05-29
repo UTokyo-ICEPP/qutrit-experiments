@@ -10,7 +10,6 @@ from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.providers import Backend
 import qiskit_experiments.curve_analysis as curve
-from qiskit_experiments.curve_analysis.base_curve_analysis import PARAMS_ENTRY_PREFIX
 from qiskit_experiments.framework import (AnalysisResultData, BackendTiming, BaseExperiment,
                                           ExperimentData, Options)
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
@@ -189,9 +188,7 @@ class EFT1Analysis(TernaryMCMResultAnalysis):
         self.options.plot = plot_option
 
         if plot_option:
-            cls_name = self.__class__.__name__
-            fit_params = next(res for res in results
-                              if res.name == f'{PARAMS_ENTRY_PREFIX}{cls_name}').value
+            fit_params = next(res.data for res in results if res.name == 'fit_summary')
             for idx, model in enumerate(self._models):
                 table = next(res.data for res in results if res.name == 'curve_data')
                 sub_data = table.filter(category='formatted')
