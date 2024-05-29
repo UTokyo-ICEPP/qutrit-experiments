@@ -1,0 +1,8 @@
+[MAIN]
+
+[MESSAGES CONTROL]
+disable=
+    invalid-name,
+    protected-access,
+    too-few-public-methods,
+    missing-function-docstring
