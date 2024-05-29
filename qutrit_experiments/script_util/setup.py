@@ -77,22 +77,28 @@ def load_calibrations(
     runner: ExperimentsRunner,
     program_config: dict[str, Any]
 ) -> set[str]:
-    """Load the calibrations from a CSV file."""
+    """Load the calibrations from a CSV or JSON file."""
     calibrated = set()
     if (calib_path := program_config['calibrations']) is not None:
-        if calib_path.endswith('.csv'):
+        if os.path.isdir(calib_path):
+            data_dir = calib_path
+            if os.path.exists(os.path.join(data_dir, 'calibrations.json')):
+                file_name = 'calibrations.json'
+                is_csv = False
+            elif os.path.exists(os.path.join(data_dir, 'parameter_values.csv')):
+                file_name = 'parameter_values.csv'
+                is_csv = True
+        else:
             data_dir = os.path.dirname(calib_path)
             file_name = os.path.basename(calib_path)
-        else:
-            data_dir = calib_path
-            file_name = 'parameter_values.csv'
+            is_csv = calib_path.endswith('.csv')
 
         if data_dir == '':
             data_dir = None
         elif not os.path.isabs(data_dir):
             data_dir = os.path.join(program_config['base_dir'], data_dir)
 
-        runner.load_calibrations(file_name=file_name, data_dir=data_dir)
+        runner.load_calibrations(file_name=file_name, data_dir=data_dir, is_csv=is_csv)
 
         for datum in runner.calibrations.parameters_table(most_recent_only=False)['data']:
             if datum['valid'] and datum['group'] != 'default':

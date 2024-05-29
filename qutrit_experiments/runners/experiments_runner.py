@@ -62,16 +62,19 @@ class ExperimentsRunner:
         self,
         backend: Backend,
         qubits: Optional[Sequence[int]] = None,
-        calibrations: Optional[Calibrations] = None,
+        calibrations: Optional[Union[Calibrations, str]] = None,
         data_dir: Optional[str] = None,
         read_only: bool = False,
         runtime_session: Optional[Session] = None
     ):
         self._backend = backend
-        self.calibrations = calibrations
-
         self.qubits = qubits
         self.data_dir = data_dir
+
+        if isinstance(calibrations, str):
+            self.load_calibrations(file_name=calibrations)
+        else:
+            self.calibrations = calibrations
 
         self.read_only = read_only
         self.default_print_level = 2
@@ -134,12 +137,15 @@ class ExperimentsRunner:
 
     def load_calibrations(
         self,
-        file_name: str = 'parameter_values.csv',
-        data_dir: Optional[str] = None
+        file_name: str = 'calibrations.json',
+        data_dir: Optional[str] = None,
+        is_csv: bool = False  # for backward compatibility
     ):
-        if data_dir is None:
-            data_dir = self._data_dir
-        self.calibrations.load_parameter_values(file_name=os.path.join(data_dir, file_name))
+        data_dir = data_dir or self._data_dir
+        if is_csv:
+            self.calibrations.load_parameter_values(file_name=os.path.join(data_dir, file_name))
+        else:
+            self.calibrations = Calibrations.load(os.path.join(data_dir, file_name))
 
     def make_experiment(
         self,
@@ -517,7 +523,8 @@ class ExperimentsRunner:
                                       to_group=etype)
 
         if any(x[-1] for x in update_list) and self._data_dir and not self.read_only:
-            self.calibrations.save(folder=self._data_dir, overwrite=True)
+            self.calibrations.save(folder=self._data_dir, overwrite=True,
+                                   file_prefix='calibrations')
 
     def save_program_data(self, key: Optional[str] = None):
         if not self._data_dir:
