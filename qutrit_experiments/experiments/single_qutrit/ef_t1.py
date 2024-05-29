@@ -193,7 +193,7 @@ class EFT1Analysis(TernaryMCMResultAnalysis):
             fit_params = next(res for res in results
                               if res.name == f'{PARAMS_ENTRY_PREFIX}{cls_name}').value
             for idx, model in enumerate(self._models):
-                table = next(res for res in results if res.name == 'curve_data')
+                table = next(res.data for res in results if res.name == 'curve_data')
                 sub_data = table.filter(category='formatted')
                 self.plotter.set_series_data(
                     model._name,
