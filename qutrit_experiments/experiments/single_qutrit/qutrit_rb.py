@@ -29,7 +29,7 @@ class UnitaryGate(Gate):
     def validate_parameter(self, parameter):
         """Unitary gate parameter has to be a square-matrix ndarray."""
         if (isinstance(parameter, np.ndarray) and len(parameter.shape) == 2
-            and parameter.shape[0] == parameter.shape[1]):
+                and parameter.shape[0] == parameter.shape[1]):
             return parameter
         raise CircuitError(f"invalid parameter {parameter} in gate {self.name}")
 
@@ -50,7 +50,7 @@ class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
         options.lengths = np.arange(1, 50, 3)
         options.num_samples = 5
         options.seed = None
-        options.qubit_mode = None # for debugging
+        options.qubit_mode = None  # for debugging
         return options
 
     def __init__(
@@ -105,7 +105,6 @@ class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
 
     def circuits(self) -> list[QuantumCircuit]:
         rng = np.random.default_rng(seed=self.experiment_options.seed)
-        dim = 2 if self.experiment_options else 3
 
         circuits = []
         for length in self.experiment_options.lengths:
@@ -272,8 +271,8 @@ class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
             # SX
             circuit.append(sx_gates[row + dim_shift](), [qubit])
             # P(φ+π)
-            diag_phases = np.full(dim, -(phi  + np.pi) / dim)
-            diag_phases[row + 1] += (phi + np.pi)
+            diag_phases = np.full(dim, -(phi + np.pi) / dim)
+            diag_phases[row + 1] += phi + np.pi
             append_phase_gates(diag_phases)
 
 

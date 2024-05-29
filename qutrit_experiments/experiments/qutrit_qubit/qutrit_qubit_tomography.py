@@ -1,3 +1,4 @@
+"""Qubit process/unitary tomography with control qutrit in three states."""
 from collections.abc import Sequence
 import logging
 from threading import Lock
@@ -11,7 +12,7 @@ import pandas as pd
 from uncertainties import correlated_values, unumpy as unp
 from qiskit import ClassicalRegister, QuantumCircuit
 from qiskit.circuit import Gate
-from qiskit.providers import Backend, Options
+from qiskit.providers import Backend
 from qiskit_experiments.data_processing import (BasisExpectationValue, DataProcessor,
                                                 MarginalizeCounts, Probability)
 from qiskit_experiments.database_service.exceptions import ExperimentEntryNotFound
@@ -153,9 +154,9 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
     def _default_options(cls) -> Options:
         options = super()._default_options()
         options.figure_names = ['expectation_values']
-        options.data_processor = None # Needed to have DP propagated to tomography analysis
+        options.data_processor = None  # Needed to have DP propagated to tomography analysis
         options.plot = True
-        options.parallelize = 0 # This analysis is somehow faster done in serial
+        options.parallelize = 0  # This analysis is somehow faster done in serial
         options.prep_unitaries = {}
         options.maxiter = None
         options.tol = None
@@ -385,7 +386,7 @@ class QutritQubitTomographyScan(BatchExperiment):
         try:
             # Can we transpile without assigning values?
             template_circuits = dummy_exp._batch_circuits(to_transpile)
-        except:
+        except Exception:  # pylint: disable=broad-exception-caught
             # If not, just revert to BatchExperiment default behavior
             return super()._batch_circuits(to_transpile=to_transpile)
 
@@ -442,11 +443,11 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
     def _default_options(cls) -> Options:
         options = super()._default_options()
         options.figure_names = ['theta_x', 'theta_y', 'theta_z', 'chisq']
-        options.data_processor = None # Needed to have DP propagated to tomography analysis
+        options.data_processor = None  # Needed to have DP propagated to tomography analysis
         options.parallelize_on_thread = False
         options.simul_fit = False
         options.plot = True
-        options.parallelize = 0 # This analysis is somehow faster done in serial
+        options.parallelize = 0  # This analysis is somehow faster done in serial
         options.return_expvals = False
         options.maxiter = None
         options.tol = None
@@ -506,10 +507,15 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
             for state in control_states:
                 lists[state] = np.array(lists[state])
 
-        chisq = {state: np.mean(np.square((unp.nominal_values(observeds[state]) - predicteds[state])
-                                           / unp.std_devs(observeds[state])),
-                                axis=1)
-                 for state in control_states}
+        chisq = {
+            state: np.mean(
+                np.square(
+                    (unp.nominal_values(observeds[state]) - predicteds[state])
+                    / unp.std_devs(observeds[state])
+                ),
+                axis=1
+            ) for state in control_states
+        }
 
         analysis_results.extend([
             AnalysisResultData(name='control_states', value=control_states),
@@ -619,7 +625,8 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
                     unitary_params = self.unitary_params(
                         unp.nominal_values(popt_ufloats[state]), scan_values[0]
                     )
-                    preds = so3_cartesian(unitary_params)[:, meas_bases[state], initial_states[state]]
+                    bloch_coords = so3_cartesian(unitary_params)
+                    preds = bloch_coords[:, meas_bases[state], initial_states[state]]
                     y_interp = np.mean(
                         np.square(
                             (unp.nominal_values(observeds[state]) - preds)
@@ -676,6 +683,7 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
     def _get_p0s(self, norm_xvals: np.ndarray, xvals_norm: float, unitary_params: np.ndarray):
         raise NotImplementedError()
 
+    # pylint: disable-next=unused-argument
     def _postprocess_params(self, upopt: np.ndarray, norm: float):
         return
 
@@ -700,12 +708,12 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
 
         params = np.zeros(params_shape, dtype=float)
         args = (
-            np.zeros(expvals_shape[0], dtype=float), # xvals
-            np.zeros(expvals_shape[1], dtype=int), # meas_bases
-            np.zeros(expvals_shape[1], dtype=int), # initial_states
-            np.zeros(expvals_shape, dtype=float), # expvals
-            np.zeros(expvals_shape, dtype=float), # expvals_err
-            np.zeros((3, 3), dtype=float) # prep
+            np.zeros(expvals_shape[0], dtype=float),  # xvals
+            np.zeros(expvals_shape[1], dtype=int),  # meas_bases
+            np.zeros(expvals_shape[1], dtype=int),  # initial_states
+            np.zeros(expvals_shape, dtype=float),  # expvals
+            np.zeros(expvals_shape, dtype=float),  # expvals_err
+            np.zeros((3, 3), dtype=float)  # prep
         )
         in_axes = [0] + [None] * len(args)
         vobj = jax.jit(jax.vmap(objective, in_axes=in_axes)).lower(params, *args).compile()

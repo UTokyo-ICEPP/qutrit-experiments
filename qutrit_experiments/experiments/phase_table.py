@@ -12,7 +12,6 @@ from qiskit.providers import Backend
 from qiskit.providers.options import Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
-from qiskit_experiments.curve_analysis.standard_analysis import OscillationAnalysis
 from qiskit_experiments.data_processing import Probability
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
@@ -117,6 +116,7 @@ class PhaseTable(BatchExperiment):
 
 
 class PhaseTableAnalysis(CompoundAnalysis):
+    """Analysis for PhaseTable."""
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
@@ -183,11 +183,11 @@ class PhaseTableAnalysis(CompoundAnalysis):
         popt = (result.x + np.pi) % twopi - np.pi
 
         # Covariance calculation from least_squares result copied from scipy.optimize._minpack_py
-        _, s, VT = svd(result.jac, full_matrices=False)
+        _, s, v_h = svd(result.jac, full_matrices=False)
         threshold = np.finfo(float).eps * max(result.jac.shape) * s[0]
         s = s[s > threshold]
-        VT = VT[:s.size]
-        pcov = np.dot(VT.T / s**2, VT)
+        v_h = v_h[:s.size]
+        pcov = np.dot(v_h.T / s**2, v_h)
 
         phases = correlated_values(nom_values=popt, covariance_mat=pcov)
         phases = np.concatenate([[ufloat(0., 0.)], phases])
@@ -224,8 +224,8 @@ class PhaseTableAnalysis(CompoundAnalysis):
         return analysis_results, figures
 
 
-
 class PhaseShiftUpdater(DeltaUpdater):
+    """Updater class for PhaseShifts."""
     @staticmethod
     def get_value(exp_data: ExperimentData, param_name: str, index: Optional[int] = -1) -> float:
         return (BaseUpdater.get_value(exp_data, 'phase_offset', index) + np.pi) % twopi - np.pi
