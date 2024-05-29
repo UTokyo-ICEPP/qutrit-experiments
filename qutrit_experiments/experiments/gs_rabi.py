@@ -201,7 +201,7 @@ class GSRabiAnalysis(curve.OscillationAnalysis):
     def _generate_fit_guesses(
         self,
         user_opt: curve.FitOptions,
-        curve_data: curve.CurveData,
+        curve_data: curve.ScatterTable,
     ) -> Union[curve.FitOptions, list[curve.FitOptions]]:
         """Create algorithmic initial fit guess from analysis options and curve data.
 
@@ -270,12 +270,11 @@ class GSRabiAnalysis(curve.OscillationAnalysis):
 
     def _run_curve_fit(
         self,
-        curve_data: curve.CurveData,
-        models: list[lmfit.Model],
+        curve_data: curve.ScatterTable
     ) -> curve.CurveFitResult:
         current = np.geterr()['invalid']
         np.seterr(invalid='ignore')
-        result = super()._run_curve_fit(curve_data, models)
+        result = super()._run_curve_fit(curve_data)
         np.seterr(invalid=current)
         return result
 
@@ -312,7 +311,7 @@ class GSRabiTrigSumAnalysis(curve.CurveAnalysis):
     def _generate_fit_guesses(
         self,
         user_opt: curve.FitOptions,
-        curve_data: curve.CurveData,
+        curve_data: curve.ScatterTable,
     ) -> Union[curve.FitOptions, list[curve.FitOptions]]:
         """Create algorithmic initial fit guess from analysis options and curve data.
 

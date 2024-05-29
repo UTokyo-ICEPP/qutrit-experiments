@@ -352,17 +352,17 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
     def _generate_fit_guesses(
         self,
         user_opt: curve.FitOptions,
-        curve_data: curve.CurveData,
+        curve_data: curve.ScatterTable,
     ) -> Union[curve.FitOptions, list[curve.FitOptions]]:
-        # pylint: disable=invalid-name
+        series_names = np.unique(curve_data.series_name)
         subdata = {}
         reliable_results = {}
-        for label in curve_data.labels:
-            subdata[label] = curve_data.get_subset_of(label)
-            if not np.isclose(subdata[label].x[0], 0.):
+        for series in series_names:
+            subdata[series] = curve_data.filter(series=series)
+            if not np.isclose(subdata[series].x[0], 0.):
                 raise AnalysisError('First x value must be 0')
-            if np.nanmax(subdata[label].y) - np.nanmin(subdata[label].y) > 0.5:
-                reliable_results[label] = self._component_results[label]
+            if np.nanmax(subdata[series].y) - np.nanmin(subdata[series].y) > 0.5:
+                reliable_results[series] = self._component_results[series]
         if not reliable_results:
             # If no reliable points are found, just use all
             logger.warning('No init x meas_basis setup had y value range greater than 0.5')

@@ -159,9 +159,9 @@ class CRAngleAnalysis(curve.CurveAnalysis):
     def _generate_fit_guesses(
         self,
         user_opt: curve.FitOptions,
-        curve_data: curve.CurveData,
+        curve_data: curve.ScatterTable,
     ) -> Union[curve.FitOptions, list[curve.FitOptions]]:
-        spam_cal_data = curve_data.get_subset_of('spam-cal')
+        spam_cal_data = curve_data.filter(series='spam-cal')
         if spam_cal_data.x.shape[0] == 0:
             p0_base = 0.5
             p0_amp = 0.5
@@ -171,11 +171,11 @@ class CRAngleAnalysis(curve.CurveAnalysis):
             user_opt.p0['base'] = p0_base
             user_opt.p0['amp'] = p0_amp
 
-        exp_data = curve_data.get_subset_of('experiment')
+        exp_data = curve_data.filter(series='experiment')
         cos_val = (exp_data.y - p0_base) / -p0_amp
         cos_arg = np.arccos(np.maximum(np.minimum(cos_val, 1.), -1.))
-        max_cos_arg_sq = np.square(np.amax(cos_arg)) # (1 + s) * psi^2
-        min_cos_arg_sq = np.square(np.amin(cos_arg)) # (1 - s) * psi^2
+        max_cos_arg_sq = np.square(np.amax(cos_arg))  # (1 + s) * psi^2
+        min_cos_arg_sq = np.square(np.amin(cos_arg))  # (1 - s) * psi^2
         psi2 = (max_cos_arg_sq + min_cos_arg_sq) / 2.
         p0_psi = np.sqrt(psi2)
         p0_s = max_cos_arg_sq / psi2 - 1.
@@ -278,11 +278,11 @@ class CRAngleCounterScanAnalysis(CompoundAnalysis):
         yvals_n = (yvals_n - yvals_shift + np.pi) % twopi - np.pi
         yvals_e = unp.std_devs(yvals)
 
-        def curve(x, slope, intercept):
+        def curve_fn(x, slope, intercept):
             return slope * x + intercept
 
         p0 = (1., np.mean(yvals_n - xvals))
-        popt, pcov = curve_fit(curve, xvals, yvals_n, sigma=yvals_e, p0=p0)
+        popt, pcov = curve_fit(curve_fn, xvals, yvals_n, sigma=yvals_e, p0=p0)
         popt[1] += yvals_shift
         popt_ufloats = correlated_values(popt, pcov)
 
@@ -301,7 +301,7 @@ class CRAngleCounterScanAnalysis(CompoundAnalysis):
                 y_formatted=unp.nominal_values(yvals),
                 y_formatted_err=unp.std_devs(yvals),
                 x_interp=x_interp,
-                y_interp=(curve(x_interp, *popt) + np.pi) % twopi - np.pi
+                y_interp=(curve_fn(x_interp, *popt) + np.pi) % twopi - np.pi
             )
             figures.append(plotter.figure())
 

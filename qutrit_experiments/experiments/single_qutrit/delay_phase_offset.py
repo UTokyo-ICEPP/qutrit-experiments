@@ -264,7 +264,7 @@ class RamseyPhaseSweepAnalysis(curve.CurveAnalysis):
     def _generate_fit_guesses(
         self,
         user_opt: curve.FitOptions,
-        curve_data: curve.CurveData,
+        curve_data: curve.ScatterTable,
     ) -> Union[curve.FitOptions, list[curve.FitOptions]]:
         """Create algorithmic initial fit guess from analysis options and curve data.
 
@@ -280,7 +280,7 @@ class RamseyPhaseSweepAnalysis(curve.CurveAnalysis):
             options.append(user_opt)
 
         def get_data_base_amp(delay):
-            data = curve_data.get_subset_of(f'delay{delay}')
+            data = curve_data.filter(series=f'delay{delay}')
             base = np.mean(data.y)
             amp = np.sqrt(np.mean(np.square(data.y - base)) * 2.)
             return data, base, amp

@@ -230,10 +230,10 @@ class EFT1Analysis(TernaryMCMResultAnalysis):
     def _generate_fit_guesses(
         self,
         user_opt: curve.FitOptions,
-        curve_data: curve.CurveData
+        curve_data: curve.ScatterTable
     ) -> curve.FitOptions:
-        data_1 = curve_data.get_subset_of('1')
-        data_2 = curve_data.get_subset_of('2')
+        data_1 = curve_data.filter(series='1')
+        data_2 = curve_data.filter(series='2')
         p1_dominant = data_2.y < 0.2
         user_opt.p0.set_if_empty(
             g10=-curve.guess.exp_decay(data_1.x[p1_dominant], data_1.y[p1_dominant]),

@@ -23,7 +23,6 @@ from qiskit_experiments.data_processing import DataProcessor, MarginalizeCounts,
 from qiskit_experiments.framework import AnalysisResultData, BaseExperiment, ExperimentData
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ...data_processing import get_ternary_data_processor
 from ...experiment_mixins import MapToPhysicalQubits
 from ...framework.ternary_mcm_analysis import TernaryMCMResultAnalysis
 from ...gates import CrossResonanceGate, X12Gate
@@ -118,7 +117,8 @@ class CRDiagonalityAnalysis(TernaryMCMResultAnalysis):
         )
         self.set_options(
             result_parameters=[ParameterRepr('a', 'curvature')],
-            bounds={'a': (0., np.inf)}
+            bounds={'a': (0., np.inf)},
+            mcm_cbits=[1, 2]
         )
         self.plotter.set_figure_options(
             xlabel='CR amplitude',
@@ -126,27 +126,14 @@ class CRDiagonalityAnalysis(TernaryMCMResultAnalysis):
             ylim=(-0.05, 1.05)
         )
 
-    def _initialize(self, experiment_data: ExperimentData):
-        if (data_processor := self.options.data_processor) is None:
-            data_processor = get_ternary_data_processor(
-                assignment_matrix=self.options.assignment_matrix,
-                include_invalid=False,
-                serialize=True
-            )
-        if not isinstance(data_processor._nodes[0], MarginalizeCounts):
-            data_processor._nodes.insert(0, MarginalizeCounts({1, 2}))
-        self.options.data_processor = data_processor
-
-        super()._initialize(experiment_data)
-
     def _generate_fit_guesses(
         self,
         user_opt: curve.FitOptions,
-        curve_data: curve.CurveData,
+        curve_data: curve.ScatterTable,
     ) -> Union[curve.FitOptions, list[curve.FitOptions]]:
-        data0 = curve_data.get_subset_of('model0')
-        data1 = curve_data.get_subset_of('model1')
-        data2 = curve_data.get_subset_of('model2')
+        data0 = curve_data.filter(series='model0')
+        data1 = curve_data.filter(series='model1')
+        data2 = curve_data.filter(series='model2')
         bmax = np.max(data1.y + data2.y)
         user_opt.bounds.set_if_empty(b1=(0., bmax), b2=(0., bmax))
         p0_b1 = data1.y[0]
@@ -168,7 +155,7 @@ class CRDiagonalityAnalysis(TernaryMCMResultAnalysis):
             data_processor = DataProcessor('counts', [MarginalizeCounts({0}), Probability('1')])
             tdata = data_processor(experiment_data.data())
             xdata = np.asarray([datum["metadata"]['xval'] for datum in experiment_data.data()],
-                            dtype=float)
+                               dtype=float)
 
             plotter = CurvePlotter(MplDrawer())
             plotter.set_figure_options(

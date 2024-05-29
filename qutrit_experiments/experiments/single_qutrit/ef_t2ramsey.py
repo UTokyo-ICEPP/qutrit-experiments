@@ -5,15 +5,12 @@ from typing import Optional
 import lmfit
 import numpy as np
 from uncertainties import unumpy as unp
-from qiskit import QuantumCircuit
-from qiskit.circuit.library import SXGate
 from qiskit.providers import Backend
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.framework import Options
 from qiskit_experiments.library import T2Ramsey
 
 from ...experiment_mixins.ef_space import EFSpaceExperiment
-from ...gates import SX12Gate
 
 twopi = 2. * np.pi
 
@@ -36,8 +33,8 @@ class EFT2RamseyAnalysis(curve.CurveAnalysis):
     """Curve analysis with cosine envelope."""
     @staticmethod
     def modulated_cosine(x, amp, freq, beat_freq, phase, beat_phase, base):
-        return (0.5 * amp * unp.cos(twopi * freq * x + phase) # pylint: disable=no-member
-                * unp.cos(twopi * beat_freq * x + beat_phase)) + base # pylint: disable=no-member
+        return (0.5 * amp * unp.cos(twopi * freq * x + phase)  # pylint: disable=no-member
+                * unp.cos(twopi * beat_freq * x + beat_phase)) + base  # pylint: disable=no-member
 
     @classmethod
     def _default_options(cls) -> Options:
@@ -64,7 +61,7 @@ class EFT2RamseyAnalysis(curve.CurveAnalysis):
     def _generate_fit_guesses(
         self,
         user_opt: curve.FitOptions,
-        curve_data: curve.CurveData,
+        curve_data: curve.ScatterTable,
     ) -> list[curve.FitOptions]:
         # to run FFT x interval should be identical
         sampling_interval = np.unique(np.round(np.diff(curve_data.x), decimals=20))

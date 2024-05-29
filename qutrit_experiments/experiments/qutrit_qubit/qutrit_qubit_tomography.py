@@ -20,7 +20,7 @@ from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Opt
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ...data_processing import get_ternary_data_processor
+from ...data_processing import MultiProbability, ReadoutMitigation
 from ...framework_overrides.batch_experiment import BatchExperiment
 from ...framework_overrides.composite_analysis import CompositeAnalysis
 from ...framework.compound_analysis import CompoundAnalysis
@@ -212,12 +212,12 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
         ])
 
         if self.options.analyze_qutrit:
-            data_processor = get_ternary_data_processor(
-                assignment_matrix=self.options.qutrit_assignment_matrix,
-                include_invalid=True,
-                serialize=False
-            )
-            data_processor._nodes.insert(0, MarginalizeCounts({1, 2}))
+            nodes = [MarginalizeCounts({1, 2})]
+            if (amat := self.options.qutrit_assignment_matrix) is not None:
+                nodes.append(ReadoutMitigation(amat))
+            nodes.append(MultiProbability(['10', '01', '11', '00'], [0.5] * 4))
+            data_processor = DataProcessor('counts', nodes)
+
             qutrit_states = {}
             for iexp in range(len(self._analyses)):
                 child_data = experiment_data.child_data(component_index[iexp])

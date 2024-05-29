@@ -10,7 +10,11 @@ from qiskit_experiments.framework import Options
 
 
 class MultiProbability(TrainableDataAction):
-    """Probability of multiple outcomes."""
+    """Probability of multiple outcomes.
+
+    The output entry of this node is a dict, which is not compatible with the ScatterTable-based
+    _run_data_processing of CurveAnalysis in QE>=0.6.
+    """
     @classmethod
     def _default_parameters(cls) -> Options:
         return Options(outcomes=None, alpha_prior=None)
@@ -83,7 +87,11 @@ class MultiProbability(TrainableDataAction):
 
 
 class SerializeMultiProbability(DataAction):
-    """Serialize the result of MultiProbability."""
+    """Serialize the result of MultiProbability.
+
+    The output entry of this node is a UFloat, but since the length of the output array will differ
+    from the x values, this node is also not compatible with CurveAnalysis in QE>=0.6.
+    """
     def __init__(self, outcomes: list[str], validate: bool = True):
         super().__init__(validate=validate)
         self._outcomes = list(outcomes)

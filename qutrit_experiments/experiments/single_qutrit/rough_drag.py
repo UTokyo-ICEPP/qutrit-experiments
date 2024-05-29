@@ -102,7 +102,7 @@ class DragCalAnalysisWithAbort(DragCalAnalysis):
     def _generate_fit_guesses(
         self,
         user_opt: curve.FitOptions,
-        curve_data: curve.CurveData,
+        curve_data: curve.ScatterTable,
     ) -> Union[curve.FitOptions, list[curve.FitOptions]]:
         options = super()._generate_fit_guesses(user_opt, curve_data)
 
