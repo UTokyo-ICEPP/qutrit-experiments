@@ -6,7 +6,6 @@ import numpy as np
 import lmfit
 from qiskit import QuantumCircuit, pulse
 from qiskit.circuit import Gate, Parameter
-from qiskit.circuit.library import RZGate, SXGate
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
 from qiskit.qobj.utils import MeasLevel
@@ -19,7 +18,6 @@ from qiskit_experiments.framework import BaseExperiment, ExperimentData, Options
 from ...constants import DEFAULT_SHOTS
 from ...experiment_mixins.ef_space import EFSpaceExperiment
 from ...experiment_mixins.map_to_physical_qubits import MapToPhysicalQubits
-from ...gates import RZ12Gate, SX12Gate
 from ...util.dummy_data import ef_memory, single_qubit_counts
 
 twopi = 2. * np.pi
@@ -186,10 +184,7 @@ class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
         template.sx(self.target_logical_qubit)
         template.measure(self.target_logical_qubit, 0)
 
-        template.metadata = {
-            'experiment_type': self._type,
-            'qubits': self.physical_qubits
-        }
+        template.metadata = {}
         if self.experiment_index is not None:
             template.metadata['experiment_index'] = self.experiment_index
 
@@ -213,7 +208,7 @@ class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
 
     def dummy_data(
         self,
-        transpiled_circuits: list[QuantumCircuit] # pylint: disable=unused-argument
+        transpiled_circuits: list[QuantumCircuit]  # pylint: disable=unused-argument
     ) -> list[Union[np.ndarray, Counts]]:
         return self._dummy_data((0, 1))
 

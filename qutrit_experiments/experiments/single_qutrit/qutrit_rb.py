@@ -112,7 +112,6 @@ class BaseQutritRB(MapToPhysicalQubits, BaseExperiment):
                 rb_circ = QuantumCircuit(1)
                 rb_circ.metadata = {
                     "xval": length,
-                    "qubits": self.physical_qubits,
                     **metadata
                 }
                 if self.experiment_options.qubit_mode == 1:

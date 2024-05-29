@@ -129,7 +129,7 @@ class GSRabi(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
         schedule = self.experiment_options.schedule
         width = schedule.get_parameters(self.experiment_options.param_name)[0]
 
-        ## Build the template
+        # Build the template
 
         gate = Gate(schedule.name, len(self._physical_qubits), [])
 
@@ -140,16 +140,12 @@ class GSRabi(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
         template.compose(self._post_circuit(), inplace=True)
         template.measure(self.experiment_options.measured_logical_qubit, 0)
 
-        if not hasattr(template, 'metadata'):
-            template.metadata = {}
-        template.metadata['qubits'] = self.physical_qubits
-
         if self.experiment_options.time_unit is None:
             dt = 1.
         else:
             dt = self.experiment_options.time_unit
 
-        ## Assign the width values
+        # Assign the width values
 
         circuits = []
 
@@ -176,8 +172,8 @@ class GSRabi(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
 
         return metadata
 
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]: # pylint: disable=unused-argument
-        from qiskit_aer import AerSimulator # pylint: disable=import-outside-toplevel
+    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:  # pylint: disable=unused-argument
+        from qiskit_aer import AerSimulator  # pylint: disable=import-outside-toplevel
 
         shots = self.run_options.get('shots', DEFAULT_SHOTS)
         options = self.experiment_options
@@ -240,7 +236,6 @@ class GSRabiAnalysis(curve.OscillationAnalysis):
         )
         self.plotter.set_figure_options(
             xlabel='Pulse width',
-            #xval_unit='s', # unit set by subanalyses
             ylabel='Pauli expectation',
             ylim=(-1.2, 1.2)
         )
@@ -288,7 +283,8 @@ class GSRabiAnalysis(curve.OscillationAnalysis):
         elif freq_sign == -1.:
             user_opt.bounds.set_if_empty(phase=(-twopi, 0.))
 
-        # superclass options are copies of options with only the phase p0 varied; we'll make our own p0s
+        # superclass options are copies of options with only the phase p0 varied; we'll make our own
+        # p0s
         user_opt = super()._generate_fit_guesses(user_opt, curve_data)[0]
 
         if 'phase' in self.options.p0:
@@ -356,7 +352,6 @@ class GSRabiTrigSumAnalysis(curve.CurveAnalysis):
         )
         self.plotter.set_figure_options(
             xlabel='Pulse width',
-            #xval_unit='s', # unit set by subanalyses
             ylabel='Pauli expectation',
             ylim=(-1.2, 1.2)
         )

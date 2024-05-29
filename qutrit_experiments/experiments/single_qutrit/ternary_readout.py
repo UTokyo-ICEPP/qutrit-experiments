@@ -32,11 +32,6 @@ class MCMLocalReadoutError(MapToPhysicalQubits, BaseExperiment):
                          backend=backend)
 
     def circuits(self) -> list[QuantumCircuit]:
-        template = QuantumCircuit(1, 2)
-        template.metadata = {
-            "experiment_type": self._type,
-            "qubit": self.physical_qubits[0],
-        }
         meas_template = QuantumCircuit(1, 2)
         meas_template.measure(0, 0)
         meas_template.x(0)
@@ -49,11 +44,7 @@ class MCMLocalReadoutError(MapToPhysicalQubits, BaseExperiment):
             for gate in gates:
                 circ.append(gate, [0])
             circ.compose(meas_template, inplace=True)
-            circ.metadata = {
-                'experiment_type': self._type,
-                'qubit': self.physical_qubits[0],
-                'state_label': state
-            }
+            circ.metadata = {'state_label': state}
             circuits.append(circ)
 
         return circuits
@@ -84,7 +75,8 @@ class MCMLocalReadoutErrorAnalysis(BaseAnalysis):
 
         if self.options.plot:
             ax = get_non_gui_ax()
-            ax.matshow(assignment_matrix, cmap=plt.cm.binary, clim=[0, 1]) # pylint: disable=no-member
+            # pylint: disable=no-member
+            ax.matshow(assignment_matrix, cmap=plt.cm.binary, clim=[0, 1])
             ax.set_xlabel("Prepared State")
             ax.xaxis.set_label_position("top")
             ax.set_ylabel("Measured State")

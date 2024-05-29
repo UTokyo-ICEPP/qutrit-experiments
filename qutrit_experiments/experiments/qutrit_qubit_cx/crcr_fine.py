@@ -83,7 +83,6 @@ class CycledRepeatedCRPingPong(MapToPhysicalQubits, BaseExperiment):
                 circuit.append(X12Gate(), [0]) # restore qubit space
             circuit.measure(1, 0)
             circuit.metadata = {
-                'qubits': self._physical_qubits,
                 'xval': add_x,
                 'series': 'spam-cal'
             }
@@ -104,7 +103,6 @@ class CycledRepeatedCRPingPong(MapToPhysicalQubits, BaseExperiment):
                 circuit.append(X12Gate(), [0]) # restore qubit space
             circuit.measure(1, 0)
             circuit.metadata = {
-                'qubits': self._physical_qubits,
                 'xval': repetition,
                 'series': 1
             }
@@ -321,7 +319,6 @@ class CycledRepeatedCRRxScan(MapToPhysicalQubits, BaseExperiment):
             template.append(X12Gate(), [0]) # restore qubit space
         template.measure(1, 0)
         template.metadata = {
-            'qubits': self._physical_qubits,
             'control_state': self._control_state
         }
         if (sched := self.experiment_options.schedule) is not None:

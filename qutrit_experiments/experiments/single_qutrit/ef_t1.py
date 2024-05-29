@@ -81,12 +81,6 @@ class EFT1(MapToPhysicalQubits, BaseExperiment):
                 circ.metadata['xval'] = idx
                 circuits.append(circ)
 
-        for circ in circuits:
-            circ.metadata.update({
-                "experiment_type": self._type,
-                "qubit": self.physical_qubits[0]
-            })
-
         return circuits
 
 
@@ -97,6 +91,7 @@ def _three_component_relaxation(x, p0, p1, p2, g10, g20, g21):
          [0., 0., -(g20 + g21)]]
     )
     return scilin.expm(np.asarray(x)[..., None, None] * transition_matrix) @ np.array([p0, p1, p2])
+
 
 def _three_component_relaxation_jac(x, p0, p1, p2, g10, g20, g21):
     x = np.asarray(x)[..., None, None]
@@ -122,14 +117,18 @@ def _three_component_relaxation_jac(x, p0, p1, p2, g10, g20, g21):
         -1, -2
     )
 
+
 def _prob_0(x, p0, p1, p2, g10, g20, g21):
     return _three_component_relaxation(x, p0, p1, p2, g10, g20, g21)[..., 0]
+
 
 def _prob_1(x, p0, p1, p2, g10, g20, g21):
     return _three_component_relaxation(x, p0, p1, p2, g10, g20, g21)[..., 1]
 
+
 def _prob_2(x, p0, p1, p2, g10, g20, g21):
     return _three_component_relaxation(x, p0, p1, p2, g10, g20, g21)[..., 2]
+
 
 def _variance(x, p0, p1, p2, g10, g20, g21, covar):
     jac = _three_component_relaxation_jac(x, p0, p1, p2, g10, g20, g21)
@@ -198,7 +197,7 @@ class EFT1Analysis(TernaryMCMResultAnalysis):
             for idx, model in enumerate(self._models):
                 sub_data = next(res for res in results
                                 if res.name == f'{DATA_ENTRY_PREFIX}{cls_name}'
-                                   and res.extra['name'] == model._name).value
+                                and res.extra['name'] == model._name).value
                 self.plotter.set_series_data(
                     model._name,
                     x_formatted=sub_data['xdata'],

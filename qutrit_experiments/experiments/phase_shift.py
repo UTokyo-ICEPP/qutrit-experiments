@@ -54,7 +54,7 @@ class PhaseShiftMeasurement(MapToPhysicalQubits, BaseExperiment):
                          backend=backend)
 
         self.analysis.set_options(
-            outcome='1', # Needs to be updated if measure_all option is True
+            outcome='1',  # Needs to be updated if measure_all option is True
             result_parameters=[curve.ParameterRepr('phase', 'phase_offset')],
             p0={'amp': 0.5, 'base': 0.5},
             bounds={'amp': (0., 1.)},
@@ -86,10 +86,6 @@ class PhaseShiftMeasurement(MapToPhysicalQubits, BaseExperiment):
             template.measure(range(nq), range(nq))
         else:
             template.measure(iq, 0)
-
-        template.metadata = {
-            'qubits': self.physical_qubits
-        }
 
         circuits = []
         for phase in self.experiment_options.phase_shifts:

@@ -43,14 +43,10 @@ class CircuitRunner(BaseExperiment):
     def circuits(self) -> list[QuantumCircuit]:
         circuits = []
 
-        for circuit in self._circuits:
-            if not circuit.metadata:
-                circuit.metadata = {}
-
-            circuit.metadata['qubits'] = self.physical_qubits
+        for orig in self._circuits:
+            circuit = orig.copy()
             if 'xval' not in circuit.metadata:
                 circuit.metadata['xval'] = 0.
-
             circuits.append(circuit)
 
         return circuits

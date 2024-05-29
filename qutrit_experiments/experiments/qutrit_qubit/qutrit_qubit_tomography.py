@@ -139,7 +139,6 @@ class QutritQubitTomography(BatchExperiment):
                 for circuit in expr_circuits:
                     # Update metadata
                     circuit.metadata = {
-                        "experiment_type": self._type,
                         "composite_metadata": [circuit.metadata],
                         "composite_index": [index],
                     }
@@ -398,7 +397,6 @@ class QutritQubitTomographyScan(BatchExperiment):
             for template_circuit in template_circuits[:num_tomography_circuits]:
                 circuit = template_circuit.assign_parameters(assign_params, inplace=False)
                 circuit.metadata = {
-                    "experiment_type": self._type,
                     "composite_metadata": [template_circuit.metadata],
                     "composite_index": [iexp],
                 }
@@ -408,7 +406,6 @@ class QutritQubitTomographyScan(BatchExperiment):
                 for template_circuit in template_circuits[num_tomography_circuits:]:
                     circuit = template_circuit.copy()
                     circuit.metadata = {
-                        "experiment_type": self._type,
                         "composite_metadata": [template_circuit.metadata],
                         "composite_index": [iexp],
                     }
