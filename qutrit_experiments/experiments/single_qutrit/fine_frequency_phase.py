@@ -119,7 +119,7 @@ class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
         analysis_results.append(AnalysisResultData(name='f12', value=popt_ufloats[0]))
 
         if self.options.plot:
-            ## Plot phase offset differences
+            # Plot phase offset differences
             plotter = CurvePlotter(MplDrawer())
             plotter.set_figure_options(
                 xlabel=f'Frequency - {popt[0] * 1.e-6:.2f} MHz',

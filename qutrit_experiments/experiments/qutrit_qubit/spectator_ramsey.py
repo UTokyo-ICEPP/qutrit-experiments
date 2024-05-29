@@ -10,7 +10,6 @@ from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 from qiskit_experiments.library.characterization import RamseyXY, RamseyXYAnalysis
 
-from ...constants import DEFAULT_SHOTS
 from ...gates import X12Gate
 
 twopi = 2. * np.pi
@@ -50,7 +49,7 @@ class SpectatorRamseyXY(RamseyXY):
         self.extra_metadata = extra_metadata
         self.experiment_index = experiment_index
         self.analysis.set_options(
-            outcome='1', # default outcome will be set to '11' without this line
+            outcome='1',  # default outcome will be set to '11' without this line
             fixed_parameters={'tau': np.inf}
         )
 

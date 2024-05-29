@@ -1,14 +1,11 @@
 """Override of qiskit_experiments.framework.composite.batch_experiment."""
 
 from collections.abc import Sequence
-from typing import Optional, Union
-import numpy as np
+from typing import Optional
 from qiskit import QuantumCircuit
 from qiskit.exceptions import QiskitError
 from qiskit.providers import Backend
-from qiskit.result import Counts
-from qiskit_experiments.framework import (BaseExperiment, BatchExperiment as BatchExperimentOrig,
-                                          ParallelExperiment as ParallelExperimentOrig)
+from qiskit_experiments.framework import BaseExperiment, BatchExperiment as BatchExperimentOrig
 
 from .composite_analysis import CompositeAnalysis
 

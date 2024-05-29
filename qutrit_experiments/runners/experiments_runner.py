@@ -14,8 +14,6 @@ import numpy as np
 
 from qiskit import QuantumCircuit
 from qiskit.providers import Backend, JobStatus
-from qiskit.qobj.utils import MeasLevel
-from qiskit.result import Counts
 from qiskit_experiments.calibration_management import (BaseCalibrationExperiment, Calibrations,
                                                        ParameterValue)
 from qiskit_experiments.database_service import ExperimentEntryNotFound
@@ -88,7 +86,6 @@ class ExperimentsRunner:
         self._skip_missing_calibration = False
 
         self.data_taking_only = False
-        self.code_test = False
         self.job_retry_interval = -1.
 
         self.qutrit_transpile_options = QutritTranspileOptions()
@@ -231,15 +228,12 @@ class ExperimentsRunner:
                 # between the two methods
                 exp_data = experiment._initialize_experiment_data()
 
-                if self.code_test:
-                    self._run_code_test(experiment, exp_data)
+                if self.job_ids_exist(exp_type):
+                    jobs = self.load_jobs(exp_type)
                 else:
-                    if self.job_ids_exist(exp_type):
-                        jobs = self.load_jobs(exp_type)
-                    else:
-                        jobs = self._submit_jobs(experiment)
+                    jobs = self._submit_jobs(experiment)
 
-                    exp_data.add_jobs(jobs)
+                exp_data.add_jobs(jobs)
 
                 with exp_data._analysis_callbacks.lock:
                     if isinstance(experiment, CompositeExperiment):
@@ -664,53 +658,6 @@ class ExperimentsRunner:
         experiment_data.block_for_results()
         if (status := experiment_data.analysis_status()) != AnalysisStatus.DONE:
             raise RuntimeError(f'Post-job status = {status.value}')
-
-    def _run_code_test(self, experiment, experiment_data):
-        """Test circuit generation and then fill the container with dummy data."""
-        logger.info('Generating dummy data for %s.', experiment.experiment_type)
-        run_opts = experiment.run_options.__dict__
-
-        shots = run_opts.get('shots', DEFAULT_SHOTS)
-        meas_level = run_opts['meas_level']
-        meas_return = run_opts.get('meas_return')
-
-        result_data_template = {
-            'shots': shots,
-            'meas_level': meas_level,
-            'job_id': 'dummy'
-        }
-        if meas_return is not None:
-            result_data_template['meas_return'] = meas_return
-
-        circuits = self.get_transpiled_circuits(experiment)
-
-        dummy_metadata = [c.metadata for c in circuits]
-
-        try:
-            dummy_payload = experiment.dummy_data(circuits)
-        except AttributeError:
-            dummy_payload = []
-
-            for circuit in circuits:
-                if meas_level == MeasLevel.CLASSIFIED:
-                    counts = Counts({('0' * circuits.num_clbits): shots})
-                    dummy_payload.append(counts)
-                else:
-                    if meas_return == 'single':
-                        dummy_payload.append(np.zeros((shots, circuit.num_clbits, 2)))
-                    else:
-                        dummy_payload.append(np.zeros((circuit.num_clbits, 2)))
-
-        with experiment_data._result_data.lock:
-            for payload, metadata in zip(dummy_payload, dummy_metadata):
-                result_data = dict(result_data_template)
-                if meas_level == MeasLevel.CLASSIFIED:
-                    result_data['counts'] = payload
-                else:
-                    result_data['memory'] = payload.tolist()
-                result_data['metadata'] = metadata
-
-                experiment_data._result_data.append(result_data)
 
     def pass_parameter_value(
         self,

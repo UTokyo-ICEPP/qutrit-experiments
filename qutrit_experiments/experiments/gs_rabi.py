@@ -2,19 +2,16 @@
 from collections.abc import Iterable, Sequence
 from typing import Any, Optional, Union
 import numpy as np
-import scipy
 import lmfit
 
 from qiskit import QuantumCircuit
 from qiskit.circuit import Gate
 from qiskit.providers import Backend
-from qiskit.result import Counts
 from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.framework import BaseExperiment, ExperimentData, Options
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
 
-from ..constants import DEFAULT_SHOTS
 from ..experiment_mixins import MapToPhysicalQubitsCommonCircuit
 
 twopi = 2. * np.pi

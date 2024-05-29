@@ -4,11 +4,9 @@ from typing import Optional, Union
 import lmfit
 from qiskit import QuantumCircuit
 from qiskit.providers import Backend
-from qiskit.result import Counts
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.framework import BaseAnalysis, BaseExperiment, ExperimentData, Options
 
-from ..constants import DEFAULT_SHOTS
 from ..transpilation import map_and_translate
 
 

@@ -2,14 +2,10 @@
 
 from collections.abc import Iterable, Sequence
 from typing import Optional, Union
-import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
-from qiskit.circuit.library import RZGate
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
-from qiskit.qobj.utils import MeasLevel
-from qiskit.result import Counts
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 import qiskit_experiments.curve_analysis as curve
@@ -17,7 +13,6 @@ from qiskit_experiments.library import RoughDrag
 from qiskit_experiments.library.characterization.analysis import DragCalAnalysis
 
 from ...calibrations import get_qutrit_pulse_gate
-from ...constants import DEFAULT_SHOTS
 from ...experiment_mixins.ef_space import EFSpaceExperiment
 from ...experiment_mixins.map_to_physical_qubits import MapToPhysicalQubits
 
@@ -97,8 +92,9 @@ class EFRoughDragCal(BaseCalibrationExperiment, EFRoughDrag):
 
 class DragCalAnalysisWithAbort(DragCalAnalysis):
     """DragCalAnalysis with possible abort."""
+    # pylint: disable=unused-argument
     @staticmethod
-    def abort_if_beta_too_large(params, iteration, resid, *args, **kwargs): # pylint: disable=unused-argument
+    def abort_if_beta_too_large(params, iteration, resid, *args, **kwargs):
         if abs(params['beta']) > 20. or iteration > 1000000:
             return True
         return False

@@ -9,7 +9,6 @@ from uncertainties import ufloat
 from qiskit import QuantumCircuit, ClassicalRegister
 from qiskit.providers import Backend
 from qiskit.quantum_info import Operator
-from qiskit.result import Counts, CorrelatedReadoutMitigator, LocalReadoutMitigator
 from qiskit_experiments.data_processing import DataProcessor, Probability, BasisExpectationValue
 from qiskit_experiments.exceptions import AnalysisError
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
@@ -18,9 +17,8 @@ from qiskit_experiments.library.tomography.fitters import postprocess_fitter, to
 from qiskit_experiments.library.tomography.fitters.cvxpy_utils import cvxpy
 from qiskit_experiments.library.tomography.tomography_experiment import TomographyExperiment
 
-from ..constants import DEFAULT_SHOTS
 from ..data_processing import ReadoutMitigation
-from ..framework.threaded_analysis import NO_THREAD, ThreadedAnalysis
+from ..framework.threaded_analysis import ThreadedAnalysis
 from ..transpilation import map_to_physical_qubits, map_and_translate, translate_to_basis
 from ..util.unitary_fit import fit_unitary, plot_unitary_fit
 
@@ -267,7 +265,7 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
             measurement_basis=basis.PauliMeasurementBasis(mitigator=self.options.readout_mitigator)
         )
 
-        #analysis_results, figures = super(ThreadedAnalysis, self)._run_analysis(experiment_data)
+        # analysis_results, figures = super(ThreadedAnalysis, self)._run_analysis(experiment_data)
         ###########
         # Copy-pasting the original _run_analysis because we want to run both the main and bootstrap
         # fits in parallel
@@ -370,7 +368,7 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
 
             if len(state_results_list) > 1:
                 bs_fidelities = [self._compute_fidelity(res[0], target, qpt=True)
-                                for res in state_results_list[1:]]
+                                 for res in state_results_list[1:]]
                 bs_stderr = np.std(bs_fidelities)
                 fidelity_data = AnalysisResultData('process_fidelity', ufloat(fidelity, bs_stderr),
                                                    extra={"bootstrap_samples": bs_fidelities})

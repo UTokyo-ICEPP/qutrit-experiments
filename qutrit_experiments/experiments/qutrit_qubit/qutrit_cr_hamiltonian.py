@@ -110,10 +110,8 @@ import numpy.polynomial as poly
 import scipy.optimize as sciopt
 from uncertainties import ufloat, correlated_values, unumpy as unp
 
-from qiskit import QuantumCircuit
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
-from qiskit.result import Counts
 from qiskit_experiments.framework import Options, ExperimentData, AnalysisResultData
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
@@ -176,7 +174,7 @@ class QutritCRHamiltonianTomographyAnalysis(CompoundAnalysis):
             control_basis_components[control_state] = \
                 child_data.analysis_results('hamiltonian_components').value
 
-        control_eigvals = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) # [c, I/z/ζ]
+        control_eigvals = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]])  # [c, I/z/ζ]
         # Multiply by factor two to obtain omega_[Izζ]
         components = (np.linalg.inv(control_eigvals) @ control_basis_components) * 2
 
@@ -264,8 +262,9 @@ class QutritCRHamiltonianTomographyScanAnalysis(CompoundAnalysis):
                 poly_orders = subanalysis.options.poly_orders
                 xval = np.array([ht_data.metadata[xvar] for ht_data in ht_data_list])
 
-            control_basis_components.append([ht_data.analysis_results('hamiltonian_components').value
-                                             for ht_data in ht_data_list])
+            control_basis_components.append(
+                [data.analysis_results('hamiltonian_components').value for data in ht_data_list]
+            )
 
             if poly_orders is not None:
                 for op in target_ops:
@@ -275,7 +274,7 @@ class QutritCRHamiltonianTomographyScanAnalysis(CompoundAnalysis):
         # (control, target, xvar)
         control_basis_components = np.transpose(control_basis_components, (0, 2, 1))
 
-        control_eigvals = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) # [c, I/z/ζ]
+        control_eigvals = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]])  # [c, I/z/ζ]
         control_to_op = np.linalg.inv(control_eigvals)
         hamiltonian_components = np.tensordot(control_to_op, control_basis_components, (1, 0)) * 2
 

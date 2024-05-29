@@ -2,11 +2,9 @@
 from qiskit import QuantumCircuit
 from qiskit.circuit import CircuitInstruction
 from qiskit.circuit.library import XGate
-from qiskit.result import Counts
 from qiskit_experiments.framework import Options
 from qiskit_experiments.library import CorrelatedReadoutError as CorrelatedReadoutErrorOrig
 
-from ..constants import DEFAULT_SHOTS
 from ..transpilation import map_to_physical_qubits
 
 

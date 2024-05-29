@@ -5,11 +5,9 @@ import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit import Parameter
 from qiskit.providers import Backend
-from qiskit.result import Counts
 from qiskit_experiments.framework import BaseExperiment, Options
 import qiskit_experiments.curve_analysis as curve
 
-from ..constants import DEFAULT_SHOTS
 from ..experiment_mixins import MapToPhysicalQubits
 
 twopi = 2. * np.pi

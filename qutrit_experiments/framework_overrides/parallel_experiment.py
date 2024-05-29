@@ -1,12 +1,7 @@
 """Override of qiskit_experiments.framework.composite.parallel_experiment."""
 
-from collections import defaultdict
-from typing import Optional, Union
-import numpy as np
-from qiskit import QuantumCircuit
+from typing import Optional
 from qiskit.providers import Backend
-from qiskit.qobj.utils import MeasLevel, MeasReturnType
-from qiskit.result import Counts
 from qiskit_experiments.framework import (BaseExperiment,
                                           ParallelExperiment as ParallelExperimentOrig)
 

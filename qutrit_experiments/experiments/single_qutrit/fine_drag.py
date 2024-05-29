@@ -4,7 +4,6 @@ from typing import Any, Optional
 import numpy as np
 from qiskit import pulse, QuantumCircuit
 from qiskit.circuit import CircuitInstruction
-from qiskit.circuit.library import RZGate, SXGate
 from qiskit.providers import Backend
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import BaseUpdater

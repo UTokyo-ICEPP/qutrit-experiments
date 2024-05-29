@@ -9,10 +9,8 @@ import numpy as np
 from scipy.optimize import curve_fit, least_squares
 from uncertainties import ufloat, correlated_values, unumpy as unp
 
-from qiskit import QuantumCircuit
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
-from qiskit.result import Counts
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.curve_analysis.base_curve_analysis import PARAMS_ENTRY_PREFIX
 from qiskit_experiments.data_processing import BasisExpectationValue, DataProcessor, Probability
@@ -249,6 +247,7 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
     def zx_evolution_factory(init, meas_basis):
         i_init = ['x', 'y', 'z'].index(init)
         i_meas = ['x', 'y', 'z'].index(meas_basis)
+
         def evolution(x, omega, psi, phi, theta, chi, kappa):
             xdims = tuple(range(np.asarray(x).ndim))
             theta = np.expand_dims(theta, xdims)
@@ -277,7 +276,7 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
             bounds={
                 'psi': (-1.e-3, np.pi + 1.e-3),
                 'phi': (-twopi, twopi),
-                'omega': (-1.e+5, np.inf), # giving some slack on the negative side
+                'omega': (-1.e+5, np.inf),  # giving some slack on the negative side
             }
         )
         self.plotter.set_figure_options(
@@ -302,10 +301,11 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
         analysis_results.append(
             AnalysisResultData(
                 name='hamiltonian_components',
+                # pylint: disable=no-member
                 value=np.array([
-                    popt['omega'] * unp.sin(popt['psi']) * unp.cos(popt['phi']), # pylint: disable=no-member
-                    popt['omega'] * unp.sin(popt['psi']) * unp.sin(popt['phi']), # pylint: disable=no-member
-                    popt['omega'] * unp.cos(popt['psi']) # pylint: disable=no-member
+                    popt['omega'] * unp.sin(popt['psi']) * unp.cos(popt['phi']),
+                    popt['omega'] * unp.sin(popt['psi']) * unp.sin(popt['phi']),
+                    popt['omega'] * unp.cos(popt['psi'])
                 ]) / 2.
             )
         )
@@ -356,6 +356,7 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
         user_opt: curve.FitOptions,
         curve_data: curve.CurveData,
     ) -> Union[curve.FitOptions, list[curve.FitOptions]]:
+        # pylint: disable=invalid-name
         subdata = {}
         reliable_results = {}
         for label in curve_data.labels:
@@ -410,11 +411,11 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
         logger.debug('(sin psi)^2 = %f', spsi2)
         # B^2 - A^2 = spsi2 * (-cpsi2 * c2phi + c2phi) = spsi4 * c2phi
         try:
-            A = pos_unit_bound(reliable_results['x|z']['amp'].n) # pylint: disable=invalid-name
+            A = pos_unit_bound(reliable_results['x|z']['amp'].n)
         except KeyError:
-            A = estimate_amp('x|z') # pylint: disable=invalid-name
+            A = estimate_amp('x|z')
         try:
-            B = pos_unit_bound(reliable_results['y|z']['amp'].n) # pylint: disable=invalid-name
+            B = pos_unit_bound(reliable_results['y|z']['amp'].n)
         except KeyError:
             B = estimate_amp('y|z')
         c2phi = unit_bound((B ** 2 - A ** 2) / spsi2 ** 2)
@@ -530,7 +531,7 @@ class HamiltonianTomographyScanAnalysis(CompoundAnalysis):
                     op,
                     x_formatted=xval,
                     y_formatted=unp.nominal_values(components),
-                    #y_formatted_err=unp.std_devs(components)
+                    # y_formatted_err=unp.std_devs(components)
                     y_formatted_err=np.full_like(components, 100., dtype=float)
                 )
 

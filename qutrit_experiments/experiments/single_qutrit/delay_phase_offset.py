@@ -8,14 +8,11 @@ from qiskit import QuantumCircuit, pulse
 from qiskit.circuit import Gate, Parameter
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
-from qiskit.qobj.utils import MeasLevel
-from qiskit.result import Counts
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
 import qiskit_experiments.curve_analysis as curve
 from qiskit_experiments.framework import BaseExperiment, ExperimentData, Options
 
-from ...constants import DEFAULT_SHOTS
 from ...experiment_mixins.ef_space import EFSpaceExperiment
 from ...experiment_mixins.map_to_physical_qubits import MapToPhysicalQubits
 
