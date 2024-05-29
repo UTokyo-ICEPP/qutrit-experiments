@@ -421,7 +421,7 @@ class ExperimentsRunner:
 
         start = time.time()
         with open(os.path.join(self._data_dir, f'{exp_type}.pkl'), 'rb') as source:
-            exp_data = deep_copy_no_results(pickle.load(source))
+            exp_data = pickle.load(source)
 
         def _convert_memory_to_list(data):
             for datum in data.data():
