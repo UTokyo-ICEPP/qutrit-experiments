@@ -35,7 +35,7 @@ def run_experiment(
             runner.qubits = data_qubits
 
     exp = runner.make_experiment(config)
-    set_analysis_option(exp.analysis, 'plot', False, threshold=plot_depth + 1)
+    set_analysis_option(exp.analysis, 'plot', False, depth=plot_depth + 1)
     if not parallelize:
         set_analysis_option(exp.analysis, 'parallelize', 0)
 
@@ -56,13 +56,26 @@ def set_analysis_option(
     analysis: BaseAnalysis,
     option: str,
     value: Any,
-    threshold: int = 0,
-    _depth: int = 0
+    depth: int = 0,
+    _current_depth: int = 0
 ) -> None:
-    """Recursively set an option of an Analysis."""
-    if _depth >= threshold and hasattr(analysis.options, option):
+    """Recursively set an option of an Analysis.
+
+    In Qiskit Experiments >= 0.6 a similar operation is possible with
+    set_options(..., broadcast=True) but it lacks the depth specification.
+
+    Args:
+        analysis: Analysis to set the option on.
+        option: Option name.
+        value: Option value.
+        depth: Nesting depth of CompositeAnalyses to reach.
+    """
+    if _current_depth > depth:
+        return
+
+    if hasattr(analysis.options, option):
         analysis.set_options(**{option: value})
 
     if isinstance(analysis, CompositeAnalysis):
         for subanalysis in analysis.component_analysis():
-            set_analysis_option(subanalysis, option, value, threshold, _depth + 1)
+            set_analysis_option(subanalysis, option, value, depth, _current_depth + 1)

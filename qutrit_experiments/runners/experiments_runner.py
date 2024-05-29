@@ -169,7 +169,7 @@ class ExperimentsRunner:
                 args['calibrations'] = self.calibrations
 
         experiment = config.cls(**args)
-        experiment._type = config.exp_type
+        experiment.experiment_type = config.exp_type
         if not config.analysis:
             experiment.analysis = None
 
