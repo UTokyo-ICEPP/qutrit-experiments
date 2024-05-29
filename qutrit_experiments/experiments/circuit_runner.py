@@ -5,7 +5,10 @@ import lmfit
 from qiskit import QuantumCircuit
 from qiskit.providers import Backend
 import qiskit_experiments.curve_analysis as curve
-from qiskit_experiments.framework import BaseAnalysis, BaseExperiment, ExperimentData, Options
+from qiskit_experiments.data_processing.processor_library import get_processor
+from qiskit_experiments.framework import (AnalysisResultData, BaseAnalysis, BaseExperiment,
+                                          ExperimentData, Options)
+from qiskit_experiments.framework.containers import ArtifactData, FigureType
 
 from ..transpilation import map_and_translate
 
@@ -74,24 +77,30 @@ class DataExtraction(curve.CurveAnalysis):
 
         super().__init__(models=[lmfit.models.ConstantModel(name=name) for name in model_names])
 
-        self.set_options(
-            return_data_points=True,
-            return_fit_parameters=False,
-            plot=False
-        )
         if outcome:
             self.set_options(outcome=outcome)
-
         if series_names:
             self.set_options(
                 data_subfit_map={name: {series_key: name} for name in series_names}
             )
 
+    def _run_analysis(
+        self,
+        experiment_data: ExperimentData
+    ) -> tuple[list[Union[AnalysisResultData, ArtifactData]], list[FigureType]]:
+        self._initialize(experiment_data)
+        table = self._format_data(self._run_data_processing(experiment_data.data()))
+        return [ArtifactData(name='curve_data', data=table)], []
+
     def _initialize(
         self,
         experiment_data: ExperimentData,
     ):
-        super()._initialize(experiment_data)
+        data_processor = self.options.data_processor or get_processor(experiment_data, self.options)
+
+        if not data_processor.is_trained:
+            data_processor.train(data=experiment_data.data())
+        self.set_options(data_processor=data_processor)
 
         if (compidx := self.options.composite_index) is None:
             return
@@ -109,14 +118,3 @@ class DataExtraction(curve.CurveAnalysis):
             for key, value in child_metadata.items():
                 if key not in datum['metadata']:
                     datum['metadata'][key] = value
-
-    def _run_curve_fit(
-        self,
-        curve_data: curve.CurveData,
-        models: list['lmfit.Model'],
-    ) -> curve.CurveFitResult:
-        return curve.CurveFitResult(
-            success=False,
-            x_data=curve_data.x,
-            y_data=curve_data.y
-        )

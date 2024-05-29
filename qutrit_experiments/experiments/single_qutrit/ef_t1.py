@@ -10,8 +10,7 @@ from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.providers import Backend
 import qiskit_experiments.curve_analysis as curve
-from qiskit_experiments.curve_analysis.base_curve_analysis import (DATA_ENTRY_PREFIX,
-                                                                   PARAMS_ENTRY_PREFIX)
+from qiskit_experiments.curve_analysis.base_curve_analysis import PARAMS_ENTRY_PREFIX
 from qiskit_experiments.framework import (AnalysisResultData, BackendTiming, BaseExperiment,
                                           ExperimentData, Options)
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
@@ -173,8 +172,7 @@ class EFT1Analysis(TernaryMCMResultAnalysis):
         self, experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         # Plotting fails for complex non-expression models (at eval_with_uncertainties)
-        if (plot_option := self.options.plot):
-            self.options.return_data_points = True
+        plot_option = self.options.plot
         self.options.plot = False
 
         results, figures = super()._run_analysis(experiment_data)
@@ -195,14 +193,13 @@ class EFT1Analysis(TernaryMCMResultAnalysis):
             fit_params = next(res for res in results
                               if res.name == f'{PARAMS_ENTRY_PREFIX}{cls_name}').value
             for idx, model in enumerate(self._models):
-                sub_data = next(res for res in results
-                                if res.name == f'{DATA_ENTRY_PREFIX}{cls_name}'
-                                and res.extra['name'] == model._name).value
+                table = next(res for res in results if res.name == 'curve_data')
+                sub_data = table.filter(category='formatted')
                 self.plotter.set_series_data(
                     model._name,
-                    x_formatted=sub_data['xdata'],
-                    y_formatted=sub_data['ydata'],
-                    y_formatted_err=sub_data['sigma'],
+                    x_formatted=sub_data.x,
+                    y_formatted=sub_data.y,
+                    y_formatted_err=sub_data.y_err
                 )
                 if not fit_params.success:
                     continue
