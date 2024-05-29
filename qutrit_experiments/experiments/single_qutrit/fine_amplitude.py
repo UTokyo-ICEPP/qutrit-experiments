@@ -15,7 +15,6 @@ from ...constants import DEFAULT_SHOTS
 from ...experiment_mixins.ef_space import EFSpaceExperiment
 from ...gates import X12Gate, SX12Gate
 from ...transpilation import map_to_physical_qubits
-from ...util.dummy_data import from_one_probs
 
 
 class CustomTranspiledFineAmplitude(FineAmplitude):
@@ -99,13 +98,6 @@ class EFFineXAmplitudeCal(EFFineAmplitudeCal):
         circuit.append(SX12Gate(), qargs=[0])
         return circuit
 
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]: # pylint: disable=unused-argument
-        repetitions = np.array(self.experiment_options.repetitions)
-        one_probs = 0.5 * np.cos(np.pi / 2. + 0.02 + (np.pi + 0.01) * repetitions) + 0.5
-        if self.experiment_options.add_cal_circuits:
-            one_probs = np.concatenate(([1., 0.], one_probs))
-        return from_one_probs(self, one_probs)
-
 
 class EFFineSXAmplitudeCal(EFFineAmplitudeCal):
     """Specialization of EFFineAmplitude for SX12."""
@@ -153,10 +145,3 @@ class EFFineSXAmplitudeCal(EFFineAmplitudeCal):
                 "phase_offset": np.pi,
             }
         )
-
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]: # pylint: disable=unused-argument
-        repetitions = np.array(self.experiment_options.repetitions)
-        one_probs = 0.5 * np.cos((np.pi / 2. + 0.01) * repetitions) + 0.5
-        if self.experiment_options.add_cal_circuits:
-            one_probs = np.concatenate(([1., 0.], one_probs))
-        return from_one_probs(self, one_probs)

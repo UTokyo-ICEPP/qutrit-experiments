@@ -58,18 +58,6 @@ class EFRoughFrequency(MapToPhysicalQubitsCommonCircuit, EFSpectroscopy):
             xval_unit="Hz",
         )
 
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]: # pylint: disable=unused-argument
-        center = self._frequencies[len(self._frequencies) // 2]
-        freq = center - 8.e+6
-        mean = curve.fit_function.sqrt_lorentzian(self._frequencies, amp=1.25, kappa=1.e+6,
-                                                  x0=freq, baseline=0.68)
-        num_qubits = 1
-
-        memory = []
-        for val in mean:
-            memory.append(np.tile([[val * np.cos(1.2), val * np.sin(1.2)]], (num_qubits, 1)))
-        return memory
-
 
 class GaussianResonanceAnalysis(curve.CurveAnalysis):
     """A class to analyze a resonance peak with a Gaussian function."""

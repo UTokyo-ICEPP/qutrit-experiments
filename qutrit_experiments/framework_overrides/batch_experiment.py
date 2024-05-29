@@ -20,7 +20,6 @@ class BatchExperiment(BatchExperimentOrig):
     - Use the overridden CompositeAnalysis by default.
     - Add an optional physical_qubits argument to the constructor.
     - Bug fix for _remap_qubits.
-    - Add dummy_data().
     """
     def __init__(
         self,
@@ -62,28 +61,3 @@ class BatchExperiment(BatchExperimentOrig):
         new_circuit.metadata = circuit.metadata
         new_circuit.compose(circuit, qubits=qubit_mapping, inplace=True)
         return new_circuit
-
-    def dummy_data(
-        self,
-        transpiled_circuits: list[QuantumCircuit]
-    ) -> list[Union[np.ndarray, Counts]]:
-        """Generate dummy data from component experiments."""
-        data = []
-
-        cstart = 0
-        for exp in self._experiments:
-            if isinstance(exp, ParallelExperimentOrig):
-                num_circuits = len(exp.component_experiment(0).circuits())
-            else:
-                num_circuits = len(exp.circuits())
-
-            circuits = [c.copy() for c in transpiled_circuits[cstart:cstart + num_circuits]]
-            # Flatten the metadata
-            for circuit in circuits:
-                composite_metadata = circuit.metadata.pop('composite_metadata')[0]
-                circuit.metadata.update(composite_metadata)
-
-            data.extend(exp.dummy_data(circuits))
-            cstart += num_circuits
-
-        return data

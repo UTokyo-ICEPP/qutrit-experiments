@@ -16,7 +16,6 @@ from ...calibrations import get_qutrit_pulse_gate
 from ...experiment_mixins import EFSpaceExperiment
 from ...gates import QutritGate, RZ12Gate, SX12Gate, X12Gate
 from ...transpilation import map_to_physical_qubits
-from ...util.dummy_data import from_one_probs
 
 
 class EFFineDrag(EFSpaceExperiment, FineDrag):
@@ -59,10 +58,6 @@ class EFFineDrag(EFSpaceExperiment, FineDrag):
             transpiled_circuits.append(tcirc)
 
         return transpiled_circuits
-
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]: # pylint: disable=unused-argument
-        one_probs = np.full(len(self.experiment_options.repetitions), 0.5)
-        return from_one_probs(self, one_probs)
 
 
 class EFFineDragCal(BaseCalibrationExperiment, EFFineDrag):

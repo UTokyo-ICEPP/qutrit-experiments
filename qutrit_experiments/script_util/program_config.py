@@ -58,8 +58,6 @@ def get_program_config(
                             ' error measurements.', dest='refresh_readout')
         parser.add_argument('--read-only', action='store_true', help='Run the analyses but do not'
                             ' save the calibrations to disk.', dest='read_only')
-        parser.add_argument('--dry-run', action='store_true', help='Do not submit experiment jobs;'
-                            ' run the experiments with dummy data.', dest='dry_run')
 
         for args, kwargs in (additional_args or []):
             parser.add_argument(*args, **kwargs)

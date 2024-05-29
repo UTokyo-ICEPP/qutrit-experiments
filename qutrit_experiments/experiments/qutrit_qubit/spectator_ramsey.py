@@ -12,7 +12,6 @@ from qiskit_experiments.library.characterization import RamseyXY, RamseyXYAnalys
 
 from ...constants import DEFAULT_SHOTS
 from ...gates import X12Gate
-from ...util.dummy_data import single_qubit_counts
 
 twopi = 2. * np.pi
 
@@ -102,28 +101,6 @@ class SpectatorRamseyXY(RamseyXY):
                 circuit.add_calibration('exp(-iωzt)', self.physical_qubits, sched, [delay_val])
 
         return circuits
-
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]: # pylint: disable=unused-argument
-        shots = self.run_options.get('shots', DEFAULT_SHOTS)
-        num_qubits = 1
-
-        tau = 1.e-5
-        freq = 2.e+5 + self.experiment_options.osc_freq
-        amp = 0.49
-        base = 0.51
-        phase = 0.1
-
-        delays = np.array(self.experiment_options.delays)
-
-        p_ground_x = 1. - (amp * np.exp(-delays / tau) * np.cos(twopi * freq * delays + phase)
-                           + base)
-        p_ground_y = 1. - (amp * np.exp(-delays / tau) * np.sin(twopi * freq * delays + phase)
-                           + base)
-        p_ground = np.empty(2 * delays.shape[0])
-        p_ground[::2] = p_ground_x
-        p_ground[1::2] = p_ground_y
-
-        return single_qubit_counts(p_ground, shots, num_qubits)
 
 
 class RamseyXYAnalysisOffset(RamseyXYAnalysis):

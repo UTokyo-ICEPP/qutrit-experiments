@@ -7,7 +7,6 @@ from qiskit_experiments.library import Rabi as RabiOrig
 
 from ...experiment_mixins.ef_space import EFSpaceExperiment
 from ...transpilation import map_to_physical_qubits
-from ...util.dummy_data import from_one_probs
 
 
 class Rabi(RabiOrig):
@@ -35,8 +34,3 @@ class EFRabi(EFSpaceExperiment, Rabi):
         options = super()._default_experiment_options()
         options.amplitudes = np.linspace(-0.4, 0.4, 17)
         return options
-
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]: # pylint: disable=unused-argument
-        amplitudes = self.experiment_options.amplitudes
-        one_probs = np.cos(2. * np.pi * 4. * amplitudes) * 0.49 + 0.51
-        return from_one_probs(self, one_probs)

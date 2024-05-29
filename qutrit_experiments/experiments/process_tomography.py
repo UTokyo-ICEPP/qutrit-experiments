@@ -225,34 +225,6 @@ class CircuitTomography(TomographyExperiment):
         metadata.update(self.extra_metadata)
         return metadata
 
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]: # pylint: disable=unused-argument
-        shots = self.run_options.get('shots', DEFAULT_SHOTS)
-
-        data = []
-
-        rng = np.random.default_rng()
-
-        nq = len(self.physical_qubits)
-
-        init = np.array([1.] + [0.] * (2 ** nq - 1))
-
-        for prep_element, meas_element in self._basis_indices():
-            prep_circ = self._prep_circ_basis.circuit(prep_element, self._prep_physical_qubits)
-            meas_circ = self._meas_circ_basis.circuit(meas_element, self._meas_physical_qubits)
-            meas_circ.remove_final_measurements(inplace=True)
-
-            op = Operator(prep_circ) & self.analysis.options.target & Operator(meas_circ)
-            statevector = op.to_matrix() @ init
-            probs = np.square(np.abs(statevector))
-
-            icounts = rng.multinomial(shots, probs)
-
-            counts = Counts(dict(enumerate(icounts)), memory_slots=nq)
-
-            data.append(counts)
-
-        return data
-
 
 class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
     """ProcessTomographyAnalysis with an optional fit to a unitary when number of qubits is 1."""

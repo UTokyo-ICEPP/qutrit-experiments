@@ -195,12 +195,6 @@ class HamiltonianTomography(BatchExperiment):
     the Bloch representation of :math:`U_f` has the same angle and axis where
     :math:`\kappa \to -\kappa`.
     """
-    @classmethod
-    def _default_experiment_options(cls) -> Options:
-        options = super()._default_experiment_options()
-        options.dummy_components = None
-        return options
-
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -247,27 +241,6 @@ class HamiltonianTomography(BatchExperiment):
         metadata.update(self.extra_metadata)
 
         return metadata
-
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
-        hamiltonian_components = self.experiment_options.dummy_components
-        if hamiltonian_components is None:
-            hamiltonian_components = np.array([-1857082.,  -1232100., -138360.])
-
-        counts_list = []
-        icirc = 0
-
-        for imeas in range(3):
-            subexp = self.component_experiment(imeas)
-            options = subexp.experiment_options
-            dummy_components = options.dummy_components
-            options.dummy_components = hamiltonian_components
-            counts_list.extend(
-                subexp.dummy_data(transpiled_circuits[icirc:icirc + subexp.num_circuits])
-            )
-            options.dummy_components = dummy_components
-            icirc += subexp.num_circuits
-
-        return counts_list
 
 
 class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
@@ -476,7 +449,6 @@ class HamiltonianTomographyScan(BatchExperiment):
         options.parameter = None
         options.values = None
         options.max_circuits = 100
-        options.dummy_components = None
         return options
 
     def __init__(
@@ -515,25 +487,6 @@ class HamiltonianTomographyScan(BatchExperiment):
     @property
     def num_circuits(self) -> int:
         return sum(subexp.num_circuits for subexp in self.component_experiment())
-
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
-        if self.experiment_options.dummy_components is not None:
-            # [3, scan]
-            counts_list = []
-            icirc = 0
-            for subexp, components in zip(self.component_experiment(),
-                                          self.experiment_options.dummy_components.T):
-                comp_original = subexp.experiment_options.dummy_components
-                subexp.experiment_options.dummy_components = components
-                counts_list.extend(
-                    subexp.dummy_data(transpiled_circuits[icirc:icirc + subexp.num_circuits])
-                )
-                subexp.experiment_options.dummy_components = comp_original
-                icirc += subexp.num_circuits
-
-            return counts_list
-
-        return super().dummy_data(transpiled_circuits)
 
 
 class HamiltonianTomographyScanAnalysis(CompoundAnalysis):

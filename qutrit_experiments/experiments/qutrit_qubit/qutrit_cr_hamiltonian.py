@@ -129,12 +129,6 @@ twopi = 2. * np.pi
 
 class QutritCRHamiltonianTomography(BatchExperiment):
     """Hamiltonian tomography of qutrit-qubit CR."""
-    @classmethod
-    def _default_experiment_options(cls) -> Options:
-        options = super()._default_experiment_options()
-        options.dummy_components = None
-        return options
-
     def __init__(
         self,
         physical_qubits: Sequence[int],
@@ -155,51 +149,6 @@ class QutritCRHamiltonianTomography(BatchExperiment):
 
         super().__init__(experiments, backend=backend,
                          analysis=QutritCRHamiltonianTomographyAnalysis(analyses))
-
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
-        # Coefficients of [[Ix/2, Iy/2, Iz/2], [zx/2, zy/2, zz/2], [ζx/2, ζy/2, ζz/2]]
-        hamiltonian_components = self.experiment_options.dummy_components
-        if hamiltonian_components is None:
-            hamiltonian_components = np.array([
-                [-3916720.77857143, -2662369.37857143, 1096392.2505241197],
-                [-5.48340909e+06, -3.72731713e+06,  6.14156360e+05],
-                [5.49052361e+06, 4.05421662e+06, 1.12147049e+06]
-            ])
-
-       # control_basis_components[c, i]
-       #               = <c|I|c>*nu_Ii + <c|z|c>*nu_zi + <c|ζ|c>*nu_ζi  (c=0,1,2; i=x,y,z)
-       #   for c=0,1,2:   [1,1,1]        [1,-1,0]         [0,1,-1]
-       # control_eigvals = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) # [c, I/z/ζ]
-       # state_components = (control_eigvals @ hamiltonian_components) / 2.
-
-        # A calculation of state components independent from how it's done in the analysis
-        paulis = np.array([[[0., 1.], [1., 0.]],
-                           [[0., -1.j], [1.j, 0.]],
-                           [[1., 0.], [0., -1.]]])
-        control_ops = np.array([np.eye(3), np.diagflat([1, -1, 0]), np.diagflat([0, 1, -1])],
-                               dtype=complex)
-        hamiltonian = np.einsum('cij,tkl,ct->ikjl',
-                                control_ops / 2., paulis, hamiltonian_components)
-        # Take the trace / 2 with Paulis and extract the diagonal blocks
-        state_components = np.einsum('ikjl,blk->ijb',
-                                     hamiltonian,
-                                     paulis)[[0, 1, 2], [0, 1, 2]] / 2.
-
-        counts_list = []
-        icirc = 0
-
-        for control_state in range(3):
-            subexp = self.component_experiment(control_state)
-            options = subexp.experiment_options
-            dummy_components = options.dummy_components
-            options.dummy_components = state_components[control_state]
-            counts_list.extend(
-                subexp.dummy_data(transpiled_circuits[icirc:icirc + subexp.num_circuits])
-            )
-            options.dummy_components = dummy_components
-            icirc += subexp.num_circuits
-
-        return counts_list
 
 
 class QutritCRHamiltonianTomographyAnalysis(CompoundAnalysis):
@@ -249,12 +198,6 @@ class QutritCRHamiltonianTomographyAnalysis(CompoundAnalysis):
 
 class QutritCRHamiltonianTomographyScan(BatchExperiment):
     """Batched QutritCRHamiltonianTomography scanning one or more parameters."""
-    @classmethod
-    def _default_experiment_options(cls) -> Options:
-        options = super()._default_experiment_options()
-        options.dummy_components = None
-        return options
-
     def __init__(
         self,
         physical_qubits: tuple[int, int],
@@ -277,29 +220,6 @@ class QutritCRHamiltonianTomographyScan(BatchExperiment):
 
         super().__init__(experiments, backend=backend,
                          analysis=QutritCRHamiltonianTomographyScanAnalysis(analyses))
-
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
-        if self.experiment_options.dummy_components is not None:
-            # [control, target, scan]
-            control_eigvals = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]]) # [c, I/z/ζ]
-            state_components = np.einsum('ij,jks->iks', control_eigvals,
-                                         self.experiment_options.dummy_components) / 2.
-
-            counts_list = []
-            icirc = 0
-            for control_state, subexp in enumerate(self.component_experiment()):
-                options = subexp.experiment_options
-                orig_comp = options.dummy_components
-                options.dummy_components = state_components[control_state]
-                counts_list.extend(
-                    subexp.dummy_data(transpiled_circuits[icirc:icirc + subexp.num_circuits])
-                )
-                options.dummy_components = orig_comp
-                icirc += subexp.num_circuits
-
-            return counts_list
-
-        return super().dummy_data(transpiled_circuits)
 
 
 class QutritCRHamiltonianTomographyScanAnalysis(CompoundAnalysis):

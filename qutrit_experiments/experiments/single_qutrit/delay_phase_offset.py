@@ -18,7 +18,6 @@ from qiskit_experiments.framework import BaseExperiment, ExperimentData, Options
 from ...constants import DEFAULT_SHOTS
 from ...experiment_mixins.ef_space import EFSpaceExperiment
 from ...experiment_mixins.map_to_physical_qubits import MapToPhysicalQubits
-from ...util.dummy_data import ef_memory, single_qubit_counts
 
 twopi = 2. * np.pi
 
@@ -104,7 +103,6 @@ class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
         options.delay_schedule = None
         options.num_points = 16
         options.pre_schedule = None
-        options.dummy_omega_z = 1.e+5
         return options
 
     def __init__(
@@ -206,43 +204,9 @@ class RamseyPhaseSweep(MapToPhysicalQubits, BaseExperiment):
             metadata.update(self.extra_metadata)
         return metadata
 
-    def dummy_data(
-        self,
-        transpiled_circuits: list[QuantumCircuit]  # pylint: disable=unused-argument
-    ) -> list[Union[np.ndarray, Counts]]:
-        return self._dummy_data((0, 1))
-
-    def _dummy_data(self, states: tuple[int, int]) -> list[np.ndarray]:
-        phase_shifts = np.linspace(0., twopi, self.experiment_options.num_points, endpoint=False)
-        delay_durations = self.experiment_options.delay_durations
-        shots = self.run_options.get('shots', DEFAULT_SHOTS)
-        num_qubits = 1
-        meas_return = self.run_options.get('meas_return', 'avg')
-
-        amp = 0.49
-        base = 0.51
-
-        data = []
-
-        for delay_value in delay_durations:
-            offset = (self.experiment_options.dummy_omega_z * twopi * delay_value
-                      * self._backend_data.dt)
-            p_ground = -amp * np.cos(phase_shifts + offset) + base
-
-            # IQClassification -> meas_level==KERNELED
-            if self.run_options.meas_level == MeasLevel.KERNELED:
-                data += ef_memory(p_ground, shots, num_qubits,
-                                  meas_return=meas_return, states=states)
-            else:
-                data += single_qubit_counts(p_ground, shots, num_qubits)
-
-        return data
-
 
 class EFRamseyPhaseSweep(EFSpaceExperiment, RamseyPhaseSweep):
     """RamseyPhaseSweep for EF space."""
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
-        return self._dummy_data((0, 2))
 
 
 class RamseyPhaseSweepAnalysis(curve.CurveAnalysis):

@@ -34,7 +34,6 @@ class GSRabi(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
         options.time_unit = None
         options.experiment_index = None
         options.param_name = 'width'
-        options.dummy_components = None
 
         return options
 
@@ -171,49 +170,6 @@ class GSRabi(MapToPhysicalQubitsCommonCircuit, BaseExperiment):
         metadata.update(self.extra_metadata)
 
         return metadata
-
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:  # pylint: disable=unused-argument
-        from qiskit_aer import AerSimulator  # pylint: disable=import-outside-toplevel
-
-        shots = self.run_options.get('shots', DEFAULT_SHOTS)
-        options = self.experiment_options
-        measured_qubit = options.measured_logical_qubit
-
-        hamiltonian_components = options.dummy_components
-        if hamiltonian_components is None:
-            # Ideally would like to scale this with the pulse amplitude but it's difficult
-            # to extract it
-            hamiltonian_components = np.array([-1857082.,  -1232100., -138360.])
-
-        paulis = np.array([[[0., 1.], [1., 0.]],
-                           [[0., -1.j], [1.j, 0.]],
-                           [[1., 0.], [0., -1.]]])
-        hamiltonian = np.tensordot(hamiltonian_components, paulis, (0, 0))
-
-        t_offset = 12.
-        t = (np.array(options.widths) + t_offset) * options.time_unit
-        unitaries = scipy.linalg.expm(-1.j * hamiltonian[None, ...] * t[:, None, None])
-
-        circuits = []
-
-        for source, unitary in zip(self.circuits(), unitaries):
-            circuit = QuantumCircuit(1, 1)
-
-            for inst in source.data:
-                if inst.operation.name == options.schedule.name:
-                    circuit.unitary(unitary, 0)
-                elif len(inst.qubits) == 1 and inst.qubits[0].index == measured_qubit:
-                    if len(inst.clbits):
-                        cargs = [0]
-                    else:
-                        cargs = None
-
-                    circuit.append(inst.operation, qargs=[0], cargs=cargs)
-
-            circuits.append(circuit)
-
-        simulator = AerSimulator()
-        return simulator.run(circuits, shots=shots).result().get_counts()
 
 
 class GSRabiAnalysis(curve.OscillationAnalysis):

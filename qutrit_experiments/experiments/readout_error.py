@@ -36,8 +36,3 @@ class CorrelatedReadoutError(CorrelatedReadoutErrorOrig):
             transpiled_circuits.append(tcirc)
 
         return transpiled_circuits
-
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]: # pylint: disable=unused-argument
-        shots = self.run_options.get('shots', DEFAULT_SHOTS)
-        template = '{:0%db}' % self.num_qubits
-        return [Counts({template.format(state): shots}) for state in range(2 ** self.num_qubits)]

@@ -56,16 +56,6 @@ class CircuitRunner(BaseExperiment):
             return map_and_translate(self.circuits(), self.physical_qubits, self._backend)
         return super()._transpiled_circuits()
 
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]:
-        shots = self.run_options.get('shots', DEFAULT_SHOTS)
-
-        counts = []
-        for circuit in transpiled_circuits:
-            key = '0' * circuit.num_clbits
-            counts.append(Counts({key: shots}))
-
-        return counts
-
 
 class DataExtraction(curve.CurveAnalysis):
     """Extract xy data from ExperimentData."""

@@ -20,7 +20,6 @@ from ...calibrations import get_qutrit_pulse_gate
 from ...constants import DEFAULT_SHOTS
 from ...experiment_mixins.ef_space import EFSpaceExperiment
 from ...experiment_mixins.map_to_physical_qubits import MapToPhysicalQubits
-from ...util.dummy_data import ef_memory, single_qubit_counts
 
 
 class EFRoughDrag(MapToPhysicalQubits, EFSpaceExperiment, RoughDrag):
@@ -44,22 +43,6 @@ class EFRoughDrag(MapToPhysicalQubits, EFSpaceExperiment, RoughDrag):
     ):
         super().__init__(physical_qubits, schedule, betas=betas, backend=backend)
         self.analysis = DragCalAnalysisWithAbort()
-
-    def dummy_data(
-        self,
-        transpiled_circuits: list[QuantumCircuit] # pylint: disable=unused-argument
-    ) -> Union[list[np.ndarray], list[Counts]]:
-        """Return dummy memory or counts depending on the presence of the discriminator."""
-        reps = np.asarray(self.experiment_options.reps)
-        betas = np.asarray(self.experiment_options.betas)
-        shots = self.run_options.get('shots', DEFAULT_SHOTS)
-        one_probs = 0.4 * np.cos(2. * np.pi * 0.02 * reps[:, None] * (betas[None, :] - 2.3)) + 0.6
-        #num_qubits = transpiled_circuits[0].num_qubits
-        num_qubits = 1
-
-        if self.run_options.meas_level == MeasLevel.KERNELED:
-            return ef_memory(one_probs, shots, num_qubits)
-        return single_qubit_counts(one_probs, shots, num_qubits)
 
 
 class EFRoughDragCal(BaseCalibrationExperiment, EFRoughDrag):

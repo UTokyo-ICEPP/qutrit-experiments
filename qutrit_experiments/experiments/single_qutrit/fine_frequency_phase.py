@@ -62,18 +62,6 @@ class EFRamseyFrequencyScan(BatchExperiment):
         if delay_duration is not None:
             self.set_experiment_options(delay_duration=delay_duration)
 
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[np.ndarray]:
-        mean_f12 = np.mean([exp.experiment_options.f12 for exp in self._experiments])
-
-        data = []
-        for exp in self._experiments:
-            orig = exp.experiment_options.dummy_omega_z
-            exp.experiment_options.dummy_omega_z = (exp.experiment_options.f12 - mean_f12) * twopi
-            data += exp.dummy_data(None)
-            exp.experiment_options.dummy_omega_z = orig
-
-        return data
-
 
 class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
     """Interpolation analysis."""

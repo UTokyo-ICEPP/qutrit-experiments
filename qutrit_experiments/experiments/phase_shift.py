@@ -11,7 +11,6 @@ import qiskit_experiments.curve_analysis as curve
 
 from ..constants import DEFAULT_SHOTS
 from ..experiment_mixins import MapToPhysicalQubits
-from ..util.dummy_data import single_qubit_counts
 
 twopi = 2. * np.pi
 
@@ -108,12 +107,3 @@ class PhaseShiftMeasurement(MapToPhysicalQubits, BaseExperiment):
         if (iq := self.experiment_options.measured_logical_qubit) is not None:
             metadata['measured_logical_qubit'] = iq
         return metadata
-
-    def dummy_data(self, transpiled_circuits: list[QuantumCircuit]) -> list[Counts]: # pylint: disable=unused-argument
-        phases = self.experiment_options.phase_shifts + 0.1
-        shots = self.run_options.get('shots', DEFAULT_SHOTS)
-        num_qubits = 1
-
-        one_probs = np.cos(phases) * 0.49 + 0.51
-
-        return single_qubit_counts(one_probs, shots, num_qubits)
