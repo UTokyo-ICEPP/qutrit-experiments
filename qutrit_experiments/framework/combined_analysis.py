@@ -12,7 +12,7 @@ from ..framework_overrides.composite_analysis import CompositeAnalysis
 logger = logging.getLogger(__name__)
 
 
-class CompoundAnalysis(CompositeAnalysis):
+class CombinedAnalysis(CompositeAnalysis):
     """CompositeAnalysis with additional analysis on top."""
     @classmethod
     def _propagated_option_keys(cls) -> list[str]:
@@ -23,7 +23,7 @@ class CompoundAnalysis(CompositeAnalysis):
         analyses: list[BaseAnalysis],
         generate_figures: Optional[str] = "always"
     ):
-        """Construct a new CompoundAnalysis.
+        """Construct a new CombinedAnalysis.
 
         flatten_results=False is discouraged from QE>=0.6 and will possibly be deprecated at some
         point, but many of our analyses do rely on having the child data hierarchy at the moment
@@ -41,7 +41,7 @@ class CompoundAnalysis(CompositeAnalysis):
                     analysis.set_options(**{key: copy.deepcopy(value)})
 
     @abstractmethod
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: 'ExperimentData',
         analysis_results: list['AnalysisResultData'],
@@ -49,15 +49,15 @@ class CompoundAnalysis(CompositeAnalysis):
     ) -> tuple[list['AnalysisResultData'], list['Figure']]:
         pass
 
-    _run_additional_analysis_threaded: Optional[Callable[['ExperimentData'], Any]] = None
+    _run_combined_analysis_threaded: Optional[Callable[['ExperimentData'], Any]] = None
     """Override this attribute as a method if a part of the additional analysis must be run in a
     thread of the main process (e.g. when making changes to the analysis object)."""
 
-    _run_additional_analysis_unthreaded: Optional[
+    _run_combined_analysis_unthreaded: Optional[
         Callable[
             ['ExperimentData', list['AnalysisResultData'], list['Figure'], Any],
             tuple[list['AnalysisResultData'], list['Figure']]
         ]
     ] = None
-    """Override this attribute as a method if the result of _run_additional_analysis_threaded must
+    """Override this attribute as a method if the result of _run_combined_analysis_threaded must
     be input to the additional analysis (possibly run in a separate process)."""

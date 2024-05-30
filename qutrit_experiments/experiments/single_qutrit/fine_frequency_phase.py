@@ -14,7 +14,7 @@ from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from .delay_phase_offset import EFRamseyPhaseSweep, RamseyPhaseSweepAnalysis
 from ...framework.calibration_updaters import EFFrequencyUpdater
-from ...framework.compound_analysis import CompoundAnalysis
+from ...framework.combined_analysis import CombinedAnalysis
 from ...framework_overrides.batch_experiment import BatchExperiment
 from ...gates import SetF12Gate
 from ...util.matplotlib import make_list_plot
@@ -63,7 +63,7 @@ class EFRamseyFrequencyScan(BatchExperiment):
             self.set_experiment_options(delay_duration=delay_duration)
 
 
-class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
+class EFRamseyFrequencyScanAnalysis(CombinedAnalysis):
     """Interpolation analysis."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -85,7 +85,7 @@ class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
     ):
         super().__init__(analyses)
 
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],

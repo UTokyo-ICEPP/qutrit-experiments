@@ -156,9 +156,9 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                          parent_task_id)
             start = time.time()
 
-            if callable(getattr(analysis, '_run_additional_analysis_threaded', None)):
+            if callable(getattr(analysis, '_run_combined_analysis_threaded', None)):
                 try:
-                    thread_output = analysis._run_additional_analysis_threaded(parent_data)
+                    thread_output = analysis._run_combined_analysis_threaded(parent_data)
                 except Exception as exc:  # pylint: disable=broad-exception-caught
                     if analysis.options.get('ignore_failed', False):
                         logger.warning('Ignoring postanalysis failure for %s:', parent_task_id)
@@ -205,14 +205,14 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             if analysis._flatten_results:
                 results, figures = analysis._combine_results(component_data)
 
-            if (hasattr(analysis, '_run_additional_analysis_unthreaded')
-                    and callable(analysis._run_additional_analysis_unthreaded)
+            if (hasattr(analysis, '_run_combined_analysis_unthreaded')
+                    and callable(analysis._run_combined_analysis_unthreaded)
                     and thread_output is not NO_THREAD):
-                results, figures = analysis._run_additional_analysis_unthreaded(parent_data,
-                                                                                results, figures,
-                                                                                thread_output)
-            elif hasattr(analysis, '_run_additional_analysis'):
-                results, figures = analysis._run_additional_analysis(parent_data, results, figures)
+                results, figures = analysis._run_combined_analysis_unthreaded(parent_data,
+                                                                              results, figures,
+                                                                              thread_output)
+            elif hasattr(analysis, '_run_combined_analysis'):
+                results, figures = analysis._run_combined_analysis(parent_data, results, figures)
 
             experiment_components = analysis._get_experiment_components(parent_data)
 

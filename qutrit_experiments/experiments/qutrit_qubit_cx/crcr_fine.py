@@ -21,7 +21,7 @@ from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ...calibrations.qutrit_qubit_cx import get_qutrit_qubit_cx_gate
 from ...experiment_mixins import MapToPhysicalQubits
-from ...framework.compound_analysis import CompoundAnalysis
+from ...framework.combined_analysis import CombinedAnalysis
 from ...framework_overrides.batch_experiment import BatchExperiment
 from ...gates import QutritQubitCXGate, X12Gate
 
@@ -373,7 +373,7 @@ class CycledRepeatedCRRxOffsetAmpScan(BatchExperiment):
                          analysis=CycledRepeatedCRRxOffsetAmpScanAnalysis(analyses))
 
 
-class CycledRepeatedCRRxOffsetAmpScanAnalysis(CompoundAnalysis):
+class CycledRepeatedCRRxOffsetAmpScanAnalysis(CombinedAnalysis):
     """Analysis for CycledRepeatedCRRxOffsetAmpScan."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -381,7 +381,7 @@ class CycledRepeatedCRRxOffsetAmpScanAnalysis(CompoundAnalysis):
         options.plot = True
         return options
 
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],

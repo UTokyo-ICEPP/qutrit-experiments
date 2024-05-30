@@ -17,7 +17,7 @@ from qiskit_experiments.exceptions import AnalysisError
 from qiskit_experiments.framework import Options, ExperimentData, AnalysisResultData
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ..framework.compound_analysis import CompoundAnalysis
+from ..framework.combined_analysis import CombinedAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
 from ..util.bloch import so3_polar, unit_bound, pos_unit_bound
 from ..util.polynomial import sparse_poly_fitfunc, PolynomialOrder
@@ -240,7 +240,7 @@ class HamiltonianTomography(BatchExperiment):
         return metadata
 
 
-class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
+class HamiltonianTomographyAnalysis(CombinedAnalysis, curve.CurveAnalysis):
     """Analysis for HamiltonianTomography."""
     @staticmethod
     def zx_evolution_factory(init, meas_basis):
@@ -285,7 +285,7 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
         # Fit results of individual components
         self._component_results = {}
 
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
@@ -488,7 +488,7 @@ class HamiltonianTomographyScan(BatchExperiment):
         return sum(subexp.num_circuits for subexp in self.component_experiment())
 
 
-class HamiltonianTomographyScanAnalysis(CompoundAnalysis):
+class HamiltonianTomographyScanAnalysis(CombinedAnalysis):
     """Analysis for HamiltonianTomographyScan."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -498,7 +498,7 @@ class HamiltonianTomographyScanAnalysis(CompoundAnalysis):
         options.poly_orders = None
         return options
 
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],

@@ -115,7 +115,7 @@ from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.framework import Options, ExperimentData, AnalysisResultData
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ...framework.compound_analysis import CompoundAnalysis
+from ...framework.combined_analysis import CombinedAnalysis
 from ...framework_overrides.batch_experiment import BatchExperiment
 from ...util.matplotlib import make_list_plot
 from ...util.polynomial import PolynomialOrder, sparse_poly_fitfunc
@@ -149,7 +149,7 @@ class QutritCRHamiltonianTomography(BatchExperiment):
                          analysis=QutritCRHamiltonianTomographyAnalysis(analyses))
 
 
-class QutritCRHamiltonianTomographyAnalysis(CompoundAnalysis):
+class QutritCRHamiltonianTomographyAnalysis(CombinedAnalysis):
     """Hamiltonian tomography analysis for CR tone with a control qutrit."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -157,7 +157,7 @@ class QutritCRHamiltonianTomographyAnalysis(CompoundAnalysis):
         options.plot = True
         return options
 
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
@@ -220,7 +220,7 @@ class QutritCRHamiltonianTomographyScan(BatchExperiment):
                          analysis=QutritCRHamiltonianTomographyScanAnalysis(analyses))
 
 
-class QutritCRHamiltonianTomographyScanAnalysis(CompoundAnalysis):
+class QutritCRHamiltonianTomographyScanAnalysis(CombinedAnalysis):
     """Analysis for QutritCRHamiltonianTomographyScan."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -233,7 +233,7 @@ class QutritCRHamiltonianTomographyScanAnalysis(CompoundAnalysis):
 
         return options
 
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],

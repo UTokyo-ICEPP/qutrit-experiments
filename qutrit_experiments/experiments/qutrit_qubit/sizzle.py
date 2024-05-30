@@ -14,7 +14,7 @@ from qiskit_experiments.framework import AnalysisResultData, BackendData, Experi
 from qiskit_experiments.framework.containers import ArtifactData
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ...framework.compound_analysis import CompoundAnalysis
+from ...framework.combined_analysis import CombinedAnalysis
 from ...framework_overrides.batch_experiment import BatchExperiment
 from ...pulse_library import ModulatedGaussianSquare
 from ...util.sizzle import get_qudit_components, sizzle_hamiltonian_shifts, sizzle_shifted_energies
@@ -135,9 +135,9 @@ class SiZZleRamseyShift(BatchExperiment):
                          analysis=SiZZleRamseyShiftAnalysis([exp.analysis for exp in experiments]))
 
 
-class SiZZleRamseyShiftAnalysis(CompoundAnalysis):
+class SiZZleRamseyShiftAnalysis(CombinedAnalysis):
     """Analysis for SiZZleRamseyShift."""
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
@@ -210,9 +210,9 @@ class SiZZleShift(BatchExperiment):
                          analysis=SiZZleShiftAnalysis([exp.analysis for exp in experiments]))
 
 
-class SiZZleShiftAnalysis(CompoundAnalysis):
+class SiZZleShiftAnalysis(CombinedAnalysis):
     """Analysis for SiZZleShift."""
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
@@ -278,7 +278,7 @@ class SiZZleFrequencyScan(BatchExperiment):
         return metadata
 
 
-class SiZZleFrequencyScanAnalysis(CompoundAnalysis):
+class SiZZleFrequencyScanAnalysis(CombinedAnalysis):
     """Analysis for SiZZleFrequencyScan."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -287,7 +287,7 @@ class SiZZleFrequencyScanAnalysis(CompoundAnalysis):
         options.base_omegas = np.zeros(3)
         return options
 
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
@@ -419,7 +419,7 @@ class SiZZlePhaseScan(BatchExperiment):
         return metadata
 
 
-class SiZZlePhaseScanAnalysis(CompoundAnalysis):
+class SiZZlePhaseScanAnalysis(CombinedAnalysis):
     """Analysis for SiZZlePhaseScan."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -429,7 +429,7 @@ class SiZZlePhaseScanAnalysis(CompoundAnalysis):
         options.expected_signs = [-1, 1, -1]  # Iz, zz, ζz
         return options
 
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
@@ -603,7 +603,7 @@ class SiZZleAmplitudeScan(BatchExperiment):
         return metadata
 
 
-class SiZZleAmplitudeScanAnalysis(CompoundAnalysis):
+class SiZZleAmplitudeScanAnalysis(CombinedAnalysis):
     """Analysis for SiZZleAmplitudeScan."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -614,7 +614,7 @@ class SiZZleAmplitudeScanAnalysis(CompoundAnalysis):
         options.return_fit_parameters = False
         return options
 
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],

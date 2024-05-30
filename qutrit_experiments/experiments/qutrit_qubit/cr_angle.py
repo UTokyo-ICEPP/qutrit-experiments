@@ -25,7 +25,7 @@ from qiskit_experiments.framework import AnalysisResultData, BaseExperiment, Exp
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ...experiment_mixins import MapToPhysicalQubits
-from ...framework.compound_analysis import CompoundAnalysis
+from ...framework.combined_analysis import CombinedAnalysis
 from ...framework_overrides.batch_experiment import BatchExperiment
 from ...gates import CrossResonanceGate, X12Gate
 from ...util.pulse_area import gs_effective_duration, rabi_cycles_per_area
@@ -245,7 +245,7 @@ class CRAngleCounterScan(BatchExperiment):
                          analysis=CRAngleCounterScanAnalysis([exp.analysis for exp in experiments]))
 
 
-class CRAngleCounterScanAnalysis(CompoundAnalysis):
+class CRAngleCounterScanAnalysis(CombinedAnalysis):
     """Analysis for CRAngleCounterScan."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -254,10 +254,7 @@ class CRAngleCounterScanAnalysis(CompoundAnalysis):
         options.plot = True
         return options
 
-    def __init__(self, analyses: list[CRAngleAnalysis]):
-        super().__init__(analyses)
-
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],

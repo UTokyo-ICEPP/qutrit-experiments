@@ -23,7 +23,7 @@ from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 from ...data_processing import MultiProbability, ReadoutMitigation
 from ...framework_overrides.batch_experiment import BatchExperiment
 from ...framework_overrides.composite_analysis import CompositeAnalysis
-from ...framework.compound_analysis import CompoundAnalysis
+from ...framework.combined_analysis import CombinedAnalysis
 from ...gates import X12Gate
 from ...transpilation import map_to_physical_qubits
 from ...util.bloch import so3_cartesian, so3_cartesian_params
@@ -50,7 +50,7 @@ class QutritQubitTomography(BatchExperiment):
         control_states: Sequence[int] = (0, 1, 2),
         backend: Optional[Backend] = None,
         extra_metadata: Optional[dict[str, Any]] = None,
-        analysis_cls: Optional[type[CompoundAnalysis]] = None
+        analysis_cls: Optional[type[CombinedAnalysis]] = None
     ):
         if isinstance(circuit, Gate):
             gate = circuit
@@ -147,7 +147,7 @@ class QutritQubitTomography(BatchExperiment):
             return batch_circuits
 
 
-class QutritQubitTomographyAnalysis(CompoundAnalysis):
+class QutritQubitTomographyAnalysis(CombinedAnalysis):
     """Analysis for QutritQubitTomography."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -167,7 +167,7 @@ class QutritQubitTomographyAnalysis(CompoundAnalysis):
     def _propagated_option_keys(cls) -> list[str]:
         return super()._propagated_option_keys() + ['maxiter', 'tol']
 
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
@@ -428,7 +428,7 @@ class QutritQubitTomographyScan(BatchExperiment):
         return assign_params
 
 
-class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
+class QutritQubitTomographyScanAnalysis(CombinedAnalysis):
     """Analysis for QutritQubitTomographyScan."""
     def __init_subclass__(cls, **kwargs):
         # Each subclass needs its own lock and cache
@@ -461,7 +461,7 @@ class QutritQubitTomographyScanAnalysis(CompoundAnalysis):
             if (val := self.options.tol):
                 an.set_options(tol=val)
 
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],

@@ -76,13 +76,13 @@ class QutritCRTargetStarkAnalysis(QutritQubitTomographyScanAnalysis):
         options.figure_names.append('theta_iz')
         return options
 
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
         figures: list[Figure]
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
-        analysis_results, figures = super()._run_additional_analysis(experiment_data,
+        analysis_results, figures = super()._run_combined_analysis(experiment_data,
                                                                      analysis_results, figures)
 
         amplitudes = experiment_data.metadata['scan_values'][0]

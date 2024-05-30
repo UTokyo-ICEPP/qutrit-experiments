@@ -8,7 +8,7 @@ from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 
-from ...framework.compound_analysis import CompoundAnalysis
+from ...framework.combined_analysis import CombinedAnalysis
 from ...framework_overrides.batch_experiment import BatchExperiment
 from ...util.matplotlib import make_list_plot
 from .spectator_ramsey import SpectatorRamseyXY
@@ -62,7 +62,7 @@ class QutritZZRamsey(BatchExperiment):
         return metadata
 
 
-class QutritZZRamseyAnalysis(CompoundAnalysis):
+class QutritZZRamseyAnalysis(CombinedAnalysis):
     """Analysis for QutritZZRamsey."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -70,7 +70,7 @@ class QutritZZRamseyAnalysis(CompoundAnalysis):
         options.plot = True
         return options
 
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],

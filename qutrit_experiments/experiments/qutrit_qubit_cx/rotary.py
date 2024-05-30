@@ -29,13 +29,13 @@ class MinimumYZRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
         options.unitary_parameter_ylims = {'Y': (-0.2, 0.2), 'Z': (-0.2, 0.2)}
         return options
 
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
         figures: list[Figure]
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
-        analysis_results, figures = super()._run_additional_analysis(experiment_data,
+        analysis_results, figures = super()._run_combined_analysis(experiment_data,
                                                                      analysis_results, figures)
 
         amplitudes = np.array(experiment_data.metadata['scan_values'][0])

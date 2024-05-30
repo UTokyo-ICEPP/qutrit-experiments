@@ -53,13 +53,13 @@ class RepeatedCRAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
     def _postprocess_params(self, upopt: np.ndarray, norm: float):
         upopt[[0, 2, 4]] /= norm
 
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
         figures: list[Figure]
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
-        analysis_results, figures = super()._run_additional_analysis(experiment_data,
+        analysis_results, figures = super()._run_combined_analysis(experiment_data,
                                                                      analysis_results, figures)
 
         fit_params = next(res.value for res in analysis_results if res.name == 'simul_fit_params')

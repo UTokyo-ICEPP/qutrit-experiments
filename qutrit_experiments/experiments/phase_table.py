@@ -17,7 +17,7 @@ from qiskit_experiments.framework import AnalysisResultData, ExperimentData
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 
 from ..framework.calibration_updaters import DeltaUpdater
-from ..framework.compound_analysis import CompoundAnalysis
+from ..framework.combined_analysis import CombinedAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
 from .phase_shift import PhaseShiftMeasurement
 
@@ -115,7 +115,7 @@ class PhaseTable(BatchExperiment):
                          analysis=PhaseTableAnalysis([exp.analysis for exp in experiments]))
 
 
-class PhaseTableAnalysis(CompoundAnalysis):
+class PhaseTableAnalysis(CombinedAnalysis):
     """Analysis for PhaseTable."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -137,7 +137,7 @@ class PhaseTableAnalysis(CompoundAnalysis):
             prob._outcome = analysis.options.outcome
             analysis.set_options(data_processor=analysis.options.data_processor)
 
-    def _run_additional_analysis(
+    def _run_combined_analysis(
         self,
         experiment_data: ExperimentData,
         analysis_results: list[AnalysisResultData],
