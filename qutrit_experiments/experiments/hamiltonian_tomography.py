@@ -263,7 +263,7 @@ class HamiltonianTomographyAnalysis(CompoundAnalysis, curve.CurveAnalysis):
         return options
 
     def __init__(self, analyses: list[GSRabiAnalysis]):
-        super().__init__(analyses, flatten_results=False)
+        super().__init__(analyses)
         curve.CurveAnalysis.__init__(self, [])
 
         self.set_options(

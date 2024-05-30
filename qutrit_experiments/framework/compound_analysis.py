@@ -5,7 +5,7 @@ import copy
 import logging
 from typing import Any, Optional
 from matplotlib.figure import Figure
-from qiskit_experiments.framework import AnalysisResultData, ExperimentData
+from qiskit_experiments.framework import AnalysisResultData, BaseAnalysis, ExperimentData
 
 from ..framework_overrides.composite_analysis import CompositeAnalysis
 
@@ -17,6 +17,19 @@ class CompoundAnalysis(CompositeAnalysis):
     @classmethod
     def _propagated_option_keys(cls) -> list[str]:
         return ['outcome', 'data_processor', 'plot']
+
+    def __init__(
+        self,
+        analyses: list[BaseAnalysis],
+        generate_figures: Optional[str] = "always"
+    ):
+        """Construct a new CompoundAnalysis.
+
+        flatten_results=False is discouraged from QE>=0.6 and will possibly be deprecated at some
+        point, but many of our analyses do rely on having the child data hierarchy at the moment
+        (or at least they appear to be; further investigation needed).
+        """
+        super().__init__(analyses, flatten_results=False, generate_figures=generate_figures)
 
     # pylint: disable-next=unused-argument
     def _set_subanalysis_options(self, experiment_data: ExperimentData):

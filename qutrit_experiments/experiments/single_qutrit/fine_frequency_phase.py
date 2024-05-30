@@ -83,7 +83,7 @@ class EFRamseyFrequencyScanAnalysis(CompoundAnalysis):
         self,
         analyses: list[RamseyPhaseSweepAnalysis]
     ):
-        super().__init__(analyses, flatten_results=False)
+        super().__init__(analyses)
 
     def _run_additional_analysis(
         self,

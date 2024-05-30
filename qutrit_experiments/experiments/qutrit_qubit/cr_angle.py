@@ -255,7 +255,7 @@ class CRAngleCounterScanAnalysis(CompoundAnalysis):
         return options
 
     def __init__(self, analyses: list[CRAngleAnalysis]):
-        super().__init__(analyses, flatten_results=False)
+        super().__init__(analyses)
 
     def _run_additional_analysis(
         self,
