@@ -238,9 +238,6 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         component_expdata = analysis._component_experiment_data(experiment_data)
         logger.debug('Extracted component data for task %s..', parent_task_id)
 
-        if hasattr(analysis, '_set_subanalysis_options'):
-            analysis._set_subanalysis_options(experiment_data)
-
         for itask, (sub_analysis, sub_data) in enumerate(zip(analysis._analyses,
                                                              component_expdata)):
             task_id = parent_task_id + (itask,)
