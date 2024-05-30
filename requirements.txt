@@ -1,8 +1,11 @@
-jax >= 0.4.3
-matplotlib >= 3.7.0
-numpy >= 1.24.0
-qiskit >= 1.0.0
+cvxpy >= 1.5
+jax >= 0.4
+lmfit
+matplotlib >= 3.4
+numpy >= 1.17
+qiskit >= 1.0
 qiskit-experiments >= 0.6.1
-qiskit-ibm-runtime >= 0.23.0
-scipy >= 1.10.0
-scikit-learn >= 1.5.0
+qiskit-ibm-runtime >= 0.23
+rustworkx
+scipy >= 1.10
+scikit-learn >= 1.5
