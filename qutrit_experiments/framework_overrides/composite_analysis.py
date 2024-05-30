@@ -9,6 +9,7 @@ from multiprocessing import Pipe, Process, cpu_count
 from multiprocessing.connection import Connection
 from threading import Lock
 from typing import Any, Optional, Union
+from matplotlib.figure import Figure
 from qiskit_experiments.exceptions import AnalysisError
 from qiskit_experiments.framework import (AnalysisResult, AnalysisStatus, BaseAnalysis,
                                           CompositeAnalysis as CompositeAnalysisOrig,
@@ -39,26 +40,20 @@ class CompositeAnalysis(CompositeAnalysisOrig):
     def _run_sub_analysis(
         analysis: BaseAnalysis,
         experiment_data: ExperimentData,
-        thread_output: Optional[Any] = NO_THREAD,
-        data_deserialized: bool = False
+        thread_output: Optional[Any] = NO_THREAD
     ) -> tuple[
         AnalysisStatus,
         Union[
-            tuple[list[AnalysisResult], list[FigureData]],
+            tuple[list[AnalysisResult], list[Figure]],
             tuple[Exception, str]
         ]
     ]:
         """Run a non-composite subanalysis on a component data."""
-        # Bugfix
-        if data_deserialized:
-            experiment_data = experiment_data.copy(copy_results=False)
-        else:
-            experiment_data._clear_results()
+        experiment_data._clear_results()
 
         # copied from run_analysis in BaseAnalysis.run
         try:
             experiment_components = analysis._get_experiment_components(experiment_data)
-            # making new analysis
             if thread_output is NO_THREAD:
                 results, figures = analysis._run_analysis(experiment_data)
             else:
@@ -70,14 +65,8 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                 )
                 for result in results
             ]
-            # Update experiment data with analysis results
-            if analysis_results:
-                experiment_data.add_analysis_results(analysis_results)
-            if figures:
-                experiment_data.add_figures(figures, figure_names=analysis.options.figure_names)
 
-            return AnalysisStatus.DONE, (experiment_data.analysis_results(),
-                                         list(experiment_data._figures.values()))
+            return AnalysisStatus.DONE, (analysis_results, figures)
 
         except Exception as ex:  # pylint: disable=broad-except
             return AnalysisStatus.ERROR, (ex, traceback.format_exc())
@@ -234,8 +223,8 @@ class CompositeAnalysis(CompositeAnalysisOrig):
 
         return analysis_results, figures
 
+    @staticmethod
     def _gather_tasks(
-        self,
         analysis: CompositeAnalysisOrig,
         experiment_data: ExperimentData,
         task_list: list[tuple[BaseAnalysis, ExperimentData, tuple[int, ...]]],
@@ -256,8 +245,9 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                                                              component_expdata)):
             task_id = parent_task_id + (itask,)
             if isinstance(sub_analysis, CompositeAnalysisOrig):
-                self._gather_tasks(sub_analysis, sub_data, task_list, subdata_map, task_id)
-            elif len(sub_data.analysis_results()) == 0 or self.options.clear_results:
+                CompositeAnalysis._gather_tasks(sub_analysis, sub_data, task_list, subdata_map,
+                                                task_id)
+            elif len(sub_data.analysis_results()) == 0 or analysis.options.clear_results:
                 logger.debug('Booked %s for data from qubits %s',
                              sub_analysis.__class__.__name__, sub_data.metadata['physical_qubits'])
                 task_list.append((sub_analysis, sub_data, task_id))
@@ -332,17 +322,16 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                 sys.stderr.flush()
                 if self.options.ignore_failed:
                     logger.warning('Ignoring analysis failure for analysis %s:', task_id)
-                else:
-                    raise AnalysisError(f'Analysis failed for analysis {task_id}') from exc
-            elif max_procs != 0:
-                # Multiprocess -> need to insert results to the experiment data in this process
-                sub_data[task_id]._clear_results()
-                analysis_results, figures = retval
-                if analysis_results:
-                    sub_data[task_id].add_analysis_results(analysis_results)
-                if figures:
-                    sub_data[task_id].add_figures([f.figure for f in figures],
-                                                  figure_names=[f.name for f in figures])
+                    continue
+                raise AnalysisError(f'Analysis failed for analysis {task_id}') from exc
+
+            # Insert results to the experiment data
+            sub_data[task_id]._clear_results()
+            analysis_results, figures = retval
+            if analysis_results:
+                sub_data[task_id].add_analysis_results(analysis_results)
+            if figures:
+                sub_data[task_id].add_figures(figures, analyses[task_id].options.figure_names)
 
         # Combine the child data if the analysis requires flattening
         # Entries in subdata_map is innermost-first
