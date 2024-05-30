@@ -272,11 +272,8 @@ class GSRabiAnalysis(curve.OscillationAnalysis):
         self,
         curve_data: curve.ScatterTable
     ) -> curve.CurveFitResult:
-        current = np.geterr()['invalid']
-        np.seterr(invalid='ignore')
-        result = super()._run_curve_fit(curve_data)
-        np.seterr(invalid=current)
-        return result
+        with np.errstate(invalid='ignore'):
+            return super()._run_curve_fit(curve_data)
 
 
 class GSRabiTrigSumAnalysis(curve.CurveAnalysis):
