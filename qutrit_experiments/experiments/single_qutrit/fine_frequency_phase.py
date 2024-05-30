@@ -75,8 +75,8 @@ class EFRamseyFrequencyScanAnalysis(CombinedAnalysis):
         return options
 
     @classmethod
-    def _propagated_option_keys(cls) -> list[str]:
-        keys = super()._propagated_option_keys()
+    def _broadcast_option_keys(cls) -> list[str]:
+        keys = super()._broadcast_option_keys()
         return keys + ['common_amp', 'nwind_hypotheses']
 
     def __init__(

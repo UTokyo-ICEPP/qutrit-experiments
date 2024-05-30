@@ -1,5 +1,6 @@
 """Measurement of phase entries of a diagonal unitary."""
 from collections.abc import Sequence
+import copy
 import logging
 from typing import Any, Optional
 from matplotlib.figure import Figure
@@ -123,19 +124,25 @@ class PhaseTableAnalysis(CombinedAnalysis):
         options.plot = True
         return options
 
-    def _set_subanalysis_options(self, experiment_data: ExperimentData):
-        super()._set_subanalysis_options(experiment_data)
-        # Restore the probability outcome string if overwritten by the parent analysis
+    @classmethod
+    def _broadcast_option_keys(cls) -> list[str]:
+        keys = super()._broadcast_option_keys()
+        keys.remove('data_processor')
+        return keys
+
+    def set_options(self, **fields):
+        super().set_options(**fields)
+        if (data_processor := fields.get('data_processor')) is None:
+            return
+        # Broadcast the data processor with different outcome for each subanalysis
         for analysis in self._analyses:
-            if analysis.options.data_processor is None:
-                continue
+            proc = copy.deepcopy(data_processor)
             try:
-                prob = next(node for node in analysis.options.data_processor._nodes
-                            if isinstance(node, Probability))
+                prob = next(node for node in proc._nodes if isinstance(node, Probability))
             except StopIteration:
                 continue
             prob._outcome = analysis.options.outcome
-            analysis.set_options(data_processor=analysis.options.data_processor)
+            analysis.set_options(data_processor=proc)
 
     def _run_combined_analysis(
         self,

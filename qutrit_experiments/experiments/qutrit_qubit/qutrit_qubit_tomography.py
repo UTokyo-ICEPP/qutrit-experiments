@@ -164,8 +164,8 @@ class QutritQubitTomographyAnalysis(CombinedAnalysis):
         return options
 
     @classmethod
-    def _propagated_option_keys(cls) -> list[str]:
-        return super()._propagated_option_keys() + ['maxiter', 'tol']
+    def _broadcast_option_keys(cls) -> list[str]:
+        return super()._broadcast_option_keys() + ['maxiter', 'tol']
 
     def _run_combined_analysis(
         self,
@@ -437,6 +437,10 @@ class QutritQubitTomographyScanAnalysis(CombinedAnalysis):
         return super().__init_subclass__(**kwargs)
 
     @classmethod
+    def _broadcast_option_keys(cls) -> list[str]:
+        return super()._broadcast_option_keys() + ['maxiter', 'tol']
+
+    @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
         options.figure_names = ['theta_x', 'theta_y', 'theta_z', 'chisq']
@@ -451,15 +455,10 @@ class QutritQubitTomographyScanAnalysis(CombinedAnalysis):
         options.unitary_parameter_ylims = {}
         return options
 
-    def _set_subanalysis_options(self, experiment_data: ExperimentData):
-        if self.options.simul_fit:
-            self.options.parallelize_on_thread = True
-
-        for an in self._analyses:
-            if (val := self.options.maxiter):
-                an.set_options(maxiter=val)
-            if (val := self.options.tol):
-                an.set_options(tol=val)
+    def set_options(self, **fields):
+        if fields.get('simul_fit'):
+            super().set_options(parallelize_on_thread=True)
+        super().set_options(**fields)
 
     def _run_combined_analysis(
         self,

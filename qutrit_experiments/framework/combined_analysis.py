@@ -1,7 +1,6 @@
 """CompositeAnalysis with additional analysis on top."""
 from abc import abstractmethod
 from collections.abc import Callable
-import copy
 import logging
 from typing import Any, Optional
 from matplotlib.figure import Figure
@@ -15,7 +14,7 @@ logger = logging.getLogger(__name__)
 class CombinedAnalysis(CompositeAnalysis):
     """CompositeAnalysis with additional analysis on top."""
     @classmethod
-    def _propagated_option_keys(cls) -> list[str]:
+    def _broadcast_option_keys(cls) -> list[str]:
         return ['outcome', 'data_processor', 'plot']
 
     def __init__(
@@ -31,14 +30,14 @@ class CombinedAnalysis(CompositeAnalysis):
         """
         super().__init__(analyses, flatten_results=False, generate_figures=generate_figures)
 
-    # pylint: disable-next=unused-argument
-    def _set_subanalysis_options(self, experiment_data: ExperimentData):
-        logger.debug('Setting options for %d subanalyses of %s',
-                     len(self._analyses), self.__class__)
-        for key in self._propagated_option_keys():
-            if (value := self.options.get(key)) is not None:
-                for analysis in self._analyses:
-                    analysis.set_options(**{key: copy.deepcopy(value)})
+    def set_options(self, **fields):
+        broadcast_options = {key: value for key, value in fields.items()
+                             if key in self._broadcast_option_keys()}
+        super().set_options(broadcast=True, **broadcast_options)
+        for key in broadcast_options:
+            fields.pop(key)
+
+        super().set_options(**fields)
 
     @abstractmethod
     def _run_combined_analysis(
