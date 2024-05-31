@@ -1,382 +1,235 @@
-"""Override of qiskit_experiments.framework.composite.composite_analysis."""
-
-import logging
-import sys
-import time
-import traceback
-from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor
-from multiprocessing import Pipe, Process, cpu_count
-from multiprocessing.connection import Connection
-from threading import Lock
-from typing import Any, Optional, Union
+"""CompositeAnalysis with process-based parallelization and postanalysis."""
+from collections.abc import Callable
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from datetime import datetime
+from multiprocessing import cpu_count
+from typing import Optional, Union
+import warnings
+from dateutil import tz
 from matplotlib.figure import Figure
-from qiskit_experiments.exceptions import AnalysisError
-from qiskit_experiments.framework import (AnalysisResult, AnalysisStatus, BaseAnalysis,
-                                          CompositeAnalysis as CompositeAnalysisOrig,
-                                          ExperimentData, FigureData, Options)
+from qiskit_experiments.framework import AnalysisResultData, BaseAnalysis, ExperimentData, Options
+from qiskit_experiments.framework.analysis_result_data import as_table_element
+from qiskit_experiments.framework.base_analysis import _requires_copy
+from qiskit_experiments.framework.composite import CompositeAnalysis as CompositeAnalysisOrig
+from qiskit_experiments.framework.containers import ArtifactData, FigureData
 
-from ..framework.child_data import set_child_data_structure
-from ..framework.threaded_analysis import NO_THREAD, ThreadedAnalysis
-
-logger = logging.getLogger(__name__)
+from ..framework.threaded_analysis import ThreadedAnalysis
 
 
 class CompositeAnalysis(CompositeAnalysisOrig):
-    """CompositeAnalysis with modified functionalities.
+    """CompositeAnalysis with process-based parallelization and postanalysis."""
+    @staticmethod
+    def add_results(
+        analysis: BaseAnalysis,
+        expdata: ExperimentData,
+        results: list[Union[AnalysisResultData, ArtifactData]],
+        figures: list[Figure]
+    ):
+        for result in results:
+            if isinstance(result, AnalysisResultData):
+                # Populate missing data fields
+                if not result.experiment_id:
+                    result.experiment_id = expdata.experiment_id
+                if not result.experiment:
+                    result.experiment = expdata.experiment_type
+                if not result.device_components:
+                    result.device_components = analysis._get_experiment_components(expdata)
+                if not result.backend:
+                    result.backend = expdata.backend_name
+                if not result.created_time:
+                    result.created_time = datetime.now(tz.tzlocal())
+                if not result.run_time:
+                    result.run_time = expdata.running_time
 
-    Modifications:
-    - Parallelized the subanalyses with processes. Matplotlib is not thread-safe, so running the
-      subanalyses with plots on threads can sometimes lead to weird errors.
-    """
+                # To canonical kwargs to add to the analysis table.
+                table_format = as_table_element(result)
+
+                # Remove result_id to make sure the id is unique in the scope of the container.
+                # This will let the container generate a unique id.
+                del table_format["result_id"]
+
+                expdata.add_analysis_results(**table_format)
+            elif isinstance(result, ArtifactData):
+                if not result.experiment_id:
+                    result.experiment_id = expdata.experiment_id
+                if not result.device_components:
+                    result.device_components = analysis._get_experiment_components(expdata)
+                if not result.experiment:
+                    result.experiment = expdata.experiment_type
+                expdata.add_artifacts(result)
+            else:
+                raise TypeError(
+                    f"Invalid object type {result.__class__.__name__} for analysis results. "
+                    "This data cannot be stored in the experiment data."
+                )
+
+        figure_to_add = []
+        for figure in figures:
+            if not isinstance(figure, FigureData):
+                qubits_repr = "_".join(
+                    map(str, expdata.metadata.get("device_components", [])[:5])
+                )
+                short_id = expdata.experiment_id[:8]
+                figure = FigureData(
+                    figure=figure,
+                    name=f"{expdata.experiment_type}_{qubits_repr}_{short_id}.svg",
+                )
+            figure_to_add.append(figure)
+        expdata.add_figures(figure_to_add, figure_names=analysis.options.figure_names)
+
+    @staticmethod
+    def run_in_subprocess(analysis: BaseAnalysis, experiment_data: ExperimentData):
+        if isinstance(analysis, ThreadedAnalysis):
+            thread_output = analysis._run_analysis_threaded(experiment_data)
+            target = analysis._run_analysis_processable
+            args = (experiment_data, thread_output)
+        else:
+            target = analysis._run_analysis
+            args = (experiment_data,)
+
+        # Backend cannot be pickled, so unset the attribute temporarily.
+        # Also BaseAnalysis.run is overwritten for analyses attached to
+        # BaseCalibrationExperiments, which makes analysis instances unpickable.
+        # We therefore delete the attribute temporarily.
+        runfunc = analysis.run
+        backend = experiment_data.backend
+        analysis.run = None
+        experiment_data.backend = None
+        try:
+            with ProcessPoolExecutor(max_workers=1) as executor:
+                return executor.submit(target, *args).result()
+        finally:
+            analysis.run = runfunc
+            experiment_data.backend = backend
+
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
         options.parallelize = -1
-        options.ignore_failed = False
-        options.clear_results = True
         return options
 
-    @staticmethod
-    def _run_sub_analysis(
-        analysis: BaseAnalysis,
+    def run(
+        self,
         experiment_data: ExperimentData,
-        thread_output: Optional[Any] = NO_THREAD
-    ) -> tuple[
-        AnalysisStatus,
-        Union[
-            tuple[list[AnalysisResult], list[Figure]],
-            tuple[Exception, str]
-        ]
-    ]:
-        """Run a non-composite subanalysis on a component data."""
-        experiment_data._clear_results()
+        replace_results: bool = False,
+        **options,
+    ) -> ExperimentData:
+        """Overridden run() function."""
+        if options:
+            warnings.warn('Call-time options for CompositeAnalysis.run() are ignored.')
 
-        # copied from run_analysis in BaseAnalysis.run
-        try:
-            experiment_components = analysis._get_experiment_components(experiment_data)
-            if thread_output is NO_THREAD:
-                results, figures = analysis._run_analysis(experiment_data)
-            else:
-                results, figures = analysis._run_analysis_unthreaded(experiment_data, thread_output)
-            # Add components
-            analysis_results = [
-                analysis._format_analysis_result(
-                    result, experiment_data.experiment_id, experiment_components
-                )
-                for result in results
-            ]
+        if (max_workers := self.options.parallelize) == 0:
+            return self._run(experiment_data, replace_results=replace_results)
 
-            return AnalysisStatus.DONE, (analysis_results, figures)
+        if max_workers < 0:
+            max_workers = cpu_count()
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            return self._run(experiment_data, replace_results=replace_results, executor=executor)
 
-        except Exception as ex:  # pylint: disable=broad-except
-            return AnalysisStatus.ERROR, (ex, traceback.format_exc())
-
-    @staticmethod
-    def _run_sub_analysis_threaded(
-        analysis: ThreadedAnalysis,
+    def _run(
+        self,
         experiment_data: ExperimentData,
-    ) -> Any:
-        """Run the threaded part of a ThreadedAnalysis."""
-        return analysis._run_analysis_threaded(experiment_data)
+        replace_results: bool = False,
+        executor: Optional[ThreadPoolExecutor] = None
+    ) -> ExperimentData:
+        """Body of the run function which is also called by the parent composite analysis if there
+        is one.
 
-    @staticmethod
-    def _run_sub_composite_postanalysis(
-        analysis: CompositeAnalysisOrig,
-        parent_data: ExperimentData,
-        parent_task_id: tuple[int, ...],
-        component_data: list[ExperimentData],
-        futures: dict[tuple[int, ...], Future],
-        lock: Optional[Lock] = None
-    ) -> tuple[list[AnalysisResult], list[FigureData]]:
-        """Run the post-analysis for a composite subanalysis.
-
-        This function is executed as a thread. If the parallelize option is on (determined by the
-        existence of a lock), a process is dispatched to circumvent the GIL. If the component
-        analyses of the subanalysis are themselves composite, the function is called recursively.
+        We forgo the original run -> _run_analysis structure entirely and execute component analyses
+        and postanalysis directly in this function.
+        For atomic (non-composite) component analysis, we call _run_analysis in a subprocess and
+        attach the results and figures lists to the component subdata
         """
-        logger.debug('run_sub_composite parent task id %s num analysis %d num data %d',
-                     parent_task_id, len(analysis.component_analysis()), len(component_data))
-        for itask, (subanalysis, subdata) in enumerate(zip(analysis.component_analysis(),
-                                                           component_data)):
-            if not isinstance(subanalysis, CompositeAnalysisOrig):
-                continue
+        # Make a new copy of experiment data if not updating results
+        if not replace_results and _requires_copy(experiment_data):
+            experiment_data = experiment_data.copy()
 
-            task_id = parent_task_id + (itask,)
-            try:
-                future = futures[task_id]
-            except KeyError:
-                # clear_results = False and this postanalysis has been done already
-                continue
+        if not self._flatten_results:
+            # Initialize child components if they are not initialized
+            # This only needs to be done if results are not being flattened
+            self._add_child_data(experiment_data)
 
-            logger.debug('Waiting for results from analysis of task %s', task_id)
-            task_result = future.result()
-            if isinstance(task_result, Exception):
-                logger.debug('Received exception from %s:', task_id)
-                if analysis.options.get('ignore_failed', False):
-                    logger.warning('Ignoring postanalysis failure for %s:', task_id)
-                    traceback.print_exception(task_result)
-                    continue
+        # Return list of experiment data containers for each component experiment
+        # containing the marginalized data from the composite experiment
+        component_expdata = self._component_experiment_data(experiment_data)
 
-                return task_result
+        def add_callback(sub_expdata, future):
+            def add_results(expdata):
+                results, figures = future.result()
+                CompositeAnalysis.add_results(analysis, expdata, results, figures)
 
-            analysis_results, figures = task_result
-            logger.debug('Received results from %s: %s', task_id, analysis_results)
-
-            subdata._clear_results()
-            if analysis_results:
-                subdata.add_analysis_results(analysis_results)
-            if figures:
-                subdata.add_figures(figures, figure_names=subanalysis.options.figure_names)
-
-        if lock is None:
-            try:
-                msg = CompositeAnalysis._postanalysis(analysis, parent_data, component_data)
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                msg = exc
-        elif analysis.options.get('parallelize_on_thread', False):
-            try:
-                with lock:
-                    msg = CompositeAnalysis._postanalysis(analysis, parent_data, component_data)
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                msg = exc
-        else:
-            # Parallelizing the postanalyses - run as a subprocess to circumvent the GIL
-            logger.debug('Starting a subprocess for the analysis of experiment id %s',
-                         parent_task_id)
-            start = time.time()
-
-            if callable(getattr(analysis, '_run_combined_analysis_threaded', None)):
-                try:
-                    thread_output = analysis._run_combined_analysis_threaded(parent_data)
-                except Exception as exc:  # pylint: disable=broad-exception-caught
-                    if analysis.options.get('ignore_failed', False):
-                        logger.warning('Ignoring postanalysis failure for %s:', parent_task_id)
-                        traceback.print_exception(exc)
-                        return [], []
-                    return exc
-            else:
-                thread_output = NO_THREAD
-
-            conn1, conn2 = Pipe()
-            proc = Process(target=CompositeAnalysis._postanalysis,
-                           args=(analysis, parent_data, component_data, thread_output, conn2))
-            proc.start()
-            # Can't recv() directly because recv deserializes the figures and can trigger
-            # concurrency problems with mpl
-            conn1.poll(None)
-            with lock:
-                msg = conn1.recv()
-            conn1.close()
-            proc.join()
-            logger.debug('%s finished in %.2f seconds.',
-                         parent_data.experiment_id, time.time() - start)
-
-        if isinstance(msg, Exception) and analysis.options.get('ignore_failed', False):
-            logger.warning('Ignoring postanalysis failure for %s:', parent_task_id)
-            traceback.print_exception(msg)
-            return [], []
-
-        # (analysis_results, figures) or exception
-        return msg
-
-    @staticmethod
-    def _postanalysis(
-        analysis: CompositeAnalysisOrig,
-        parent_data: ExperimentData,
-        component_data: list[ExperimentData],
-        thread_output: Optional[Any] = NO_THREAD,
-        conn: Optional[Connection] = None
-    ) -> tuple[list[AnalysisResult], list[FigureData]]:
-        analysis_results, figures = [], []
-
-        try:
-            results = []
-            if analysis._flatten_results:
-                results, figures = analysis._combine_results(component_data)
-
-            if (hasattr(analysis, '_run_combined_analysis_unthreaded')
-                    and callable(analysis._run_combined_analysis_unthreaded)
-                    and thread_output is not NO_THREAD):
-                results, figures = analysis._run_combined_analysis_unthreaded(parent_data,
-                                                                              results, figures,
-                                                                              thread_output)
-            elif hasattr(analysis, '_run_combined_analysis'):
-                results, figures = analysis._run_combined_analysis(parent_data, results, figures)
-
-            experiment_components = analysis._get_experiment_components(parent_data)
-
-            analysis_results = [
-                analysis._format_analysis_result(result, parent_data.experiment_id,
-                                                 experiment_components)
-                for result in results
-            ]
-        except Exception as ex:
-            if conn:
-                conn.send(ex)
-            raise ex
-        else:
-            if conn:
-                conn.send((analysis_results, figures))
-        finally:
-            if conn:
-                conn.close()
-
-        return analysis_results, figures
-
-    @staticmethod
-    def _gather_tasks(
-        analysis: CompositeAnalysisOrig,
-        experiment_data: ExperimentData,
-        task_list: list[tuple[BaseAnalysis, ExperimentData, tuple[int, ...]]],
-        subdata_map: dict[tuple[BaseAnalysis, ExperimentData], list[ExperimentData]],
-        parent_task_id: tuple[int, ...] = ()
-    ):
-        """Recursively collect all atomic analyses and identify analysis dependencies."""
-        logger.debug('Setting child data structure for task %s..', parent_task_id)
-        set_child_data_structure(experiment_data)
-        logger.debug('Extracting component data for task %s..', parent_task_id)
-        component_expdata = analysis._component_experiment_data(experiment_data)
-        logger.debug('Extracted component data for task %s..', parent_task_id)
-
-        for itask, (sub_analysis, sub_data) in enumerate(zip(analysis._analyses,
-                                                             component_expdata)):
-            task_id = parent_task_id + (itask,)
-            if isinstance(sub_analysis, CompositeAnalysisOrig):
-                CompositeAnalysis._gather_tasks(sub_analysis, sub_data, task_list, subdata_map,
-                                                task_id)
-            elif len(sub_data.analysis_results()) == 0 or analysis.options.clear_results:
-                logger.debug('Booked %s for data from qubits %s',
-                             sub_analysis.__class__.__name__, sub_data.metadata['physical_qubits'])
-                task_list.append((sub_analysis, sub_data, task_id))
-
-        # A call to _component_experiment_data recreates subdata and/or clears the saved results
-        # -> keep the list in a container
-        subdata_map[(analysis, experiment_data, parent_task_id)] = component_expdata
-
-    def _run_analysis(self, experiment_data: ExperimentData):
-        task_list = []
-        subdata_map = {}
-        self._gather_tasks(self, experiment_data, task_list, subdata_map)
-        task_ids = [task_id for _, _, task_id in task_list]
-        analyses = {task_id: analysis for analysis, _, task_id in task_list}
-        sub_data = {task_id: sub_data for _, sub_data, task_id in task_list}
+            sub_expdata.add_analysis_callback(add_results)
 
         # Run the component analysis on each component data
-        if (max_procs := self.options.parallelize) != 0:
-            if max_procs < 0:
-                max_procs = cpu_count() // 2
+        # Since copy for replace result is handled at the parent level we always run with replace
+        # result on component analysis
+        for analysis, sub_expdata in zip(self._analyses, component_expdata):
+            if isinstance(analysis, CompositeAnalysis):
+                analysis._run(sub_expdata, replace_results=True, executor=executor)
+            elif isinstance(analysis, CompositeAnalysisOrig):
+                analysis.run(sub_expdata, replace_results=True)
+            elif executor:
+                future = executor.submit(CompositeAnalysis.run_in_subprocess, analysis, sub_expdata)
+                add_callback(sub_expdata, future)
+            else:
+                results, figures = analysis._run_analysis(sub_expdata)
+                CompositeAnalysis.add_results(analysis, sub_expdata, results, figures)
 
-            logger.debug('Running the subanalyses in parallel (max %d processes)..', max_procs)
+        if executor:
+            # Submit the postanalysis on executor and add a blocker as analysis callback
+            future = executor.submit(self._run_postanalysis, experiment_data, component_expdata)
 
-            start = time.time()
+            def wait_for_postanalysis(_):
+                future.result()
 
-            thread_outputs = [NO_THREAD] * len(task_ids)
-            with ThreadPoolExecutor(max_workers=max_procs) as executor:
-                futures = {}
-                for itask, (task_id, analysis) in enumerate(analyses.items()):
-                    if isinstance(analysis, ThreadedAnalysis):
-                        futures[itask] = executor.submit(analysis._run_analysis_threaded,
-                                                         sub_data[task_id])
-                for itask, future in futures.items():
-                    thread_outputs[itask] = future.result()
-
-            # Backend cannot be pickled, so unset the attribute temporarily.
-            # We use a list here but the backend cannot possibly be different among subdata..
-            # Also BaseAnalysis.run is overwritten somewhere, making analysis instances unpickable.
-            # We therefore delete the attribute temporarily and call _run_analysis directly in
-            # _run_sub_analysis.
-            backends = []
-            runfuncs = []
-            for tid in task_ids:
-                backends.append(sub_data[tid].backend)
-                sub_data[tid].backend = None
-                runfuncs.append(analyses[tid].run)
-                analyses[tid].run = None
-            try:
-                with ProcessPoolExecutor(max_workers=max_procs) as executor:
-                    all_results = executor.map(CompositeAnalysis._run_sub_analysis,
-                                               analyses.values(),
-                                               sub_data.values(),
-                                               thread_outputs,
-                                               [True] * len(task_ids))
-            finally:
-                # Restore the original states of the data and analyses
-                for tid, backend, runfunc in zip(task_ids, backends, runfuncs):
-                    sub_data[tid].backend = backend
-                    analyses[tid].run = runfunc
-
-            logger.debug('Done in %.3f seconds.', time.time() - start)
-
+            experiment_data.add_analysis_callback(wait_for_postanalysis)
         else:
-            all_results = map(CompositeAnalysis._run_sub_analysis,
-                              analyses.values(),
-                              sub_data.values())
+            # We could add this as an analysis callback, but then we'll risk creating uncontrolled
+            # number of analysis threads with nested CompositeAnalyses
+            self._run_postanalysis(experiment_data, component_expdata)
 
-        for (status, retval), task_id in zip(all_results, task_ids):
-            if status == AnalysisStatus.ERROR:
-                exc, stacktrace = retval
-                sys.stderr.write(stacktrace)
-                sys.stderr.flush()
-                if self.options.ignore_failed:
-                    logger.warning('Ignoring analysis failure for analysis %s:', task_id)
-                    continue
-                raise AnalysisError(f'Analysis failed for analysis {task_id}') from exc
+        return experiment_data
 
-            # Insert results to the experiment data
-            sub_data[task_id]._clear_results()
-            analysis_results, figures = retval
-            if analysis_results:
-                sub_data[task_id].add_analysis_results(analysis_results)
-            if figures:
-                sub_data[task_id].add_figures(figures, analyses[task_id].options.figure_names)
+    _run_analysis: Optional[
+        Callable[
+            [ExperimentData],
+            tuple[list[Union[AnalysisResultData, ArtifactData], list[Figure]]]
+        ]
+    ] = None
+    """Override this attribute as a method if running combined analysis on top of the results of
+    individual component analyses."""
 
-        # Combine the child data if the analysis requires flattening
-        # Entries in subdata_map is innermost-first
-        # -> Data hierarchy is accounted for by just iterating
-        logger.debug('Combining composite subanalysis results')
-        start = time.time()
+    def _run_postanalysis(
+        self,
+        experiment_data: ExperimentData,
+        component_expdata: list[ExperimentData]
+    ) -> None:
+        """Parent data formatting and combined analysis.
 
-        # We use the futures dict for bookkeeping sub-sub-..-analyses and therefore execute the
-        # postanalysis function through a thread pool even when options.parallelize == 0
-        futures = {}
-        if self.options.parallelize != 0:
-            lock = Lock()
-        else:
-            lock = None
+        This function is run as a thread if parallelize != 0.
+        """
+        # Clearing previous analysis data
+        experiment_data._clear_results()
 
-        with ThreadPoolExecutor() as executor:
-            for (analysis, parent_data, task_id), component_expdata in subdata_map.items():
-                if not self.options.clear_results and len(parent_data.analysis_results()) != 0:
-                    continue
+        if not experiment_data.data():
+            warnings.warn("ExperimentData object data is empty.\n")
 
-                future = executor.submit(CompositeAnalysis._run_sub_composite_postanalysis,
-                                         analysis, parent_data, task_id, component_expdata, futures,
-                                         lock)
-                futures[task_id] = future
+        for sub_expdata in component_expdata:
+            sub_expdata.block_for_results()
 
-                if self.options.parallelize == 0 and task_id != ():
-                    # Wait for completion
-                    result = future.result()
-                    if (isinstance(result, Exception)
-                            and analysis.options.get('ignore_failed', False)):
-                        raise AnalysisError(f'Postanalysis failed for {task_id}') from result
+        if self._flatten_results:
+            results, figures = self._combine_results(component_expdata)
+            for res in results:
+                # Override experiment  ID because entries are flattened
+                res.experiment_id = experiment_data.experiment_id
 
-        try:
-            future = futures[()]
-        except KeyError:
-            # Postanalysis did not run because results already existed and clear_results was False
-            return (experiment_data.analysis_results(),
-                    [experiment_data.figures(name) for name in experiment_data.figure_names])
+            CompositeAnalysis.add_results(self, experiment_data, results, figures)
 
-        result = future.result()
-        if isinstance(result, Exception):
-            if self.options.ignore_failed:
-                logger.warning('Ignoring postanalysis failure')
-                traceback.print_exception(result)
-                return [], []
+        if callable(self._run_analysis):
+            if self.options.parallelize != 0:
+                results, figures = CompositeAnalysis.run_in_subprocess(self, experiment_data)
+            else:
+                # pylint: disable-next=not-callable
+                results, figures = self._run_analysis(experiment_data)
 
-            raise AnalysisError('Postanalysis failed') from result
-
-        logger.debug('Done in %.3f seconds.', time.time() - start)
-        # analysis_results, figures
-        return result
+            CompositeAnalysis.add_results(self, experiment_data, results, figures)
