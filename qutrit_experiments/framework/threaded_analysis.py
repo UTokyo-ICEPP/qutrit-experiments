@@ -1,40 +1,31 @@
 """Analysis with a part run in a thread of the main process when run parallel under
 CompositeAnalysis."""
 from abc import abstractmethod
-from enum import Enum, auto
-from typing import Any
+from typing import Any, Union
 from matplotlib.figure import Figure
-from qiskit_experiments.framework import BaseAnalysis
-from qiskit_experiments.framework.analysis_result_data import AnalysisResultData
+from qiskit_experiments.framework import AnalysisResultData, BaseAnalysis
+from qiskit_experiments.framework.containers import ArtifactData
 from qiskit_experiments.framework.experiment_data import ExperimentData
 
 
 class ThreadedAnalysis(BaseAnalysis):
     """Analysis with a part run in a thread of the main process when run parallel under
     CompositeAnalysis."""
-
-    class NoThreadingFlag(Enum):
-        """Special constant to flag no theading."""
-        NO_THREAD = auto()
-
     def _run_analysis(
         self,
         experiment_data: ExperimentData
-    ) -> tuple[list[AnalysisResultData], list[Figure]]:
+    ) -> tuple[list[Union[AnalysisResultData, ArtifactData]], list[Figure]]:
         thread_output = self._run_analysis_threaded(experiment_data)
-        return self._run_analysis_unthreaded(experiment_data, thread_output)
+        return self._run_analysis_processable(experiment_data, thread_output)
 
     @abstractmethod
-    def _run_analysis_threaded(self, experiment_data: ExperimentData) -> Any:
-        pass
+    def _run_analysis_threaded(self, experiment_data: ExperimentData) -> dict[str, Any]:
+        """Run the threaded part of the analysis and return the outputs with names."""
 
     @abstractmethod
-    def _run_analysis_unthreaded(
+    def _run_analysis_processable(
         self,
         experiment_data: ExperimentData,
-        thread_output: Any
-    ) -> tuple[list[AnalysisResultData], list[Figure]]:
-        pass
-
-
-NO_THREAD = ThreadedAnalysis.NoThreadingFlag.NO_THREAD
+        thread_output: dict[str, Any]
+    ) -> tuple[list[Union[AnalysisResultData, ArtifactData]], list[Figure]]:
+        """Run the rest of the analysis using the output from the threaded part."""

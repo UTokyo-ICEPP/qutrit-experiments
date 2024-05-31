@@ -5,14 +5,13 @@ from typing import Any, Optional
 import matplotlib
 import numpy as np
 from qiskit import QuantumCircuit
-from qiskit.circuit import Gate
 from qiskit.providers import Backend
 from qiskit_experiments.framework import (AnalysisResultData, BaseExperiment, ExperimentData,
                                           Options)
 
 from ..experiment_mixins import MapToPhysicalQubits
 from ..framework.threaded_analysis import ThreadedAnalysis
-from ..util.unitary_fit import extract_input_values, fit_unitary, plot_unitary_fit
+from ..util.unitary_fit import fit_unitary, plot_unitary_fit
 
 twopi = 2. * np.pi
 
@@ -109,21 +108,22 @@ class UnitaryTomographyAnalysis(ThreadedAnalysis):
 
         return options
 
-    def _run_analysis_threaded(self, experiment_data: ExperimentData) -> Any:
+    def _run_analysis_threaded(self, experiment_data: ExperimentData) -> dict[str, Any]:
         options = {}
         if self.options.maxiter:
             options['maxiter'] = self.options.maxiter
         if self.options.tol:
             options['tol'] = self.options.tol
-        return fit_unitary(experiment_data.data(), data_processor=self.options.data_processor,
-                           **options)
+        fit_result = fit_unitary(experiment_data.data(), data_processor=self.options.data_processor,
+                                 **options)
+        return {'unitary_fit_result': fit_result}
 
-    def _run_analysis_unthreaded(
+    def _run_analysis_processable(
         self,
         experiment_data: ExperimentData,
-        thread_output: Any
+        thread_output: dict[str, Any]
     ) -> tuple[list[AnalysisResultData], list[matplotlib.figure.Figure]]:
-        popt_ufloats, state, predicted, fit_input = thread_output
+        popt_ufloats, state, predicted, fit_input = thread_output['unitary_fit_result']
         analysis_results = [
             AnalysisResultData(name='unitary_fit_state', value=state),
             AnalysisResultData(name='unitary_fit_params', value=popt_ufloats),

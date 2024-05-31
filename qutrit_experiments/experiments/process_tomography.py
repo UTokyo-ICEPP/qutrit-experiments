@@ -236,29 +236,29 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
             options.fitter = 'cvxpy_gaussian_lstsq'
         return options
 
-    def _run_analysis_threaded(self, experiment_data: ExperimentData) -> Any:
+    def _run_analysis_threaded(self, experiment_data: ExperimentData) -> dict[str, Any]:
         num_qubits = len(experiment_data.metadata['m_qubits'])
         num_qubits *= len(experiment_data.metadata['p_qubits'])
-        if num_qubits == 1:
-            if self.options.readout_mitigator is not None:
-                nodes = [
-                    ReadoutMitigation(readout_mitigator=self.options.readout_mitigator,
-                                      physical_qubits=experiment_data.metadata['physical_qubits']),
-                    Probability('1'),
-                    BasisExpectationValue()
-                ]
-                data_processor = DataProcessor('counts', nodes)
-            else:
-                data_processor = None
+        if num_qubits != 1:
+            return
 
-            return fit_unitary(experiment_data.data(), data_processor)
+        if self.options.readout_mitigator is not None:
+            nodes = [
+                ReadoutMitigation(readout_mitigator=self.options.readout_mitigator,
+                                  physical_qubits=experiment_data.metadata['physical_qubits']),
+                Probability('1'),
+                BasisExpectationValue()
+            ]
+            data_processor = DataProcessor('counts', nodes)
         else:
-            return None
+            data_processor = None
 
-    def _run_analysis_unthreaded(
+        return {'unitary_fit_result': fit_unitary(experiment_data.data(), data_processor)}
+
+    def _run_analysis_processable(
         self,
         experiment_data: ExperimentData,
-        thread_output: Any
+        thread_output: dict[str, Any]
     ) -> tuple[list[AnalysisResultData, list[Figure]]]:
         mmt_basis = self.options.measurement_basis
         self.set_options(
@@ -396,8 +396,10 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
 
         self.set_options(measurement_basis=mmt_basis)
 
-        if thread_output:
-            popt_ufloats, state, expvals_pred, fit_input = thread_output
+        num_qubits = len(experiment_data.metadata['m_qubits'])
+        num_qubits *= len(experiment_data.metadata['p_qubits'])
+        if num_qubits == 1:
+            popt_ufloats, state, expvals_pred, fit_input = thread_output['unitary_fit_result']
             analysis_results.extend([
                 AnalysisResultData(name='unitary_fit_state', value=state),
                 AnalysisResultData(name='unitary_fit_params', value=popt_ufloats),
