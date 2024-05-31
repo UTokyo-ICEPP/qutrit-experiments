@@ -23,8 +23,9 @@ class BatchExperiment(BatchExperimentOrig):
         experiments: list[BaseExperiment],
         physical_qubits: Optional[Sequence[int]] = None,
         backend: Optional['Backend'] = None,
-        flatten_results: bool = False,
+        flatten_results: bool = True,
         analysis: Optional[CompositeAnalysis] = None,
+        experiment_type: Optional[str] = None,
     ):
         if analysis is None:
             analysis = CompositeAnalysis(
@@ -32,7 +33,7 @@ class BatchExperiment(BatchExperimentOrig):
             )
 
         super().__init__(experiments, backend=backend, flatten_results=flatten_results,
-                         analysis=analysis)
+                         analysis=analysis, experiment_type=experiment_type)
 
         if physical_qubits is not None:
             # We'll have to overwrite the following three attributes

@@ -164,6 +164,7 @@ class ExperimentsRunner:
         args = {'backend': self._backend}
         if isinstance(config, CompositeExperimentConfig):
             args['experiments'] = [self._make_experiment(sub) for sub in config.subexperiments]
+            args['flatten_results'] = config.flatten_results
         else:
             args.update(config.args)
             if config.physical_qubits is not None:

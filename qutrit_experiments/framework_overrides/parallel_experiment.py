@@ -18,8 +18,9 @@ class ParallelExperiment(ParallelExperimentOrig):
         self,
         experiments: list[BaseExperiment],
         backend: Optional['Backend'] = None,
-        flatten_results: bool = False,
+        flatten_results: bool = True,
         analysis: Optional[CompositeAnalysis] = None,
+        experiment_type: Optional[str] = None,
     ):
         if analysis is None:
             analysis = CompositeAnalysis(
@@ -27,4 +28,4 @@ class ParallelExperiment(ParallelExperimentOrig):
             )
 
         super().__init__(experiments, backend=backend, flatten_results=flatten_results,
-                         analysis=analysis)
+                         analysis=analysis, experiment_type=experiment_type)

@@ -40,6 +40,7 @@ class ExperimentConfig(ExperimentConfigBase):
 class CompositeExperimentConfig(ExperimentConfigBase):
     """Base class for composite experiment configuration."""
     subexperiments: list[ExperimentConfigBase] = field(default_factory=list)
+    flatten_results: bool = True
 
     @property
     def cls(self) -> type[BaseExperiment]:
