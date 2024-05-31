@@ -108,6 +108,19 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         options.parallelize = -1
         return options
 
+    @classmethod
+    def _broadcast_option_keys(cls) -> list[str]:
+        return ['outcome', 'data_processor', 'plot']
+
+    def set_options(self, **fields):
+        broadcast_options = {key: value for key, value in fields.items()
+                             if key in self._broadcast_option_keys()}
+        super().set_options(broadcast=True, **broadcast_options)
+        for key in broadcast_options:
+            fields.pop(key)
+
+        super().set_options(**fields)
+
     def run(
         self,
         experiment_data: ExperimentData,

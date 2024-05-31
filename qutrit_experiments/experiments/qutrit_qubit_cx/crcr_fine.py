@@ -21,8 +21,8 @@ from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ...calibrations.qutrit_qubit_cx import get_qutrit_qubit_cx_gate
 from ...experiment_mixins import MapToPhysicalQubits
-from ...framework.combined_analysis import CombinedAnalysis
 from ...framework_overrides.batch_experiment import BatchExperiment
+from ...framework_overrides.composite_analysis import CompositeAnalysis
 from ...gates import QutritQubitCXGate, X12Gate
 
 twopi = 2. * np.pi
@@ -373,7 +373,7 @@ class CycledRepeatedCRRxOffsetAmpScan(BatchExperiment):
                          analysis=CycledRepeatedCRRxOffsetAmpScanAnalysis(analyses))
 
 
-class CycledRepeatedCRRxOffsetAmpScanAnalysis(CombinedAnalysis):
+class CycledRepeatedCRRxOffsetAmpScanAnalysis(CompositeAnalysis):
     """Analysis for CycledRepeatedCRRxOffsetAmpScan."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -381,11 +381,12 @@ class CycledRepeatedCRRxOffsetAmpScanAnalysis(CombinedAnalysis):
         options.plot = True
         return options
 
-    def _run_combined_analysis(
+    def __init__(self, analyses: list[OscillationAnalysis]):
+        super().__init__(analyses, flatten_results=False)
+
+    def _run_analysis(
         self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
+        experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata['component_child_index']
         xvals = []
@@ -416,14 +417,15 @@ class CycledRepeatedCRRxOffsetAmpScanAnalysis(CombinedAnalysis):
             popt_ufloats.append(correlated_values(popt, pcov))
         popt_ufloats = np.array(popt_ufloats)
 
-        analysis_results.append(AnalysisResultData(name='linear_fit_params', value=popt_ufloats))
+        results = [AnalysisResultData(name='linear_fit_params', value=popt_ufloats)]
+        figures = []
 
         diff_slope = np.diff(popt_ufloats[:, 0])[0]
         diff_intercept = np.diff(popt_ufloats[:, 1])[0]
         amp_opt = ((np.pi - diff_intercept) / diff_slope) % (twopi / np.abs(diff_slope.n))
         # Optimal angle is where cosine at block 0 is 1
         angle_opt = -curve(amp_opt, *popt_ufloats[0])
-        analysis_results.extend([
+        results.extend([
             AnalysisResultData(name='cr_amp', value=amp_opt),
             AnalysisResultData(name='angle', value=angle_opt)
         ])
@@ -446,7 +448,7 @@ class CycledRepeatedCRRxOffsetAmpScanAnalysis(CombinedAnalysis):
                 )
             figures.append(plotter.figure())
 
-        return analysis_results, figures
+        return results, figures
 
 
 class CycledRepeatedCRFineScanCal(BaseCalibrationExperiment, CycledRepeatedCRRxOffsetAmpScan):

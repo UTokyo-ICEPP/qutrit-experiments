@@ -25,8 +25,8 @@ from qiskit_experiments.framework import AnalysisResultData, BaseExperiment, Exp
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ...experiment_mixins import MapToPhysicalQubits
-from ...framework.combined_analysis import CombinedAnalysis
 from ...framework_overrides.batch_experiment import BatchExperiment
+from ...framework_overrides.composite_analysis import CompositeAnalysis
 from ...gates import CrossResonanceGate, X12Gate
 from ...util.pulse_area import gs_effective_duration, rabi_cycles_per_area
 
@@ -245,7 +245,7 @@ class CRAngleCounterScan(BatchExperiment):
                          analysis=CRAngleCounterScanAnalysis([exp.analysis for exp in experiments]))
 
 
-class CRAngleCounterScanAnalysis(CombinedAnalysis):
+class CRAngleCounterScanAnalysis(CompositeAnalysis):
     """Analysis for CRAngleCounterScan."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -254,11 +254,12 @@ class CRAngleCounterScanAnalysis(CombinedAnalysis):
         options.plot = True
         return options
 
-    def _run_combined_analysis(
+    def __init__(self, analyses: list[CRAngleAnalysis]):
+        super().__init__(analyses, flatten_results=False)
+
+    def _run_analysis(
         self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
+        experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         xvals = []
         yvals = []
@@ -283,7 +284,8 @@ class CRAngleCounterScanAnalysis(CombinedAnalysis):
         popt[1] += yvals_shift
         popt_ufloats = correlated_values(popt, pcov)
 
-        analysis_results.append(AnalysisResultData(name='angle', value=popt_ufloats[1]))
+        results = [AnalysisResultData(name='angle', value=popt_ufloats[1])]
+        figures = []
 
         if self.options.plot:
             x_interp = np.linspace(xvals[0], xvals[-1], 100)
@@ -302,7 +304,7 @@ class CRAngleCounterScanAnalysis(CombinedAnalysis):
             )
             figures.append(plotter.figure())
 
-        return analysis_results, figures
+        return results, figures
 
 
 class FineCRAngleCal(BaseCalibrationExperiment, CRAngleCounterScan):

@@ -13,13 +13,14 @@ from qiskit.providers import Backend
 from qiskit.providers.options import Options
 from qiskit_experiments.calibration_management import BaseCalibrationExperiment, Calibrations
 from qiskit_experiments.calibration_management.update_library import BaseUpdater
+from qiskit_experiments.curve_analysis import OscillationAnalysis
 from qiskit_experiments.data_processing import Probability
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 
 from ..framework.calibration_updaters import DeltaUpdater
-from ..framework.combined_analysis import CombinedAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
+from ..framework_overrides.composite_analysis import CompositeAnalysis
 from .phase_shift import PhaseShiftMeasurement
 
 twopi = 2. * np.pi
@@ -116,7 +117,7 @@ class PhaseTable(BatchExperiment):
                          analysis=PhaseTableAnalysis([exp.analysis for exp in experiments]))
 
 
-class PhaseTableAnalysis(CombinedAnalysis):
+class PhaseTableAnalysis(CompositeAnalysis):
     """Analysis for PhaseTable."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -129,6 +130,12 @@ class PhaseTableAnalysis(CombinedAnalysis):
         keys = super()._broadcast_option_keys()
         keys.remove('data_processor')
         return keys
+
+    def __init__(
+        self,
+        analyses: list[OscillationAnalysis]
+    ):
+        super().__init__(analyses, flatten_results=False)
 
     def set_options(self, **fields):
         super().set_options(**fields)
@@ -144,11 +151,9 @@ class PhaseTableAnalysis(CombinedAnalysis):
             prob._outcome = analysis.options.outcome
             analysis.set_options(data_processor=proc)
 
-    def _run_combined_analysis(
+    def _run_analysis(
         self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
+        experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         idx_high = []
         idx_low = []
@@ -199,7 +204,8 @@ class PhaseTableAnalysis(CombinedAnalysis):
         phases = correlated_values(nom_values=popt, covariance_mat=pcov)
         phases = np.concatenate([[ufloat(0., 0.)], phases])
 
-        analysis_results.append(AnalysisResultData(name='phases', value=phases))
+        results = [AnalysisResultData(name='phases', value=phases)]
+        figures = []
 
         if self.options.plot:
             num_states = 2 ** num_qubits
@@ -228,7 +234,7 @@ class PhaseTableAnalysis(CombinedAnalysis):
             ax.legend()
             figures.append(ax.get_figure())
 
-        return analysis_results, figures
+        return results, figures
 
 
 class PhaseShiftUpdater(DeltaUpdater):

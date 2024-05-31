@@ -14,8 +14,8 @@ from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from .delay_phase_offset import EFRamseyPhaseSweep, RamseyPhaseSweepAnalysis
 from ...framework.calibration_updaters import EFFrequencyUpdater
-from ...framework.combined_analysis import CombinedAnalysis
 from ...framework_overrides.batch_experiment import BatchExperiment
+from ...framework_overrides.composite_analysis import CompositeAnalysis
 from ...gates import SetF12Gate
 from ...util.matplotlib import make_list_plot
 
@@ -63,7 +63,7 @@ class EFRamseyFrequencyScan(BatchExperiment):
             self.set_experiment_options(delay_duration=delay_duration)
 
 
-class EFRamseyFrequencyScanAnalysis(CombinedAnalysis):
+class EFRamseyFrequencyScanAnalysis(CompositeAnalysis):
     """Interpolation analysis."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -83,13 +83,11 @@ class EFRamseyFrequencyScanAnalysis(CombinedAnalysis):
         self,
         analyses: list[RamseyPhaseSweepAnalysis]
     ):
-        super().__init__(analyses)
+        super().__init__(analyses, flatten_results=False)
 
-    def _run_combined_analysis(
+    def _run_analysis(
         self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
+        experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata['component_child_index']
         omega_zs = []
@@ -116,7 +114,8 @@ class EFRamseyFrequencyScanAnalysis(CombinedAnalysis):
         popt, pcov = sciopt.curve_fit(func, frequencies, yval, p0=p0)
         popt_ufloats = correlated_values(nom_values=popt, covariance_mat=pcov, tags=['f0', 'slope'])
 
-        analysis_results.append(AnalysisResultData(name='f12', value=popt_ufloats[0]))
+        results = [AnalysisResultData(name='f12', value=popt_ufloats[0])]
+        figures = []
 
         if self.options.plot:
             # Plot phase offset differences
@@ -146,7 +145,7 @@ class EFRamseyFrequencyScanAnalysis(CombinedAnalysis):
                                title_fn=lambda idx: f'f12 = {frequencies[idx] * 1.e-6:.1f} MHz')
             )
 
-        return analysis_results, figures
+        return results, figures
 
 
 class EFRamseyFrequencyScanCal(BaseCalibrationExperiment, EFRamseyFrequencyScan):

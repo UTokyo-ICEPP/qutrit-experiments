@@ -10,12 +10,13 @@ from qiskit.circuit import Parameter
 from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.curve_analysis.utils import convert_lmfit_result, eval_with_uncertainties
-from qiskit_experiments.framework import AnalysisResultData, BackendData, ExperimentData, Options
+from qiskit_experiments.framework import (AnalysisResultData, BaseAnalysis, BackendData,
+                                          ExperimentData, Options)
 from qiskit_experiments.framework.containers import ArtifactData
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ...framework.combined_analysis import CombinedAnalysis
 from ...framework_overrides.batch_experiment import BatchExperiment
+from ...framework_overrides.composite_analysis import CompositeAnalysis
 from ...pulse_library import ModulatedGaussianSquare
 from ...util.sizzle import get_qudit_components, sizzle_hamiltonian_shifts, sizzle_shifted_energies
 from .spectator_ramsey import SpectatorRamseyXY
@@ -135,23 +136,21 @@ class SiZZleRamseyShift(BatchExperiment):
                          analysis=SiZZleRamseyShiftAnalysis([exp.analysis for exp in experiments]))
 
 
-class SiZZleRamseyShiftAnalysis(CombinedAnalysis):
+class SiZZleRamseyShiftAnalysis(CompositeAnalysis):
     """Analysis for SiZZleRamseyShift."""
-    def _run_combined_analysis(
+    def __init__(self, analyses: list[BaseAnalysis]):
+        super().__init__(analyses, flatten_results=False)
+
+    def _run_analysis(
         self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
+        experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata["component_child_index"]
         sizzle_data = experiment_data.child_data(component_index[0])
         shifted_omega = sizzle_data.analysis_results('freq').value * twopi
         ref_data = experiment_data.child_data(component_index[1])
         base_omega = ref_data.analysis_results('freq').value * twopi
-        analysis_results.append(
-            AnalysisResultData(name='omega_zs', value=shifted_omega - base_omega)
-        )
-        return analysis_results, figures
+        return [AnalysisResultData(name='omega_zs', value=shifted_omega - base_omega)], []
 
 
 class SiZZle(QutritZZRamsey):
@@ -210,23 +209,21 @@ class SiZZleShift(BatchExperiment):
                          analysis=SiZZleShiftAnalysis([exp.analysis for exp in experiments]))
 
 
-class SiZZleShiftAnalysis(CombinedAnalysis):
+class SiZZleShiftAnalysis(CompositeAnalysis):
     """Analysis for SiZZleShift."""
+    def __init__(self, analyses: list[BaseAnalysis]):
+        super().__init__(analyses, flatten_results=False)
+
     def _run_combined_analysis(
         self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
+        experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata["component_child_index"]
         sizzle_data = experiment_data.child_data(component_index[0])
         shifted_omegas = sizzle_data.analysis_results('omega_zs').value
         ref_data = experiment_data.child_data(component_index[1])
         base_omegas = ref_data.analysis_results('omega_zs').value
-        analysis_results.append(
-            AnalysisResultData(name='omega_zs', value=shifted_omegas - base_omegas)
-        )
-        return analysis_results, figures
+        return [AnalysisResultData(name='omega_zs', value=shifted_omegas - base_omegas)], []
 
 
 class SiZZleFrequencyScan(BatchExperiment):
@@ -278,7 +275,7 @@ class SiZZleFrequencyScan(BatchExperiment):
         return metadata
 
 
-class SiZZleFrequencyScanAnalysis(CombinedAnalysis):
+class SiZZleFrequencyScanAnalysis(CompositeAnalysis):
     """Analysis for SiZZleFrequencyScan."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -287,11 +284,12 @@ class SiZZleFrequencyScanAnalysis(CombinedAnalysis):
         options.base_omegas = np.zeros(3)
         return options
 
+    def __init__(self, analyses: list[BaseAnalysis]):
+        super().__init__(analyses, flatten_results=False)
+
     def _run_combined_analysis(
         self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
+        experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         """Plot Iz, zz, and ζz components as functions of siZZle frequency."""
         component_index = experiment_data.metadata["component_child_index"]
@@ -311,10 +309,11 @@ class SiZZleFrequencyScanAnalysis(CombinedAnalysis):
             frequencies[ichild] = child_data.metadata['sizzle_frequency']
             components[:, ichild] = child_data.analysis_results('omega_zs').value - base_omegas
 
-        analysis_results.extend([
+        results = [
             AnalysisResultData(name='scan_frequencies', value=frequencies),
             AnalysisResultData(name='omega_zs', value=components)
-        ])
+        ]
+        figures = []
 
         if self.options.plot:
             plotter = CurvePlotter(MplDrawer())
@@ -365,7 +364,7 @@ class SiZZleFrequencyScanAnalysis(CombinedAnalysis):
 
             figures.append(figure)
 
-        return analysis_results, figures
+        return results, figures
 
 
 class SiZZlePhaseScan(BatchExperiment):
@@ -419,7 +418,7 @@ class SiZZlePhaseScan(BatchExperiment):
         return metadata
 
 
-class SiZZlePhaseScanAnalysis(CombinedAnalysis):
+class SiZZlePhaseScanAnalysis(CompositeAnalysis):
     """Analysis for SiZZlePhaseScan."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -429,11 +428,12 @@ class SiZZlePhaseScanAnalysis(CombinedAnalysis):
         options.expected_signs = [-1, 1, -1]  # Iz, zz, ζz
         return options
 
-    def _run_combined_analysis(
+    def __init__(self, analyses: list[BaseAnalysis]):
+        super().__init__(analyses, flatten_results=False)
+
+    def _run_analysis(
         self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
+        experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         """Plot Iz, zz, and ζz components as functions of siZZle phase offset."""
         component_index = experiment_data.metadata["component_child_index"]
@@ -494,10 +494,13 @@ class SiZZlePhaseScanAnalysis(CombinedAnalysis):
         result = lmfit.minimize(fcn=objective, params=params, method='least_squares')
         fit_data = convert_lmfit_result(result, models, phase_offsets, yvals)
 
+        results = []
+        figures = []
+
         if fit_data.success:
             quality = 'good'
 
-            analysis_results.append(AnalysisResultData(
+            results.append(AnalysisResultData(
                 name='cr_phase_offset',
                 value=fit_data.ufloat_params['cr_phase_offset'],
                 chisq=fit_data.reduced_chisq,
@@ -507,7 +510,7 @@ class SiZZlePhaseScanAnalysis(CombinedAnalysis):
             quality = 'bad'
 
         if self.options.return_fit_parameters:
-            analysis_results.append(ArtifactData(name='fit_summary', data=fit_data))
+            results.append(ArtifactData(name='fit_summary', data=fit_data))
 
         if self.options.plot:
             plotter = CurvePlotter(MplDrawer())
@@ -549,7 +552,7 @@ class SiZZlePhaseScanAnalysis(CombinedAnalysis):
 
             figures.append(plotter.figure())
 
-        return analysis_results, figures
+        return results, figures
 
 
 class SiZZleAmplitudeScan(BatchExperiment):
@@ -603,7 +606,7 @@ class SiZZleAmplitudeScan(BatchExperiment):
         return metadata
 
 
-class SiZZleAmplitudeScanAnalysis(CombinedAnalysis):
+class SiZZleAmplitudeScanAnalysis(CompositeAnalysis):
     """Analysis for SiZZleAmplitudeScan."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -614,11 +617,12 @@ class SiZZleAmplitudeScanAnalysis(CombinedAnalysis):
         options.return_fit_parameters = False
         return options
 
-    def _run_combined_analysis(
+    def __init__(self, analyses: list[BaseAnalysis]):
+        super().__init__(analyses, flatten_results=False)
+
+    def _run_analysis(
         self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
+        experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         """Plot Iz, zz, and ζz components as functions of siZZle amplitude."""
         component_index = experiment_data.metadata["component_child_index"]
@@ -643,10 +647,11 @@ class SiZZleAmplitudeScanAnalysis(CombinedAnalysis):
             if ichild == 0:
                 fixed_amplitude = child_data.metadata['sizzle_amplitudes'][1 - scan_qubit]
 
-        analysis_results.extend([
+        results = [
             AnalysisResultData(name='scan_amplitudes', value=amplitudes),
             AnalysisResultData(name='omega_zs', value=components)
-        ])
+        ]
+        figures = []
 
         if self.options.plot:
             plotter = CurvePlotter(MplDrawer())
@@ -670,7 +675,7 @@ class SiZZleAmplitudeScanAnalysis(CombinedAnalysis):
 
         if not self.options.curve_fit:
             figures.append(plotter.figure())
-            return analysis_results, figures
+            return results, figures
 
         fit_results = {}
         fit_data = {}
@@ -706,7 +711,7 @@ class SiZZleAmplitudeScanAnalysis(CombinedAnalysis):
             if fit_data[op].success:
                 quality = 'good'
 
-                analysis_results.append(AnalysisResultData(
+                results.append(AnalysisResultData(
                     name=f'ω_{op}_coeffs',
                     value=fit_data[op].ufloat_params,
                     chisq=fit_data[op].reduced_chisq,
@@ -715,7 +720,7 @@ class SiZZleAmplitudeScanAnalysis(CombinedAnalysis):
             else:
                 quality = 'bad'
 
-            analysis_results.append(ArtifactData(name='fit_summary', data=fit_data[op]))
+            results.append(ArtifactData(name='fit_summary', data=fit_data[op]))
 
         if self.options.plot:
             x_interp = np.linspace(amplitudes[0], amplitudes[-1], 100)
@@ -745,4 +750,4 @@ class SiZZleAmplitudeScanAnalysis(CombinedAnalysis):
 
             figures.append(plotter.figure())
 
-        return analysis_results, figures
+        return results, figures

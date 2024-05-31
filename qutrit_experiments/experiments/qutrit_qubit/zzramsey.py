@@ -8,10 +8,10 @@ from qiskit.providers import Backend
 from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
 
-from ...framework.combined_analysis import CombinedAnalysis
 from ...framework_overrides.batch_experiment import BatchExperiment
+from ...framework_overrides.composite_analysis import CompositeAnalysis
 from ...util.matplotlib import make_list_plot
-from .spectator_ramsey import SpectatorRamseyXY
+from .spectator_ramsey import RamseyXYAnalysisOffset, SpectatorRamseyXY
 
 twopi = 2. * np.pi
 
@@ -62,7 +62,7 @@ class QutritZZRamsey(BatchExperiment):
         return metadata
 
 
-class QutritZZRamseyAnalysis(CombinedAnalysis):
+class QutritZZRamseyAnalysis(CompositeAnalysis):
     """Analysis for QutritZZRamsey."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -70,11 +70,12 @@ class QutritZZRamseyAnalysis(CombinedAnalysis):
         options.plot = True
         return options
 
-    def _run_combined_analysis(
+    def __init__(self, analyses: list[RamseyXYAnalysisOffset]):
+        super().__init__(analyses, flatten_results=False)
+
+    def _run_analysis(
         self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
+        experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata["component_child_index"]
 
@@ -87,9 +88,8 @@ class QutritZZRamseyAnalysis(CombinedAnalysis):
         op_to_state = np.array([[1, 1, 0], [1, -1, 1], [1, 0, -1]])
         omega_zs = np.linalg.inv(op_to_state) @ omega_zs_by_state
 
-        analysis_results.append(
-            AnalysisResultData(name='omega_zs', value=omega_zs)
-        )
+        results = [AnalysisResultData(name='omega_zs', value=omega_zs)]
+        figures = []
 
         if self.options.plot:
             figures.append(
@@ -97,4 +97,4 @@ class QutritZZRamseyAnalysis(CombinedAnalysis):
                                title_fn=lambda idx: fr'Control: $|{idx}\rangle$')
             )
 
-        return analysis_results, figures
+        return results, figures

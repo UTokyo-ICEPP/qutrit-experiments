@@ -17,8 +17,8 @@ from qiskit_experiments.exceptions import AnalysisError
 from qiskit_experiments.framework import Options, ExperimentData, AnalysisResultData
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ..framework.combined_analysis import CombinedAnalysis
 from ..framework_overrides.batch_experiment import BatchExperiment
+from ..framework_overrides.composite_analysis import CompositeAnalysis
 from ..util.bloch import so3_polar, unit_bound, pos_unit_bound
 from ..util.polynomial import sparse_poly_fitfunc, PolynomialOrder
 from .gs_rabi import GSRabi, GSRabiAnalysis
@@ -240,7 +240,7 @@ class HamiltonianTomography(BatchExperiment):
         return metadata
 
 
-class HamiltonianTomographyAnalysis(CombinedAnalysis, curve.CurveAnalysis):
+class HamiltonianTomographyAnalysis(CompositeAnalysis, curve.CurveAnalysis):
     """Analysis for HamiltonianTomography."""
     @staticmethod
     def zx_evolution_factory(init, meas_basis):
@@ -263,7 +263,7 @@ class HamiltonianTomographyAnalysis(CombinedAnalysis, curve.CurveAnalysis):
         return options
 
     def __init__(self, analyses: list[GSRabiAnalysis]):
-        super().__init__(analyses)
+        super().__init__(analyses, flatten_results=False)
         curve.CurveAnalysis.__init__(self, [])
 
         self.set_options(
@@ -285,11 +285,9 @@ class HamiltonianTomographyAnalysis(CombinedAnalysis, curve.CurveAnalysis):
         # Fit results of individual components
         self._component_results = {}
 
-    def _run_combined_analysis(
+    def _run_analysis(
         self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
+        experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         analysis_results, figures = curve.CurveAnalysis._run_analysis(self, experiment_data)
 
@@ -488,7 +486,7 @@ class HamiltonianTomographyScan(BatchExperiment):
         return sum(subexp.num_circuits for subexp in self.component_experiment())
 
 
-class HamiltonianTomographyScanAnalysis(CombinedAnalysis):
+class HamiltonianTomographyScanAnalysis(CompositeAnalysis):
     """Analysis for HamiltonianTomographyScan."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -498,11 +496,15 @@ class HamiltonianTomographyScanAnalysis(CombinedAnalysis):
         options.poly_orders = None
         return options
 
-    def _run_combined_analysis(
+    def __init__(
         self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
+        analyses: list[HamiltonianTomographyAnalysis]
+    ):
+        super().__init__(analyses, flatten_results=False)
+
+    def _run_analysis(
+        self,
+        experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         """Fit the components as functions of the scan parameter."""
         component_index = experiment_data.metadata["component_child_index"]
@@ -533,6 +535,9 @@ class HamiltonianTomographyScanAnalysis(CombinedAnalysis):
                     y_formatted_err=np.full_like(components, 100., dtype=float)
                 )
 
+        results = []
+        figures = []
+
         if self.options.poly_orders is not None:
             interp_x = np.linspace(xval[0], xval[-1], 100)
 
@@ -552,8 +557,7 @@ class HamiltonianTomographyScanAnalysis(CombinedAnalysis):
                 except np.linalg.LinAlgError:
                     omega_coeffs[powers] = list(ufloat(v, 0.) for v in popt)
 
-                analysis_results.append(AnalysisResultData(name=f'omega_{op}_coeffs',
-                                                           value=omega_coeffs))
+                results.append(AnalysisResultData(name=f'omega_{op}_coeffs', value=omega_coeffs))
 
                 if self.options.plot:
                     plotter.set_series_data(
@@ -563,5 +567,6 @@ class HamiltonianTomographyScanAnalysis(CombinedAnalysis):
                     )
 
         if self.options.plot:
-            return analysis_results, [plotter.figure()]
-        return analysis_results, []
+            figures.append(plotter.figure())
+
+        return results, figures

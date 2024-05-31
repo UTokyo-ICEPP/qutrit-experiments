@@ -115,12 +115,13 @@ from qiskit.pulse import ScheduleBlock
 from qiskit_experiments.framework import Options, ExperimentData, AnalysisResultData
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
-from ...framework.combined_analysis import CombinedAnalysis
 from ...framework_overrides.batch_experiment import BatchExperiment
+from ...framework_overrides.composite_analysis import CompositeAnalysis
 from ...util.matplotlib import make_list_plot
 from ...util.polynomial import PolynomialOrder, sparse_poly_fitfunc
 from .cr_rabi import cr_rabi_init
-from ..hamiltonian_tomography import HamiltonianTomography, HamiltonianTomographyScan
+from ..hamiltonian_tomography import (HamiltonianTomography, HamiltonianTomographyAnalysis,
+                                      HamiltonianTomographyScan, HamiltonianTomographyScanAnalysis)
 
 twopi = 2. * np.pi
 
@@ -149,7 +150,7 @@ class QutritCRHamiltonianTomography(BatchExperiment):
                          analysis=QutritCRHamiltonianTomographyAnalysis(analyses))
 
 
-class QutritCRHamiltonianTomographyAnalysis(CombinedAnalysis):
+class QutritCRHamiltonianTomographyAnalysis(CompositeAnalysis):
     """Hamiltonian tomography analysis for CR tone with a control qutrit."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -157,11 +158,12 @@ class QutritCRHamiltonianTomographyAnalysis(CombinedAnalysis):
         options.plot = True
         return options
 
-    def _run_combined_analysis(
+    def __init__(self, analyses: list[HamiltonianTomographyAnalysis]):
+        super().__init__(analyses, flatten_results=False)
+
+    def _run_analysis(
         self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
+        experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         """Compute the Hamiltonian components (coefficients of [Izζ][XYZ]/2) from fit results."""
         control_basis_components = np.empty((3, 3), dtype=object)
@@ -178,12 +180,8 @@ class QutritCRHamiltonianTomographyAnalysis(CombinedAnalysis):
         # Multiply by factor two to obtain omega_[Izζ]
         components = (np.linalg.inv(control_eigvals) @ control_basis_components) * 2
 
-        analysis_results.append(
-            AnalysisResultData(
-                name='hamiltonian_components',
-                value=components
-            )
-        )
+        results = [AnalysisResultData(name='hamiltonian_components', value=components)]
+        figures = []
 
         if all(subanalysis.options.plot for subanalysis in self._analyses):
             figures.append(
@@ -191,7 +189,7 @@ class QutritCRHamiltonianTomographyAnalysis(CombinedAnalysis):
                                title_fn=lambda idx: fr'Control: $|{idx}\rangle$')
             )
 
-        return analysis_results, figures
+        return results, figures
 
 
 class QutritCRHamiltonianTomographyScan(BatchExperiment):
@@ -220,7 +218,7 @@ class QutritCRHamiltonianTomographyScan(BatchExperiment):
                          analysis=QutritCRHamiltonianTomographyScanAnalysis(analyses))
 
 
-class QutritCRHamiltonianTomographyScanAnalysis(CombinedAnalysis):
+class QutritCRHamiltonianTomographyScanAnalysis(CompositeAnalysis):
     """Analysis for QutritCRHamiltonianTomographyScan."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -233,11 +231,12 @@ class QutritCRHamiltonianTomographyScanAnalysis(CombinedAnalysis):
 
         return options
 
-    def _run_combined_analysis(
+    def __init__(self, analyses: list[HamiltonianTomographyScanAnalysis]):
+        super().__init__(analyses, flatten_results=False)
+
+    def _run_analysis(
         self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
+        experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         """Linearly transform the c=0, 1, 2 scan results to c=I, z, ζ."""
         xvar = ''
@@ -278,12 +277,10 @@ class QutritCRHamiltonianTomographyScanAnalysis(CombinedAnalysis):
         control_to_op = np.linalg.inv(control_eigvals)
         hamiltonian_components = np.tensordot(control_to_op, control_basis_components, (1, 0)) * 2
 
-        analysis_results.append(
-            AnalysisResultData(
-                name='hamiltonian_components_scan',
-                value=hamiltonian_components
-            )
-        )
+        results = [
+            AnalysisResultData(name='hamiltonian_components_scan', value=hamiltonian_components)
+        ]
+        figures = []
 
         if self.options.plot:
             plotter = CurvePlotter(MplDrawer())
@@ -349,7 +346,7 @@ class QutritCRHamiltonianTomographyScanAnalysis(CombinedAnalysis):
                     coeffs *= yval_max
 
                     name = f'omega_{control_op}{target_op}_coeffs'
-                    analysis_results.append(AnalysisResultData(name=name, value=coeffs))
+                    results.append(AnalysisResultData(name=name, value=coeffs))
 
                     if self.options.plot:
                         interp_y = fitfunc(interp_x, *unp.nominal_values(coeffs[order.powers]))
@@ -378,7 +375,7 @@ class QutritCRHamiltonianTomographyScanAnalysis(CombinedAnalysis):
                 for ib, target_op in enumerate(target_ops):
                     coeffs = hamiltonian_coeffs[ic, ib]
                     name = f'omega_{control_op}{target_op}_coeffs'
-                    analysis_results.append(AnalysisResultData(name=name, value=coeffs))
+                    results.append(AnalysisResultData(name=name, value=coeffs))
 
                     if self.options.plot:
                         interp_y = poly.polynomial.polyval(interp_x, unp.nominal_values(coeffs))
@@ -400,5 +397,6 @@ class QutritCRHamiltonianTomographyScanAnalysis(CombinedAnalysis):
                             y_interp=np.arctan2(curves[f'{cop}y'], curves[f'{cop}x'])
                         )
 
-            return analysis_results, [plotter.figure()]
-        return analysis_results, []
+            figures.append(plotter.figure())
+
+        return results, figures

@@ -16,14 +16,13 @@ from qiskit.providers import Backend
 from qiskit_experiments.data_processing import (BasisExpectationValue, DataProcessor,
                                                 MarginalizeCounts, Probability)
 from qiskit_experiments.database_service.exceptions import ExperimentEntryNotFound
-from qiskit_experiments.framework import AnalysisResultData, ExperimentData, Options
+from qiskit_experiments.framework import AnalysisResultData, BaseAnalysis, ExperimentData, Options
 from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 from qiskit_experiments.visualization import CurvePlotter, MplDrawer
 
 from ...data_processing import MultiProbability, ReadoutMitigation
 from ...framework_overrides.batch_experiment import BatchExperiment
 from ...framework_overrides.composite_analysis import CompositeAnalysis
-from ...framework.combined_analysis import CombinedAnalysis
 from ...gates import X12Gate
 from ...transpilation import map_to_physical_qubits
 from ...util.bloch import so3_cartesian, so3_cartesian_params
@@ -50,7 +49,7 @@ class QutritQubitTomography(BatchExperiment):
         control_states: Sequence[int] = (0, 1, 2),
         backend: Optional[Backend] = None,
         extra_metadata: Optional[dict[str, Any]] = None,
-        analysis_cls: Optional[type[CombinedAnalysis]] = None
+        analysis_cls: Optional[type[CompositeAnalysis]] = None
     ):
         if isinstance(circuit, Gate):
             gate = circuit
@@ -147,7 +146,7 @@ class QutritQubitTomography(BatchExperiment):
             return batch_circuits
 
 
-class QutritQubitTomographyAnalysis(CombinedAnalysis):
+class QutritQubitTomographyAnalysis(CompositeAnalysis):
     """Analysis for QutritQubitTomography."""
     @classmethod
     def _default_options(cls) -> Options:
@@ -167,11 +166,12 @@ class QutritQubitTomographyAnalysis(CombinedAnalysis):
     def _broadcast_option_keys(cls) -> list[str]:
         return super()._broadcast_option_keys() + ['maxiter', 'tol']
 
-    def _run_combined_analysis(
+    def __init__(self, analyses: list[BaseAnalysis]):
+        super().__init__(analyses, flatten_results=False)
+
+    def _run_analysis(
         self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
+        experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata['component_child_index']
 
@@ -193,10 +193,13 @@ class QutritQubitTomographyAnalysis(CombinedAnalysis):
             observeds[key] = child_data.analysis_results('expvals_observed').value
             predicteds[key] = child_data.analysis_results('expvals_predicted').value
 
+        results = []
+        figures = []
+
         if not prep_unitary_parameters:
             prep_unitary_parameters = self.options.prep_unitaries
         if prep_unitary_parameters:
-            analysis_results.extend([
+            results.extend([
                 AnalysisResultData(name='raw_parameters', value=dict(unitary_parameters)),
                 AnalysisResultData(name='prep_parameters', value=dict(prep_unitary_parameters))
             ])
@@ -205,7 +208,7 @@ class QutritQubitTomographyAnalysis(CombinedAnalysis):
                            @ so3_cartesian(-prep_params, npmod=unp))
                 unitary_parameters[control_state] = so3_cartesian_params(unitary, npmod=unp)
 
-        analysis_results.extend([
+        results.extend([
             AnalysisResultData(name='unitary_parameters', value=unitary_parameters),
             AnalysisResultData(name='expvals_observed', value=observeds),
             AnalysisResultData(name='expvals_predicted', value=predicteds)
@@ -232,7 +235,7 @@ class QutritQubitTomographyAnalysis(CombinedAnalysis):
                      for datum in qutrit_data]
                 )
 
-            analysis_results.append(
+            results.append(
                 AnalysisResultData(name='qutrit_states', value=qutrit_states)
             )
 
@@ -287,7 +290,7 @@ class QutritQubitTomographyAnalysis(CombinedAnalysis):
                 if len(self.options.figure_names) == 1:
                     self.options.figure_names.append('qutrit_states')
 
-        return analysis_results, figures
+        return results, figures
 
 
 class QutritQubitTomographyScan(BatchExperiment):
@@ -428,7 +431,7 @@ class QutritQubitTomographyScan(BatchExperiment):
         return assign_params
 
 
-class QutritQubitTomographyScanAnalysis(CombinedAnalysis):
+class QutritQubitTomographyScanAnalysis(CompositeAnalysis):
     """Analysis for QutritQubitTomographyScan."""
     def __init_subclass__(cls, **kwargs):
         # Each subclass needs its own lock and cache
@@ -455,16 +458,17 @@ class QutritQubitTomographyScanAnalysis(CombinedAnalysis):
         options.unitary_parameter_ylims = {}
         return options
 
+    def __init__(self, analyses: list[CompositeAnalysis]):
+        super().__init__(analyses, flatten_results=False)
+
     def set_options(self, **fields):
         if fields.get('simul_fit'):
             super().set_options(parallelize_on_thread=True)
         super().set_options(**fields)
 
-    def _run_combined_analysis(
+    def _run_analysis(
         self,
-        experiment_data: ExperimentData,
-        analysis_results: list[AnalysisResultData],
-        figures: list[Figure]
+        experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
         component_index = experiment_data.metadata['component_child_index']
         control_states = experiment_data.metadata['control_states']
@@ -513,13 +517,15 @@ class QutritQubitTomographyScanAnalysis(CombinedAnalysis):
             ) for state in control_states
         }
 
-        analysis_results.extend([
+        results = [
             AnalysisResultData(name='control_states', value=control_states),
             AnalysisResultData(name='unitary_parameters', value=unitaries),
             AnalysisResultData(name='chisq', value=chisq)
-        ])
+        ]
+        figures = []
+
         if self.options.return_expvals:
-            analysis_results.extend([
+            results.extend([
                 AnalysisResultData(name='expvals_observed', value=observeds),
                 AnalysisResultData(name='expvals_predicted', value=predicteds)
             ])
@@ -560,7 +566,7 @@ class QutritQubitTomographyScanAnalysis(CombinedAnalysis):
                     unitaries[state]
                 )
 
-            analysis_results.append(
+            results.append(
                 AnalysisResultData('simul_fit_params', value=popt_ufloats)
             )
 
@@ -638,7 +644,7 @@ class QutritQubitTomographyScanAnalysis(CombinedAnalysis):
 
             figures.append(plotter.figure())
 
-        return analysis_results, figures
+        return results, figures
 
     def simultaneous_fit(
         self,
