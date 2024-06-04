@@ -2,7 +2,8 @@
 
 import logging
 import os
-import pickle
+import json
+import lzma
 import time
 import uuid
 from collections.abc import Callable, Sequence
@@ -10,7 +11,6 @@ from datetime import datetime, timezone
 from numbers import Number
 from typing import Optional, Union
 import matplotlib
-import numpy as np
 
 from qiskit import QuantumCircuit
 from qiskit.providers import Backend, JobStatus
@@ -19,15 +19,13 @@ from qiskit_experiments.calibration_management import (BaseCalibrationExperiment
 from qiskit_experiments.database_service import ExperimentEntryNotFound
 from qiskit_experiments.framework import (AnalysisStatus, BaseExperiment,
                                           CompositeAnalysis as CompositeAnalysisOrig,
-                                          ExperimentData)
-from qiskit_experiments.framework.composite.composite_experiment import CompositeExperiment
+                                          ExperimentData, ExperimentDecoder, ExperimentEncoder)
 from qiskit_ibm_runtime import RuntimeJob, Session
 from qiskit_ibm_runtime.exceptions import IBMNotAuthorizedError, IBMRuntimeError
 
 from ..constants import DEFAULT_REP_DELAY, DEFAULT_SHOTS, RESTLESS_REP_DELAY
 from ..experiment_config import (CompositeExperimentConfig, ExperimentConfigBase,
                                  experiments, postexperiments)
-from ..framework.child_data import set_child_data_structure, fill_child_data
 from ..framework_overrides.batch_experiment import BatchExperiment
 from ..framework_overrides.composite_analysis import CompositeAnalysis
 from ..framework_overrides.parallel_experiment import ParallelExperiment
@@ -217,6 +215,8 @@ class ExperimentsRunner:
         logger.info('run_experiment(%s)', exp_type)
 
         experiment.set_run_options(**config.run_options)
+        if experiment.analysis is None:
+            analyze = False
 
         if force_resubmit:
             self.delete_data(exp_type)
@@ -233,7 +233,7 @@ class ExperimentsRunner:
                     exp_data.add_analysis_callback(task)
 
         if exp_data is None:
-            # Try retrieving exp_data from the pickle
+            # Try retrieving exp_data from json
             if self.saved_data_exists(exp_type):
                 exp_data = self.load_data(exp_type)
             else:
@@ -253,17 +253,12 @@ class ExperimentsRunner:
 
                 exp_data.add_jobs(jobs)
 
+                # Analysis callbacks get cleared upon errors so adding check_job_status as a
+                # callback is actually meaningless
                 exec_or_add(self._check_job_status)
-
-                if isinstance(experiment, CompositeExperiment):
-                    exec_or_add(set_child_data_structure)
                 exec_or_add(self.save_data)
 
-        if not analyze or experiment.analysis is None:
-            if isinstance(experiment, CompositeExperiment):
-                # Usually analysis fills the child data so we do it manually instead
-                exec_or_add(fill_child_data)
-
+        if not analyze:
             logger.info('No analysis will be performed for %s.', exp_type)
             return exp_data
 
@@ -359,36 +354,39 @@ class ExperimentsRunner:
     ):
         if not self._data_dir:
             return
-        # _experiment and backend attributes may contain unpicklable objects
+        # _experiment and backend attributes may contain unserializable objects
         experiment = experiment_data.experiment
         backend = experiment_data.backend
         experiment_data._experiment = None
         experiment_data.backend = None
 
-        def _convert_memory_to_array(data):
-            for datum in data.data():
-                if 'memory' in datum:
-                    datum['memory'] = np.array(datum['memory'])
-            for child_data in data.child_data():
-                _convert_memory_to_array(child_data)
+        # def _convert_memory_to_array(data):
+        #     for datum in data.data():
+        #         if 'memory' in datum:
+        #             datum['memory'] = np.array(datum['memory'])
+        #     for child_data in data.child_data():
+        #         _convert_memory_to_array(child_data)
 
-        _convert_memory_to_array(experiment_data)
+        # _convert_memory_to_array(experiment_data)
 
-        pickle_name = os.path.join(self._data_dir, f'{experiment_data.experiment_type}.pkl')
-        with open(pickle_name, 'wb') as out:
-            pickle.dump(deep_copy_no_results(experiment_data), out)
+        copy_data = deep_copy_no_results(experiment_data)
         experiment_data._experiment = experiment
         experiment_data.backend = backend
+
+        json_bytes = json.dumps(copy_data, cls=ExperimentEncoder).encode('utf-8')
+        file_name = os.path.join(self._data_dir, f'{experiment_data.experiment_type}.json.xz')
+        with lzma.open(file_name, 'w') as out:
+            out.write(json_bytes)
 
     def saved_data_exists(self, config: Union[str, ExperimentConfigBase]) -> bool:
         if isinstance(config, str):
             exp_type = config
         else:
             exp_type = config.exp_type
-        return self._file_exists(f'{exp_type}.pkl')
+        return self._file_exists(f'{exp_type}.json.xz')
 
     def delete_data(self, exp_type: str):
-        for suffix in ['_jobs.dat', '_failedjobs.dat', '.pkl']:
+        for suffix in ['_jobs.dat', '_failedjobs.dat', '.json.xz']:
             try:
                 os.unlink(os.path.join(self._data_dir, f'{exp_type}{suffix}'))
             except FileNotFoundError:
@@ -412,20 +410,18 @@ class ExperimentsRunner:
             exp_type = config.exp_type
 
         start = time.time()
-        with open(os.path.join(self._data_dir, f'{exp_type}.pkl'), 'rb') as source:
-            exp_data = pickle.load(source)
+        file_name = os.path.join(self._data_dir, f'{exp_type}.json.xz')
+        with lzma.open(file_name, 'r') as source:
+            exp_data = json.loads(source.read(), cls=ExperimentDecoder)
 
-        def _convert_memory_to_list(data):
-            for datum in data.data():
-                if 'memory' in datum:
-                    datum['memory'] = datum['memory'].tolist()
-            for child_data in data.child_data():
-                _convert_memory_to_list(child_data)
+        # # Unpack array-ised memory to list
+        # for datum in exp_data.data():
+        #     if 'memory' in datum:
+        #         datum['memory'] = datum['memory'].tolist()
 
-        _convert_memory_to_list(exp_data)
         end = time.time()
 
-        logger.info('Unpickled experiment data for %s.', exp_type)
+        logger.info('Unpacked experiment data for %s.', exp_type)
         logger.debug('Loading data required %.1f seconds.', end - start)
         return exp_data
 
@@ -529,8 +525,10 @@ class ExperimentsRunner:
         else:
             keys = key
         for key in keys:
-            with open(os.path.join(pdata_path, f'{key}.pkl'), 'wb') as out:
-                pickle.dump(self.program_data[key], out)
+            json_bytes = json.dumps(self.program_data[key], cls=ExperimentEncoder).encode('utf-8')
+            file_name = os.path.join(pdata_path, f'{key}.json.xz')
+            with lzma.open(file_name, 'w') as out:
+                out.write(json_bytes)
 
     def load_program_data(
         self,
@@ -541,13 +539,14 @@ class ExperimentsRunner:
                 or not os.path.isdir(pdata_path := os.path.join(self._data_dir, 'program_data'))):
             raise RuntimeError('Program data directory does not exist')
         if not keys:
-            keys = map(lambda s: s.replace('.pkl', ''), os.listdir(pdata_path))
+            keys = map(lambda s: s.replace('.json.xz', ''), os.listdir(pdata_path))
         elif isinstance(keys, str):
             keys = [keys]
         for key in keys:
             try:
-                with open(os.path.join(pdata_path, f'{key}.pkl'), 'rb') as source:
-                    self.program_data[key] = pickle.load(source)
+                file_name = os.path.join(pdata_path, f'{key}.json.xz')
+                with lzma.open(file_name, 'r') as source:
+                    self.program_data[key] = json.loads(source.read(), cls=ExperimentDecoder)
             except FileNotFoundError:
                 if allow_missing:
                     logger.info('Program data %s not found.', key)
