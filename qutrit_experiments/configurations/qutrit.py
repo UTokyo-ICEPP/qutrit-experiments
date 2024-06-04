@@ -91,7 +91,7 @@ def qutrit_rough_frequency(runner: ExperimentsRunner, qubit: int) -> ExperimentC
     frequencies = np.linspace(freq_12_est - 20.e+6, freq_12_est + 20.e+6, 41)
 
     def calibration_criterion(data):
-        results = data.analysis_results('@Parameters_GaussianResonanceAnalysis').value
+        results = data.analysis_results('@Parameters_GaussianResonanceAnalysis', block=False).value
         return 1.e+6 < results.params['sigma'] < 4.e+6 and abs(results.params['a']) > 0.5
 
     return ExperimentConfig(
