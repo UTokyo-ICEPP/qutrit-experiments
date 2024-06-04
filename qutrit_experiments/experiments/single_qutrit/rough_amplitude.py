@@ -6,6 +6,7 @@ from qiskit.circuit import Parameter
 from qiskit.providers import Backend
 
 from qiskit_experiments.calibration_management import Calibrations
+from qiskit_experiments.framework import ExperimentData
 from qiskit_experiments.library import RoughAmplitudeCal
 from qiskit_experiments.library.calibration.rough_amplitude_cal import AnglesSchedules
 
@@ -59,3 +60,16 @@ class EFRoughXSXAmplitudeCal(RoughAmplitudeCal, EFRabi):
             )
             for angle, pname, sname in zip(angles, cal_parameter_name, schedule_name)
         ]
+
+    def update_calibrations(self, experiment_data: ExperimentData):
+        """For backward compatibility: Make the metadata prev_amp value."""
+        angles_schedules = []
+        for params in experiment_data.metadata["angles_schedules"]:
+            if params.previous_value == 0.:
+                angles_schedules.append(AnglesSchedules(*(params[:-1] + (1.,))))
+            else:
+                angles_schedules.append(params)
+
+        experiment_data.metadata['angles_schedules'] = angles_schedules
+
+        super().update_calibrations(experiment_data)

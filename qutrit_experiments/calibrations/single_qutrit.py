@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 import logging
 from typing import Optional
+import numpy as np
 from qiskit import pulse
 from qiskit.circuit import Parameter
 from qiskit.providers import Backend
@@ -162,7 +163,11 @@ def set_x12_sx12_default(
                 value = getattr(qubit_pulse, param_name)
                 calibrations.add_parameter_value(ParameterValue(value), param_name, qubits=[qubit],
                                                  schedule=gate_name)
-            for param_name in ['amp', 'beta', 'freq', 'angle']:
+            # Give a default value of A01 / sqrt(2) for amplitude (rough amp cal requires a nonzero
+            # initial value for the amplitude)
+            calibrations.add_parameter_value(ParameterValue(qubit_pulse.amp / np.sqrt(2.)), 'amp',
+                                             qubits=[qubit], schedule=gate_name)
+            for param_name in ['beta', 'freq', 'angle']:
                 calibrations.add_parameter_value(ParameterValue(0.), param_name, qubits=[qubit],
                                                  schedule=gate_name)
 
