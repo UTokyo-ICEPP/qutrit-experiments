@@ -221,6 +221,17 @@ class ExperimentsRunner:
         if force_resubmit:
             self.delete_data(exp_type)
 
+        def exec_or_add(task):
+            """Execute the task directly or add it as an analysis callback. Direct execution makes
+            for easier debugging."""
+            if block_for_results:
+                # Wait here once just to make the program execution easier to understand
+                self._check_status(exp_data)
+                task(exp_data)
+            else:
+                with exp_data._analysis_callbacks.lock:
+                    exp_data.add_analysis_callback(task)
+
         if exp_data is None:
             # Try retrieving exp_data from the pickle
             if self.saved_data_exists(exp_type):
@@ -242,30 +253,16 @@ class ExperimentsRunner:
 
                 exp_data.add_jobs(jobs)
 
-                with exp_data._analysis_callbacks.lock:
-                    if isinstance(experiment, CompositeExperiment):
-                        exp_data.add_analysis_callback(set_child_data_structure)
-                    exp_data.add_analysis_callback(self.save_data)
+                exec_or_add(self._check_job_status)
 
-        if block_for_results:
-            # Wait here once just to make the program execution easier to understand
-            exp_data.block_for_results()
-            # Analysis callbacks get cleared when there are job errors; need to call check_status
-            # here directly to raise upon error
-            self._check_job_status(exp_data)
-        else:
-            # Which means this is probably meaningless
-            with exp_data._analysis_callbacks.lock:
-                exp_data.add_analysis_callback(self._check_job_status)
+                if isinstance(experiment, CompositeExperiment):
+                    exec_or_add(set_child_data_structure)
+                exec_or_add(self.save_data)
 
         if not analyze or experiment.analysis is None:
             if isinstance(experiment, CompositeExperiment):
                 # Usually analysis fills the child data so we do it manually instead
-                with exp_data._analysis_callbacks.lock:
-                    exp_data.add_analysis_callback(fill_child_data)
-
-            if block_for_results:
-                self._check_status(exp_data)
+                exec_or_add(fill_child_data)
 
             logger.info('No analysis will be performed for %s.', exp_type)
             return exp_data
@@ -283,21 +280,15 @@ class ExperimentsRunner:
             def update_calibrations(exp_data):
                 self.update_calibrations(exp_data, experiment=experiment,
                                          criterion=config.calibration_criterion)
-            with exp_data._analysis_callbacks.lock:
-                exp_data.add_analysis_callback(update_calibrations)
+
+            exec_or_add(update_calibrations)
 
         if (postexp := postexperiments.get(exp_type)) is not None:
-            if block_for_results:
-                self._check_status(exp_data)
-                logger.info('Performing the postexperiment for %s.', exp_type)
-            else:
-                logger.info('Reserving the postexperiment for %s.', exp_type)
-
             def postexperiment(exp_data):
+                logger.info('Performing the postexperiment for %s.', exp_type)
                 postexp(self, exp_data)
 
-            with exp_data._analysis_callbacks.lock:
-                exp_data.add_analysis_callback(postexperiment)
+            exec_or_add(postexperiment)
 
         if block_for_results:
             if print_level is None:
