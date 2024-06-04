@@ -61,7 +61,8 @@ if __name__ == '__main__':
 
     calibrations = None
     if program_config['calibrations'] is None:
-        calibrations = make_single_qutrit_gate_calibrations(backend)
+        calibrations = make_single_qutrit_gate_calibrations(backend,
+                                                            qubits=program_config['qubits'])
 
     runner = setup_runner(backend, program_config, calibrations=calibrations, runner_cls=runner_cls)
     runner.job_retry_interval = 120
