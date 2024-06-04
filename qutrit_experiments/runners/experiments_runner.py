@@ -17,7 +17,7 @@ from qiskit.providers import Backend, JobStatus
 from qiskit_experiments.calibration_management import (BaseCalibrationExperiment, Calibrations,
                                                        ParameterValue)
 from qiskit_experiments.database_service import ExperimentEntryNotFound
-from qiskit_experiments.framework import (AnalysisStatus, BaseExperiment,
+from qiskit_experiments.framework import (AnalysisResultTable, AnalysisStatus, BaseExperiment,
                                           CompositeAnalysis as CompositeAnalysisOrig,
                                           ExperimentData, ExperimentDecoder, ExperimentEncoder)
 from qiskit_ibm_runtime import RuntimeJob, Session
@@ -359,17 +359,7 @@ class ExperimentsRunner:
         backend = experiment_data.backend
         experiment_data._experiment = None
         experiment_data.backend = None
-
-        # def _convert_memory_to_array(data):
-        #     for datum in data.data():
-        #         if 'memory' in datum:
-        #             datum['memory'] = np.array(datum['memory'])
-        #     for child_data in data.child_data():
-        #         _convert_memory_to_array(child_data)
-
-        # _convert_memory_to_array(experiment_data)
-
-        copy_data = deep_copy_no_results(experiment_data)
+        copy_data = experiment_data.copy(copy_results=False)
         experiment_data._experiment = experiment
         experiment_data.backend = backend
 
@@ -414,10 +404,9 @@ class ExperimentsRunner:
         with lzma.open(file_name, 'r') as source:
             exp_data = json.loads(source.read(), cls=ExperimentDecoder)
 
-        # # Unpack array-ised memory to list
-        # for datum in exp_data.data():
-        #     if 'memory' in datum:
-        #         datum['memory'] = datum['memory'].tolist()
+        # Bugfix (QE 0.6) JSON-(de)serialization of empty AnalysisResultTable does not close
+        if exp_data._analysis_results._data.size == 0:
+            exp_data._analysis_results = AnalysisResultTable()
 
         end = time.time()
 
@@ -725,22 +714,6 @@ class ExperimentsRunner:
             job_circuits = [circuits]
 
         return job_circuits
-
-
-def deep_copy_no_results(experiment_data: ExperimentData):
-    """Create a shallow copy of the experiment data, including child data.
-
-    Serialized ExperimentData is missing the attribute _monitor_executor due to a bug.
-    The cleanest workaround would be to create a fresh instance through data.copy(),
-    but data.copy(copy_results=True) is extremely slow and data.copy(copy_results=False)
-    does not copy the child data. We therefore need a recursive function to copy the raw
-    data through the full parent-children hierarchy.
-    """
-    new_data = experiment_data.copy(copy_results=False)
-    new_child_data = [deep_copy_no_results(child) for child in experiment_data.child_data()]
-    new_data._set_child_data(new_child_data)
-
-    return new_data
 
 
 def print_summary(experiment_data: ExperimentData):

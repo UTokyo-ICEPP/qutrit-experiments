@@ -62,13 +62,17 @@ class EFRoughXSXAmplitudeCal(RoughAmplitudeCal, EFRabi):
         ]
 
     def update_calibrations(self, experiment_data: ExperimentData):
-        """For backward compatibility: Make the metadata prev_amp value."""
+        """For backward compatibility: Make the metadata prev_amp value.
+
+        AnglesSchedules are also converted to a list through a JSON encode/decode round trip, so
+        we reconstruct the object here.
+        """
         angles_schedules = []
         for params in experiment_data.metadata["angles_schedules"]:
-            if params.previous_value == 0.:
+            if params[-1] == 0.:
                 angles_schedules.append(AnglesSchedules(*(params[:-1] + (1.,))))
             else:
-                angles_schedules.append(params)
+                angles_schedules.append(AnglesSchedules(*params))
 
         experiment_data.metadata['angles_schedules'] = angles_schedules
 
