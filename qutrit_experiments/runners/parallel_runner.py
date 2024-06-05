@@ -207,8 +207,7 @@ class ParallelRunner(ExperimentsRunner):
             return exp_data
 
         # Make and show the plots
-        with exp_data._analysis_callbacks.lock:
-            exp_data.add_analysis_callback(self.consolidate_figures)
+        exp_data.add_analysis_callback(self.consolidate_figures)
 
         if calibrate and self.calibrations is not None:
             def update_calibrations(exp_data):
