@@ -229,8 +229,7 @@ class ExperimentsRunner:
                 self._check_status(exp_data)
                 task(exp_data)
             else:
-                with exp_data._analysis_callbacks.lock:
-                    exp_data.add_analysis_callback(task)
+                exp_data.add_analysis_callback(task)
 
         if exp_data is None:
             # Try retrieving exp_data from json
