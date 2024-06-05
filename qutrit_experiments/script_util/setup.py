@@ -80,7 +80,11 @@ def load_calibrations(
     """Load the calibrations from a CSV or JSON file."""
     calibrated = set()
     if (calib_path := program_config['calibrations']) is not None:
-        if os.path.isdir(calib_path):
+        if calib_path == '':
+            data_dir = None
+            file_name = 'calibrations.json'
+            is_csv = False
+        elif os.path.isdir(calib_path):
             data_dir = calib_path
             if os.path.exists(os.path.join(data_dir, 'calibrations.json')):
                 file_name = 'calibrations.json'
@@ -93,9 +97,7 @@ def load_calibrations(
             file_name = os.path.basename(calib_path)
             is_csv = calib_path.endswith('.csv')
 
-        if data_dir == '':
-            data_dir = None
-        elif not os.path.isabs(data_dir):
+        if data_dir and not os.path.isabs(data_dir):
             data_dir = os.path.join(program_config['base_dir'], data_dir)
 
         runner.load_calibrations(file_name=file_name, data_dir=data_dir, is_csv=is_csv)
