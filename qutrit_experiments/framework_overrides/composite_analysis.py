@@ -2,6 +2,7 @@
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from datetime import datetime
+import logging
 from multiprocessing import cpu_count
 from typing import Optional, Union
 import warnings
@@ -87,20 +88,27 @@ class CompositeAnalysis(CompositeAnalysisOrig):
             target = analysis._run_analysis
             args = (experiment_data,)
 
-        # Backend cannot be pickled, so unset the attribute temporarily.
-        # Also BaseAnalysis.run is overwritten for analyses attached to
-        # BaseCalibrationExperiments, which makes analysis instances unpickable.
-        # We therefore delete the attribute temporarily.
+        # - Backend cannot be pickled, so we unset the attribute temporarily.
+        # - BaseAnalysis.run is overwritten for analyses attached to BaseCalibrationExperiments,
+        #   which makes analysis instances unpickable. We therefore delete the attribute
+        #   temporarily.
+        # - If experiment_data has an outstanding analysis future (which is the case because this
+        #   function is run as a future), __getstate__ called during process task submission raises
+        #   a warning, which we silence.
         runfunc = analysis.run
         backend = experiment_data.backend
         analysis.run = None
         experiment_data.backend = None
+        logger = logging.getLogger('qiskit_experiments.framework.experiment_data')
+        current_level = logger.level
+        logger.setLevel(logging.ERROR)
         try:
             with ProcessPoolExecutor(max_workers=1) as executor:
                 return executor.submit(target, *args).result()
         finally:
             analysis.run = runfunc
             experiment_data.backend = backend
+            logger.setLevel(current_level)
 
     @classmethod
     def _default_options(cls) -> Options:
@@ -149,9 +157,11 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         is one.
 
         We forgo the original run -> _run_analysis structure entirely and execute component analyses
-        and postanalysis directly in this function.
-        For atomic (non-composite) component analysis, we call _run_analysis in a subprocess and
-        attach the results and figures lists to the component subdata
+        and postanalysis directly in this function. For nested composite analyses, we recursively
+        call _run() to reach individual atomic (non-composite) component analyses. The executor
+        argument is a ThreadPoolExecutor that is used to throttle the number of concurrent analyses.
+        Each sub-ExperimentData should be given an analysis callback that waits for the future
+        created by the executor.
         """
         # Make a new copy of experiment data if not updating results
         if not replace_results and _requires_copy(experiment_data):
@@ -166,12 +176,12 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         # containing the marginalized data from the composite experiment
         component_expdata = self._component_experiment_data(experiment_data)
 
-        def add_callback(sub_expdata, future):
+        def add_callback(analysis, exp_data, future):
             def add_results(expdata):
                 results, figures = future.result()
                 CompositeAnalysis.add_results(analysis, expdata, results, figures)
 
-            sub_expdata.add_analysis_callback(add_results)
+            exp_data.add_analysis_callback(add_results)
 
         # Run the component analysis on each component data
         # Since copy for replace result is handled at the parent level we always run with replace
@@ -183,7 +193,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
                 analysis.run(sub_expdata, replace_results=True)
             elif executor:
                 future = executor.submit(CompositeAnalysis.run_in_subprocess, analysis, sub_expdata)
-                add_callback(sub_expdata, future)
+                add_callback(analysis, sub_expdata, future)
             else:
                 results, figures = analysis._run_analysis(sub_expdata)
                 CompositeAnalysis.add_results(analysis, sub_expdata, results, figures)
@@ -191,15 +201,12 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         if executor:
             # Submit the postanalysis on executor and add a blocker as analysis callback
             future = executor.submit(self._run_postanalysis, experiment_data, component_expdata)
-
-            def wait_for_postanalysis(_):
-                future.result()
-
-            experiment_data.add_analysis_callback(wait_for_postanalysis)
+            add_callback(self, experiment_data, future)
         else:
             # We could add this as an analysis callback, but then we'll risk creating uncontrolled
             # number of analysis threads with nested CompositeAnalyses
-            self._run_postanalysis(experiment_data, component_expdata)
+            results, figures = self._run_postanalysis(experiment_data, component_expdata)
+            CompositeAnalysis.add_results(self, experiment_data, results, figures)
 
         return experiment_data
 
@@ -216,7 +223,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         self,
         experiment_data: ExperimentData,
         component_expdata: list[ExperimentData]
-    ) -> None:
+    ) -> tuple[list[Union[AnalysisResultData, ArtifactData], list[Figure]]]:
         """Parent data formatting and combined analysis.
 
         This function is run as a thread if parallelize != 0.
@@ -238,11 +245,11 @@ class CompositeAnalysis(CompositeAnalysisOrig):
 
             CompositeAnalysis.add_results(self, experiment_data, results, figures)
 
-        if callable(self._run_analysis):
-            if self.options.parallelize != 0:
-                results, figures = CompositeAnalysis.run_in_subprocess(self, experiment_data)
-            else:
-                # pylint: disable-next=not-callable
-                results, figures = self._run_analysis(experiment_data)
+        if not callable(self._run_analysis):
+            return [], []
 
-            CompositeAnalysis.add_results(self, experiment_data, results, figures)
+        if self.options.parallelize != 0:
+            return CompositeAnalysis.run_in_subprocess(self, experiment_data)
+        else:
+            # pylint: disable-next=not-callable
+            return self._run_analysis(experiment_data)
