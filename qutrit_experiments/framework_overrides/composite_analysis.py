@@ -16,6 +16,8 @@ from qiskit_experiments.framework.containers import ArtifactData, FigureData
 
 from ..framework.threaded_analysis import ThreadedAnalysis
 
+logger = logging.getLogger(__name__)
+
 
 class CompositeAnalysis(CompositeAnalysisOrig):
     """CompositeAnalysis with process-based parallelization and postanalysis."""
@@ -99,16 +101,16 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         backend = experiment_data.backend
         analysis.run = None
         experiment_data.backend = None
-        logger = logging.getLogger('qiskit_experiments.framework.experiment_data')
-        current_level = logger.level
-        logger.setLevel(logging.ERROR)
+        exp_data_logger = logging.getLogger('qiskit_experiments.framework.experiment_data')
+        current_level = exp_data_logger.level
+        exp_data_logger.setLevel(logging.ERROR)
         try:
             with ProcessPoolExecutor(max_workers=1) as executor:
                 return executor.submit(target, *args).result()
         finally:
             analysis.run = runfunc
             experiment_data.backend = backend
-            logger.setLevel(current_level)
+            exp_data_logger.setLevel(current_level)
 
     @classmethod
     def _default_options(cls) -> Options:
@@ -178,8 +180,12 @@ class CompositeAnalysis(CompositeAnalysisOrig):
 
         def add_callback(analysis, exp_data, future):
             def add_results(expdata):
-                results, figures = future.result()
-                CompositeAnalysis.add_results(analysis, expdata, results, figures)
+                try:
+                    results, figures = future.result()
+                except Exception as exc:  # pylint: disable=broad-exception-caught
+                    logger.error('Analysis failed with exception: %s', exc)
+                else:
+                    CompositeAnalysis.add_results(analysis, expdata, results, figures)
 
             exp_data.add_analysis_callback(add_results)
 
