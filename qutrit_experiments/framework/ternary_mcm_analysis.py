@@ -18,6 +18,7 @@ class TernaryMCMResultAnalysis(curve.CurveAnalysis):
     @classmethod
     def _default_options(cls) -> Options:
         options = super()._default_options()
+        options.plot = True
         options.mcm_cbits = None
         options.assignment_matrix = None
         return options

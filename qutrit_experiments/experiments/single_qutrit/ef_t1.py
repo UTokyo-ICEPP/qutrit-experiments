@@ -2,17 +2,19 @@
 import logging
 from collections.abc import Sequence
 from typing import Optional, Union
+import warnings
 import lmfit
 from matplotlib.figure import Figure
 import numpy as np
 import scipy.linalg as scilin
-from uncertainties import unumpy as unp
 from qiskit import QuantumCircuit
 from qiskit.providers import Backend
 import qiskit_experiments.curve_analysis as curve
+from qiskit_experiments.curve_analysis.base_curve_analysis import (DATA_ENTRY_PREFIX,
+                                                                   PARAMS_ENTRY_PREFIX)
 from qiskit_experiments.framework import (AnalysisResultData, BackendTiming, BaseExperiment,
                                           ExperimentData, Options)
-from qiskit_experiments.framework.matplotlib import get_non_gui_ax
+from qiskit_experiments.framework.containers import ArtifactData
 
 from ...experiment_mixins import MapToPhysicalQubits
 from ...framework.ternary_mcm_analysis import TernaryMCMResultAnalysis
@@ -170,62 +172,120 @@ class EFT1Analysis(TernaryMCMResultAnalysis):
     def _run_analysis(
         self, experiment_data: ExperimentData
     ) -> tuple[list[AnalysisResultData], list[Figure]]:
-        # Plotting fails for complex non-expression models (at eval_with_uncertainties)
-        plot_option = self.options.plot
-        self.options.plot = False
+        """Must override _run_analysis almost entirely because eval_with_uncertainty fails for
+        complex non-expression models."""
+        figures = []
+        result_data = []
+        artifacts = []
 
-        results, figures = super()._run_analysis(experiment_data)
+        # Flag for plotting can be "always", "never", or "selective"
+        # the analysis option overrides self._generate_figures if set
+        if self.options.get("plot", None):
+            plot = "always"
+        elif self.options.get("plot", None) is False:
+            plot = "never"
+        else:
+            plot = getattr(self, "_generate_figures", "always")
+
+        # Prepare for fitting
+        self._initialize(experiment_data)
+
+        table = self._format_data(self._run_data_processing(experiment_data.data()))
+        formatted_subset = table.filter(category=self.options.fit_category)
+        fit_data = self._run_curve_fit(formatted_subset)
+
+        if fit_data.success:
+            quality = self._evaluate_quality(fit_data)
+        else:
+            quality = "bad"
+
+        # After the quality is determined, plot can become a boolean flag for whether
+        # to generate the figure
+        plot_bool = plot == "always" or (plot == "selective" and quality == "bad")
+
+        if self.options.return_fit_parameters:
+            # Store fit status overview entry regardless of success.
+            # This is sometime useful when debugging the fitting code.
+            overview = AnalysisResultData(
+                name=PARAMS_ENTRY_PREFIX + self.name,
+                value=fit_data,
+                quality=quality,
+                extra=self.options.extra,
+            )
+            result_data.append(overview)
+
+        if fit_data.success:
+            # Add fit data to curve data table
+            model_names = self.model_names()
+            for series_id, sub_data in formatted_subset.iter_by_series_id():
+                xval = sub_data.x
+                if len(xval) == 0:
+                    # If data is empty, skip drawing this model.
+                    # This is the case when fit model exist but no data to fit is provided.
+                    continue
+                # Compute X, Y values with fit parameters.
+                xval_arr_fit = np.linspace(np.min(xval), np.max(xval), num=100, dtype=float)
+                yval_arr_fit = self._models[series_id].eval(x=xval_arr_fit, **fit_data.params)
+                yerr_arr_fit = np.zeros_like(xval_arr_fit)
+                for xval, yval, yerr in zip(xval_arr_fit, yval_arr_fit, yerr_arr_fit):
+                    table.add_row(
+                        xval=xval,
+                        yval=yval,
+                        yerr=yerr,
+                        series_name=model_names[series_id],
+                        series_id=series_id,
+                        category="fitted",
+                        analysis=self.name,
+                    )
+            result_data.extend(
+                self._create_analysis_results(
+                    fit_data=fit_data,
+                    quality=quality,
+                    **self.options.extra.copy(),
+                )
+            )
+
+        if self.options.return_data_points:
+            # Add raw data points
+            warnings.warn(
+                f"{DATA_ENTRY_PREFIX + self.name} has been moved to experiment data artifacts. "
+                "Saving this result with 'return_data_points'=True will be disabled in "
+                "Qiskit Experiments 0.7.",
+                DeprecationWarning,
+            )
+            result_data.extend(self._create_curve_data(curve_data=formatted_subset))
+
+        artifacts.append(
+            ArtifactData(
+                name="curve_data",
+                data=table,
+            )
+        )
+        artifacts.append(
+            ArtifactData(
+                name="fit_summary",
+                data=fit_data,
+            )
+        )
+
+        if plot_bool:
+            if fit_data.success:
+                self.plotter.set_supplementary_data(
+                    fit_red_chi=fit_data.reduced_chisq,
+                    primary_results=[r for r in result_data if not r.name.startswith("@")],
+                )
+            figures.extend(self._create_figures(curve_data=table))
 
         buffer_data = [datum for datum in experiment_data.data()
                        if datum['metadata']['unit'] is None]
         if buffer_data:
             num_buffers = len(set(datum['metadata']['xval'] for datum in buffer_data))
             buffer_p2 = self.options.data_processor(buffer_data)[2::3].reshape(-1, num_buffers)
-            results.append(
+            result_data.append(
                 AnalysisResultData(name='buffer_p2', value=buffer_p2)
             )
 
-        self.options.plot = plot_option
-
-        if plot_option:
-            fit_params = next(res.data for res in results if res.name == 'fit_summary')
-            for idx, model in enumerate(self._models):
-                table = next(res.data for res in results if res.name == 'curve_data')
-                sub_data = table.filter(category='formatted')
-                self.plotter.set_series_data(
-                    model._name,
-                    x_formatted=sub_data.x,
-                    y_formatted=sub_data.y,
-                    y_formatted_err=sub_data.y_err
-                )
-                if not fit_params.success:
-                    continue
-
-                x_interp = np.linspace(np.min(sub_data['xdata']), np.max(sub_data['xdata']), 100)
-                y_interp = model.eval(x=x_interp, **fit_params.params)
-                variance = _variance(x_interp, covar=fit_params.covar, **fit_params.params)
-
-                # Add fit line data
-                self.plotter.set_series_data(
-                    model._name,
-                    x_interp=x_interp,
-                    y_interp=y_interp,
-                    y_interp_err=np.sqrt(variance[..., idx, idx])
-                )
-
-            figures.append(self.plotter.figure())
-
-            if buffer_data:
-                xdata = self.plotter.series_data['0']['x_formatted']
-                ax = get_non_gui_ax()
-                for ibuf in range(num_buffers):
-                    ax.scatter(xdata, unp.nominal_values(buffer_p2[:, ibuf]), label=f'buffer{ibuf}')
-                ax.set_xlabel('Preceeding delay (s)')
-                ax.set_ylabel('P2')
-                ax.legend()
-                figures.append(ax.get_figure())
-
-        return results, figures
+        return result_data + artifacts, figures
 
     def _generate_fit_guesses(
         self,
