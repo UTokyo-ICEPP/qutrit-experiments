@@ -40,8 +40,8 @@ if __name__ == '__main__':
 
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger('qutrit_experiments').setLevel(logging.INFO)
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
+    LOG = logging.getLogger(__name__)
+    LOG.setLevel(logging.INFO)
 
     from qiskit.circuit import Parameter
     from qiskit_experiments.library.tomography.tomography_experiment import TomographyExperiment
@@ -269,7 +269,7 @@ if __name__ == '__main__':
     for config in configs:
         set_rem(config)
         exp = runner.make_experiment(config)
-        logger.info('Analyzing %s', config.exp_type)
+        LOG.info('Analyzing %s', config.exp_type)
         exp.analysis.run(exp_data[config.exp_type]).block_for_results()
 
     def save_figure(chd):

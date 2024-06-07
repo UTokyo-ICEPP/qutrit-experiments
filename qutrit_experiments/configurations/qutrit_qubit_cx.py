@@ -19,7 +19,7 @@ from ..runners import ExperimentsRunner
 from ..util.pulse_area import gs_effective_duration, rabi_cycles_per_area
 from .common import add_readout_mitigation, qubits_assignment_error, qubits_assignment_error_post
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 twopi = 2. * np.pi
 
 

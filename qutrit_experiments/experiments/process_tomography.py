@@ -22,7 +22,7 @@ from ..framework.threaded_analysis import ThreadedAnalysis
 from ..transpilation import map_to_physical_qubits, map_and_translate, translate_to_basis
 from ..util.unitary_fit import fit_unitary, plot_unitary_fit
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 twopi = 2. * np.pi
 
 
@@ -329,7 +329,7 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
             with ProcessPoolExecutor(max_workers=self.options.bootstrap_max_procs) as executor:
                 futures = []
                 for isamp in range(bs_samples + 1):
-                    logger.debug('Submitting (toy) outcome %d', isamp)
+                    LOG.debug('Submitting (toy) outcome %d', isamp)
                     outcome = outcome_data if isamp == 0 else rng.multinomial(shot_data, prob_data)
                     futures.append(
                         executor.submit(
@@ -349,7 +349,7 @@ class CircuitTomographyAnalysis(ThreadedAnalysis, ProcessTomographyAnalysis):
             state_results_list = []
             for future in futures:
                 if (state_results := future.result()) is not None:
-                    logger.debug('Recovered result %d', len(state_results_list))
+                    LOG.debug('Recovered result %d', len(state_results_list))
                     state_results_list.append(state_results)
         else:
             state_results_list = [
@@ -436,7 +436,7 @@ def _fit_choi(
         if raise_on_error:
             raise AnalysisError(f"Tomography fitter failed with error: {str(ex)}") from ex
         else:
-            logger.warning("Tomography fitter failed with error: %s", ex)
+            LOG.warning("Tomography fitter failed with error: %s", ex)
             return None
 
     # Post process fit

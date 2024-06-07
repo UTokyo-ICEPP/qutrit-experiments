@@ -19,7 +19,7 @@ from ..gates import (GateType, QutritGate, QutritQubitCXGate, RZ12Gate, SetF12Ga
                      X12Gate)
 from .util import insert_rz
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 twopi = 2. * np.pi
 
 
@@ -105,12 +105,12 @@ class AddQutritCalibrations(TransformationPass):
                     # Need to apply PO(delta/2 - geom) to effect the full X12 gate
                     offset = LO_SIGN * (geom_phase - delta / 2.)
                     channels = self._get_rz_channels(rz_channels, qutrit)
-                    logger.debug('  Inserting placeholder %d for qubit %d', idx, qutrit)
+                    LOG.debug('  Inserting placeholder %d for qubit %d', idx, qutrit)
                     copy.append(pulse.ShiftPhase(param + shift, drive_channel))
                     copy.append(block)
                     copy.append(pulse.ShiftPhase(-(param + shift) + offset, drive_channel))
                     for channel in [ch for ch in channels if ch != drive_channel]:
-                        logger.debug('    Offset %.2f to channel %s', offset, channel)
+                        LOG.debug('    Offset %.2f to channel %s', offset, channel)
                         copy.append(pulse.ShiftPhase(offset, channel))
                 else:
                     copy.append(
@@ -118,7 +118,7 @@ class AddQutritCalibrations(TransformationPass):
                                                      ef_phase_params, ef_phase_shifts)[0]
                     )
             elif isinstance(block, pulse.ShiftPhase) and block.name is not None:
-                logger.debug('  Found phase shift labeled as %s', block.name)
+                LOG.debug('  Found phase shift labeled as %s', block.name)
                 drive_channel = block.channel
                 qutrit = channel_qutrit_map[drive_channel]
                 if block.name == 'rz':
@@ -154,7 +154,7 @@ class AddQutritCalibrations(TransformationPass):
                 cal = get_qutrit_pulse_gate(node.op.name, qubits[0], self.calibrations,
                                             freq_shift=freq_diffs[qubits[0]])
                 dag.add_calibration(node.op.name, qubits, cal)
-                logger.debug('%s%s Adding calibration', node.op.name, qubits)
+                LOG.debug('%s%s Adding calibration', node.op.name, qubits)
             else:
                 raise TranspilerError(f'Calibration for {node.op.name} {calib_key} missing')
 
@@ -181,9 +181,9 @@ class AddQutritCalibrations(TransformationPass):
                 offset = geom_phase - delta / 2.
                 post_angles[-1] += offset
                 cumul_angle_ge[qubit] += offset
-                logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qubit, offset)
+                LOG.debug('%s[%d] Phase[ge] += %f', node.op.name, qubit, offset)
 
-        logger.debug('%s[%s] inserting Rz pre=%s post=%s', node.op.name, qubits, pre_angles,
+        LOG.debug('%s[%s] inserting Rz pre=%s post=%s', node.op.name, qubits, pre_angles,
                      post_angles)
         # Phase shifts are realized with Rz gates
         insert_rz(dag, node, pre_angles=pre_angles, post_angles=post_angles,
@@ -210,7 +210,7 @@ class AddQutritCalibrations(TransformationPass):
                 cal = get_qutrit_qubit_cx_gate(qubits, self.calibrations,
                                                freq_shift=freq_diffs[qubits[0]])
                 dag.add_calibration(node.op.name, qubits, cal, node.op.params)
-                logger.debug('%s%s Adding calibration', node.op.name, qubits)
+                LOG.debug('%s%s Adding calibration', node.op.name, qubits)
             else:
                 raise TranspilerError(f'Calibration for {node.op.name} {calib_key} missing')
 
@@ -223,7 +223,7 @@ class AddQutritCalibrations(TransformationPass):
                 channel_qutrit_map[drive_channel] = qubit
 
         # Make a new ScheduleBlock with placeholder parameters for EF phase shifts
-        logger.debug('%s[%s] inserting EF phase shift placeholders', node.op.name, qubits)
+        LOG.debug('%s[%s] inserting EF phase shift placeholders', node.op.name, qubits)
         cal, ef_phase_params = self._insert_ef_phase_shifts(cal, channel_qutrit_map, rz_channels)
 
         # Assign phase shift values to the placeholders
@@ -245,7 +245,7 @@ class AddQutritCalibrations(TransformationPass):
                 parameter = ef_phase_params[qutrit].pop(0)
                 assign_map[parameter] = (ef_lo_phase + cumul_angle_ef[qutrit]
                                          - cumul_angle_ge[qutrit]) % twopi
-                logger.debug('  Assigning %.2f to %s', assign_map[parameter], parameter)
+                LOG.debug('  Assigning %.2f to %s', assign_map[parameter], parameter)
                 if inst.name.startswith('Ξp'):
                     delta = self.calibrations.get_parameter_value('delta_x12', qutrit)
                     cumul_angle_ge[qutrit] += np.pi / 2. - delta / 2.
@@ -279,7 +279,7 @@ class AddQutritCalibrations(TransformationPass):
                 )
 
             qubits = tuple(dag.find_bit(q).index for q in node.qargs)
-            logger.debug('%s[%s]', node.op.name, qubits)
+            LOG.debug('%s[%s]', node.op.name, qubits)
 
             if isinstance(node.op, SetF12Gate):
                 if qubits[0] in freq_diffs:
@@ -294,16 +294,16 @@ class AddQutritCalibrations(TransformationPass):
                 # Rz(phi) = BlochRot[ge](phi) BlochRot[ef](-phi/2)
                 cumul_angle_ge[qubits[0]] += phi
                 cumul_angle_ef[qubits[0]] -= phi / 2.
-                logger.debug('%s[%d] Phase[ge] += %f', node.op.name, qubits[0], phi)
-                logger.debug('%s[%d] Phase[ef] -= %f', node.op.name, qubits[0], phi / 2.)
+                LOG.debug('%s[%d] Phase[ge] += %f', node.op.name, qubits[0], phi)
+                LOG.debug('%s[%d] Phase[ef] -= %f', node.op.name, qubits[0], phi / 2.)
 
             elif isinstance(node.op, RZ12Gate):
                 phi = node.op.params[0]
                 # Rz12(phi) = BlochRot[ge](-phi/2) BlochRot[ef](phi)
                 cumul_angle_ge[qubits[0]] -= phi / 2.
                 cumul_angle_ef[qubits[0]] += phi
-                logger.debug('%s[%d] Phase[ge] -= %f', node.op.name, qubits[0], phi / 2.)
-                logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[0], phi)
+                LOG.debug('%s[%d] Phase[ge] -= %f', node.op.name, qubits[0], phi / 2.)
+                LOG.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[0], phi)
                 # This Rz should be considered as BlochRot[ge]
                 dag.substitute_node(node, RZGate(-phi / 2.), inplace=True)
 
@@ -317,23 +317,23 @@ class AddQutritCalibrations(TransformationPass):
                 geom_phase = np.pi / 2. if isinstance(node.op, XGate) else np.pi / 4.
                 offset = delta / 2. - geom_phase
                 cumul_angle_ef[qubits[0]] += offset
-                logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[0], offset)
+                LOG.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[0], offset)
 
             elif isinstance(node.op, ECRGate) and qubits[1] in dag_qutrits:
                 # Corrections for Stark phase
                 # ECR = IP2(delta/2 * 2) U_zx(pi/4) XI U_zx(-pi/4)
                 delta = self.calibrations.get_parameter_value('delta_rzx45p_rotary', qubits)
                 cumul_angle_ef[qubits[1]] += delta
-                logger.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[1], delta)
+                LOG.debug('%s[%d] Phase[ef] += %f', node.op.name, qubits[1], delta)
 
             elif isinstance(node.op, QutritGate):
-                logger.debug('%s[%s] at %d', node.op.name, qubits, node_start_time[node])
+                LOG.debug('%s[%s] at %d', node.op.name, qubits, node_start_time[node])
                 for qubit, is_qutrit in zip(qubits, node.op.as_qutrit):
                     # Do we know the f12 for this qutrit?
                     if is_qutrit and qubit not in freq_diffs:
                         freq_diffs[qubit] = get_qutrit_freq_shift(qubit, self.target,
                                                                   self.calibrations)
-                        logger.debug('%s[%s] EF modulation frequency %f for qutrit %d',
+                        LOG.debug('%s[%s] EF modulation frequency %f for qutrit %d',
                                      node.op.name, qubits, freq_diffs[qubit], qubit)
 
                 if node.op.gate_type == GateType.PULSE:

@@ -19,7 +19,7 @@ from ..experiment_config import (BatchExperimentConfig, ExperimentConfig, Experi
 from ..framework_overrides.batch_experiment import BatchExperiment
 from ..util.matplotlib import copy_axes
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 class ParallelRunner(ExperimentsRunner):
@@ -189,7 +189,7 @@ class ParallelRunner(ExperimentsRunner):
                 exp_data = self.load_data(config.exp_type)
                 qubit_grouping = [sorted(par_data.metadata['physical_qubits'])
                                   for par_data in exp_data.child_data()]
-                logger.debug('Loaded experiment data for %s with qubit grouping %s',
+                LOG.debug('Loaded experiment data for %s with qubit grouping %s',
                              config.exp_type, qubit_grouping)
             batch_config = self.make_batch_config(config, qubit_grouping=qubit_grouping)
         else:
@@ -226,7 +226,7 @@ class ParallelRunner(ExperimentsRunner):
                     display(exp_data.figure(figure_name))
             if print_level >= 2:
                 for qubit, child_data in self.decompose_data(exp_data).items():
-                    logger.info('Qubit %d', qubit)
+                    LOG.info('Qubit %d', qubit)
                     if print_level == 2:
                         print_summary(child_data)
                     else:

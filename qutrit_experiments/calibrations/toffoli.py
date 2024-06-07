@@ -11,7 +11,7 @@ from qiskit_experiments.calibration_management import Calibrations, ParameterVal
 from ..util.update_schedule_dependency import update_add_schedule
 from .qubit import add_dd, add_ecr, add_x, set_dd_default, set_ecr_default, set_x_default
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 def make_toffoli_calibrations(

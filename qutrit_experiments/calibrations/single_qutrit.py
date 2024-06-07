@@ -15,7 +15,7 @@ from ..pulse_library import ModulatedDrag
 from ..util.update_schedule_dependency import update_add_schedule
 from .util import get_operational_qubits
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 def make_single_qutrit_gate_calibrations(

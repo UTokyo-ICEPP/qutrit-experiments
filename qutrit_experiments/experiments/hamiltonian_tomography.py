@@ -23,7 +23,7 @@ from ..util.bloch import so3_polar, unit_bound, pos_unit_bound
 from ..util.polynomial import sparse_poly_fitfunc, PolynomialOrder
 from .gs_rabi import GSRabi, GSRabiAnalysis
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 twopi = 2. * np.pi
 
 
@@ -363,7 +363,7 @@ class HamiltonianTomographyAnalysis(CompositeAnalysis, curve.CurveAnalysis):
                 reliable_results[series] = self._component_results[series]
         if not reliable_results:
             # If no reliable points are found, just use all
-            logger.warning('No init x meas_basis setup had y value range greater than 0.5')
+            LOG.warning('No init x meas_basis setup had y value range greater than 0.5')
             reliable_results = self._component_results
 
         # Fit to U_f U_i
@@ -386,7 +386,7 @@ class HamiltonianTomographyAnalysis(CompositeAnalysis, curve.CurveAnalysis):
 
         # freq is common but reliable only when amp is sufficiently large
         omega_p0 = twopi * np.mean([res['freq'].n for res in reliable_results.values()])
-        logger.debug('Initial guess for omega=%f from %s', omega_p0,
+        LOG.debug('Initial guess for omega=%f from %s', omega_p0,
                      {key: value['freq'] for key, value in reliable_results.items()})
         user_opt.p0.set_if_empty(omega=omega_p0)
 
@@ -404,7 +404,7 @@ class HamiltonianTomographyAnalysis(CompositeAnalysis, curve.CurveAnalysis):
             spsi2 = pos_unit_bound(reliable_results['z|z']['amp'].n)
         except KeyError:
             spsi2 = estimate_amp('z|z')
-        logger.debug('(sin psi)^2 = %f', spsi2)
+        LOG.debug('(sin psi)^2 = %f', spsi2)
         # B^2 - A^2 = spsi2 * (-cpsi2 * c2phi + c2phi) = spsi4 * c2phi
         try:
             A = pos_unit_bound(reliable_results['x|z']['amp'].n)
@@ -415,7 +415,7 @@ class HamiltonianTomographyAnalysis(CompositeAnalysis, curve.CurveAnalysis):
         except KeyError:
             B = estimate_amp('y|z')
         c2phi = unit_bound((B ** 2 - A ** 2) / spsi2 ** 2)
-        logger.debug('A = %f, B = %f, cos 2phi = %f', A, B, c2phi)
+        LOG.debug('A = %f, B = %f, cos 2phi = %f', A, B, c2phi)
         options = []
         # For phi = delta + n * pi/2 (0 < delta < pi/2, n=0,1,2,3)
         # cos(2phi) = cos(2*delta + n*pi) = (-1)^n cos(2*delta)
@@ -427,7 +427,7 @@ class HamiltonianTomographyAnalysis(CompositeAnalysis, curve.CurveAnalysis):
             else:
                 phi = (np.pi - np.arccos(c2phi)) / 2.
             phi += np.pi / 2. * phi_quadrant
-            logger.debug('phi = %f (n=%d)', phi, phi_quadrant)
+            LOG.debug('phi = %f (n=%d)', phi, phi_quadrant)
             opt = user_opt.copy()
             opt.p0.set_if_empty(
                 psi=np.arcsin(np.sqrt(spsi2)),

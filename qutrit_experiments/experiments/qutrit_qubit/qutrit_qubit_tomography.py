@@ -29,7 +29,7 @@ from ...util.bloch import so3_cartesian, so3_cartesian_params
 from ..process_tomography import CircuitTomography
 from ..unitary_tomography import UnitaryTomography
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 class QutritQubitTomography(BatchExperiment):
@@ -560,7 +560,7 @@ class QutritQubitTomographyScanAnalysis(CompositeAnalysis):
                 else:
                     prep = np.eye(3)
 
-                logger.debug('Performing simultaneous fit for control state %d', state)
+                LOG.debug('Performing simultaneous fit for control state %d', state)
                 popt_ufloats[state] = self.simultaneous_fit(
                     xvals, initial_states[state], meas_bases[state], observeds[state], prep,
                     unitaries[state]
@@ -655,7 +655,7 @@ class QutritQubitTomographyScanAnalysis(CompositeAnalysis):
         prep_unitary: np.ndarray,
         unitary_params: np.ndarray
     ):
-        logger.debug('Simul fit input:\nxvals %s\nexpvals %s\ninitial_states %s\nmeas_bases %s',
+        LOG.debug('Simul fit input:\nxvals %s\nexpvals %s\ninitial_states %s\nmeas_bases %s',
                      xvals, expvals, initial_states, meas_bases)
         # Use normalized xvals throughout
         xvals_norm = xvals[-1] - xvals[0]
@@ -666,20 +666,20 @@ class QutritQubitTomographyScanAnalysis(CompositeAnalysis):
         expvals_e_norm = expvals_e / np.mean(expvals_e)
         fit_args = (norm_xvals, meas_bases, initial_states, expvals_n, expvals_e_norm, prep_unitary)
         p0s = self._get_p0s(norm_xvals, xvals_norm, unitary_params)
-        logger.debug('Initial parameters %s', p0s)
+        LOG.debug('Initial parameters %s', p0s)
         vobj, vsolve, hess = self.fit_functions(p0s.shape, expvals.shape)
 
         fit_result = vsolve(p0s, *fit_args)
         fvals = vobj(fit_result.params, *fit_args)
         iopt = np.argmin(fvals)
         popt = np.array(fit_result.params[iopt])
-        logger.debug('Optimal parameters %s', popt)
+        LOG.debug('Optimal parameters %s', popt)
 
         hess_args = (norm_xvals, meas_bases, initial_states, expvals_n, expvals_e, prep_unitary)
         pcov = np.linalg.inv(hess(popt, *hess_args))
         upopt = np.array(correlated_values(popt, pcov))
         self._postprocess_params(upopt, xvals_norm)
-        logger.debug('Adjusted parameters %s', upopt)
+        LOG.debug('Adjusted parameters %s', upopt)
         return upopt
 
     def _get_p0s(self, norm_xvals: np.ndarray, xvals_norm: float, unitary_params: np.ndarray):
@@ -694,7 +694,7 @@ class QutritQubitTomographyScanAnalysis(CompositeAnalysis):
         key = (params_shape, expvals_shape)
         with cls._compile_lock:
             if (functions := cls._fit_functions_cache.get(key)) is None:
-                logger.debug('Compiling fit functions for %s', key)
+                LOG.debug('Compiling fit functions for %s', key)
                 functions = cls.setup_fitter(params_shape, expvals_shape)
                 cls._fit_functions_cache[key] = functions
 

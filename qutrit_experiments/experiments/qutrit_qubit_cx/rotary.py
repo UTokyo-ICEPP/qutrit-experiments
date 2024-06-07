@@ -18,7 +18,7 @@ from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
 
 twopi = 2. * np.pi
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 class MinimumYZRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
@@ -47,7 +47,7 @@ class MinimumYZRotaryAmplitudeAnalysis(QutritQubitTomographyScanAnalysis):
         chisq = next(res for res in analysis_results if res.name == 'chisq').value
         good_fit = np.mean(list(chisq.values()), axis=0) < self.options.chi2_per_block_cutoff
         if not np.any(good_fit):
-            logger.warning('No rotary value had sum of chi2 per block less than %f',
+            LOG.warning('No rotary value had sum of chi2 per block less than %f',
                            self.options.chi2_per_block_cutoff)
             good_fit = np.ones_like(amplitudes, dtype=bool)
 

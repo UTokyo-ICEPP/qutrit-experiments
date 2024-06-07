@@ -6,7 +6,7 @@ from qiskit_experiments.framework import BaseAnalysis, CompositeAnalysis, Experi
 from ..runners import ExperimentsRunner
 from ..experiment_config import ExperimentConfigBase
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 def run_experiment(
@@ -30,7 +30,7 @@ def run_experiment(
         exp_data = runner.load_data(config)
         if update_qubits:
             if (data_qubits := set(exp_data.metadata['physical_qubits'])) - runner_qubits:
-                logger.warning('Saved experiment data for %s has out-of-configuration qubits.',
+                LOG.warning('Saved experiment data for %s has out-of-configuration qubits.',
                                config if isinstance(config, str) else config.exp_type)
             runner.qubits = data_qubits
 

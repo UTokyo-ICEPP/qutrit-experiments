@@ -16,7 +16,7 @@ from ..qutrit_qubit.qutrit_qubit_tomography import (QutritQubitTomographyScan,
                                                     QutritQubitTomographyScanAnalysis)
 
 twopi = 2. * np.pi
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
@@ -71,17 +71,17 @@ class CRWidthAnalysis(QutritQubitTomographyScanAnalysis):
         return p0s.reshape(-1, 4)
 
     def _postprocess_params(self, upopt: np.ndarray, norm: float):
-        logger.debug('Postprocessing fit result %s (norm=%f)', upopt, norm)
+        LOG.debug('Postprocessing fit result %s (norm=%f)', upopt, norm)
         # Slope must be positive - invert the sign and the axis orientation if negative
         if upopt[0].n < 0.:
-            logger.debug('Adjusting the slope %s', upopt[0])
+            LOG.debug('Adjusting the slope %s', upopt[0])
             upopt[0:2] *= -1.
             upopt[2] = np.pi - upopt[2]
             upopt[3] += np.pi
         # Keep the intercept within the maximum winding number
         # Intercept must be positive in principle but we allow some slack
         if upopt[1].n < self.options.intercept_min or upopt[1].n > 0.:
-            logger.debug('Adjusting the intercept %s', upopt[1])
+            LOG.debug('Adjusting the intercept %s', upopt[1])
             upopt[1] %= twopi * (self.options.intercept_max_wind + 1)
         # Keep phi in [-pi, pi]
         upopt[3] = (upopt[3] + np.pi) % twopi - np.pi

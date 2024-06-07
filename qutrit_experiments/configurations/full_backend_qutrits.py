@@ -28,7 +28,7 @@ from .qutrit import (
 from ..experiment_config import register_exp, register_post
 from ..runners import ExperimentsRunner
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 def _register_backend_qutrit_exp(function):
@@ -45,7 +45,7 @@ def _register_backend_qutrit_postexp(function):
             try:
                 function(runner, qutrit_data)
             except Exception as ex:  # pylint: disable=broad-exception-caught
-                logger.error('Postexperiment error at qubit %d: %s', qubit, ex)
+                LOG.error('Postexperiment error at qubit %d: %s', qubit, ex)
 
     register_post(postexp, exp_type=function.__name__[:-5])
 

@@ -15,7 +15,7 @@ from qiskit_experiments.framework.matplotlib import get_non_gui_ax
 
 from .bloch import rescale_axis, so3_cartesian
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 axes = ['x', 'y', 'z']
 twopi = 2. * np.pi
 data_processor_lock = Lock()
@@ -76,7 +76,7 @@ def fit_unitary_to_expval(
     tol: float = DEFAULT_TOL
 ) -> tuple[np.ndarray, NamedTuple]:
     """Do the fit."""
-    logger.debug('Fit unitary to expval %d datapoints maxiter %s tol %s', len(expvals), maxiter,
+    LOG.debug('Fit unitary to expval %d datapoints maxiter %s tol %s', len(expvals), maxiter,
                  tol)
     if signs is None:
         signs = np.ones_like(initial_states)
@@ -121,7 +121,7 @@ def fit_unitary_to_expval(
         pcov = np.linalg.inv(fitter.hess(popt, *objective_args) * 0.5)
         popt_ufloats = correlated_values(nom_values=popt, covariance_mat=pcov, tags=['x', 'y', 'z'])
     except LinAlgError:
-        logger.warning('Invalid covariance encountered. Setting paramater uncertainties to inf')
+        LOG.warning('Invalid covariance encountered. Setting paramater uncertainties to inf')
         popt_ufloats = tuple(ufloat(p, np.inf) for p in popt)
 
     # state is a namedtuple

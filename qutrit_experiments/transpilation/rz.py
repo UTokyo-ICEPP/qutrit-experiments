@@ -48,7 +48,7 @@ from ..util.transforms import schedule_to_block
 from .util import insert_rz
 
 twopi = 2. * np.pi
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 class InvertRZSign(TransformationPass):
@@ -139,7 +139,7 @@ class CastRZToAngle(TransformationPass):
                 continue
 
             qubits = tuple(dag.find_bit(q).index for q in node.qargs)
-            logger.debug('%s[%d]', node.op.name, qubits[0])
+            LOG.debug('%s[%d]', node.op.name, qubits[0])
 
             if isinstance(node.op, RZGate):
                 cumul_phase[qubits[0]] += node.op.params[0]

@@ -19,7 +19,7 @@ from ..experiments.qutrit_qubit.qutrit_qubit_tomography import QutritQubitTomogr
 from ..configurations.common import configure_readout_mitigation
 from ..gates import QutritQubitCXType
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 def calibrate_qutrit_qubit_cx(

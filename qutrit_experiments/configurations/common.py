@@ -14,7 +14,7 @@ from ..data_processing import ReadoutMitigation
 from ..experiment_config import ExperimentConfig
 from ..runners import ExperimentsRunner
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 def add_readout_mitigation(gen=None, *, logical_qubits=None, probability=True, expval=False):
@@ -62,7 +62,7 @@ def configure_readout_mitigation(
         expval: Whether to append the BasisExpectationValue node to the newly created DataProcessor.
     """
     if config.run_options.get('meas_level', MeasLevel.CLASSIFIED) != MeasLevel.CLASSIFIED:
-        logger.warning('MeasLevel is not CLASSIFIED; no readout mitigation. run_options=%s',
+        LOG.warning('MeasLevel is not CLASSIFIED; no readout mitigation. run_options=%s',
                        config.run_options)
         return
 
@@ -75,7 +75,7 @@ def configure_readout_mitigation(
         if set(qubits) <= set(mitigator_qubits):
             break
     else:
-        logger.warning('Correlated readout mitigator for qubits %s not found.', qubits)
+        LOG.warning('Correlated readout mitigator for qubits %s not found.', qubits)
         return
 
     mit_node = ReadoutMitigation(readout_mitigator=mitigator, physical_qubits=qubits)
@@ -119,7 +119,7 @@ def configure_qpt_readout_mitigation(
             config.analysis_options['readout_mitigator'] = local_mitigator
             return
 
-    logger.warning('Correlated readout mitigator for qubits %s not found.', config.physical_qubits)
+    LOG.warning('Correlated readout mitigator for qubits %s not found.', config.physical_qubits)
 
 
 def qubits_assignment_error(

@@ -12,7 +12,7 @@ from qiskit_experiments.calibration_management import Calibrations
 
 from ..runners import ExperimentsRunner
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 def setup_data_dir(program_config: dict[str, Any]) -> str:

@@ -17,7 +17,7 @@ from ..experiment_config import ExperimentConfig
 from ..runners import ExperimentsRunner
 from .common import add_readout_mitigation
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 def add_iq_discriminator(gen):
@@ -27,7 +27,7 @@ def add_iq_discriminator(gen):
     def converted_gen(runner: ExperimentsRunner, qubit: int) -> ExperimentConfig:
         config = gen(runner, qubit)
         if (discriminator := runner.program_data.get('iq_discriminator', {}).get(qubit)) is None:
-            logger.warning('IQ discriminator is missing; proceeding with meas_level=2')
+            LOG.warning('IQ discriminator is missing; proceeding with meas_level=2')
             return config
 
         config.run_options.update({

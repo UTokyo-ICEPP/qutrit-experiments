@@ -17,7 +17,7 @@ from qiskit_experiments.exceptions import CalibrationError
 from ..calibrations import get_qutrit_freq_shift
 from ..gates import P2Gate, RZ12Gate, SX12Gate, X12Gate
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 twopi = 2. * np.pi
 
 
@@ -343,7 +343,7 @@ def schedule_to_matrix(
             continue
         if isinstance(inst, pulse.ShiftPhase):
             try:
-                logger.debug('Updating phase of %s %f -> %f', inst.channel,
+                LOG.debug('Updating phase of %s %f -> %f', inst.channel,
                              channel_phases[inst.channel],
                              channel_phases[inst.channel] + inst.phase)
                 channel_phases[inst.channel] += inst.phase
@@ -368,7 +368,7 @@ def schedule_to_matrix(
             elif inst.name.startswith('CR90p_d') or inst.name.startswith('CR90m_d'):
                 control_channel_name = inst.name.split('_')[2]
                 control = control_channels[pulse.ControlChannel(int(control_channel_name[1:]))][0]
-                logger.debug('Rotary drive for CR%d->%d on %s', control,
+                LOG.debug('Rotary drive for CR%d->%d on %s', control,
                              drive_channels[inst.channel], control_channel_name)
                 if inst.name.startswith('CR90p_d'):
                     op_unitary = embed_rotary('rzx45p_rotary', inst.channel, control,
@@ -388,20 +388,20 @@ def schedule_to_matrix(
         else:
             raise RuntimeError(f'Instruction {inst} on unknown channel')
 
-        logger.debug('%d, %s\n%s', time, inst, op_unitary)
+        LOG.debug('%d, %s\n%s', time, inst, op_unitary)
         sched_unitary = op_unitary @ sched_unitary
 
     zrots = [None] * len(physical_qubits)
     for channel, phase in channel_phases.items():
         if isinstance(channel, pulse.DriveChannel):
-            logger.debug('Channel %s final phase %f', channel, phase)
+            LOG.debug('Channel %s final phase %f', channel, phase)
             iq = drive_channels[channel]
             zrots[iq] = phase_shift_op(phase, dims[iq])
 
     final_zrot = np.eye(1, dtype=complex)
     for zrot in zrots:
         final_zrot = np.kron(zrot, final_zrot)
-    logger.debug('Final Zrot\n%s', final_zrot)
+    LOG.debug('Final Zrot\n%s', final_zrot)
     sched_unitary = final_zrot @ sched_unitary
 
     sched_unitary.real = np.where(np.abs(sched_unitary.real) < 1.e-8, 0., sched_unitary.real)

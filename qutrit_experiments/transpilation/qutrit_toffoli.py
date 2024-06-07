@@ -20,7 +20,7 @@ from ..gates import (P2Gate, QutritQubitCXType, QutritQubitCXGate, QutritMCGate,
 from .dynamical_decoupling import DDCalculator
 from .qutrit_qubit_cx import reverse2q_decomposition_circuit
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 class ContainsQutritMCGate(AnalysisPass):

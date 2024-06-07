@@ -5,7 +5,7 @@ from typing import Optional
 from ..runners.experiments_runner import ExperimentsRunner
 from .common import run_experiment
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 def calibrate_single_qutrit_gates(

@@ -20,7 +20,7 @@ from ..util.update_schedule_dependency import update_add_schedule
 from .util import get_operational_qubits, get_qutrit_qubit_composite_gate
 from .qubit import add_x, set_x_default
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 def make_qutrit_qubit_cx_calibrations(

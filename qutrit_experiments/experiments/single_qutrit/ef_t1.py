@@ -20,7 +20,7 @@ from ...experiment_mixins import MapToPhysicalQubits
 from ...framework.ternary_mcm_analysis import TernaryMCMResultAnalysis
 from ...gates import X12Gate
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 class EFT1(MapToPhysicalQubits, BaseExperiment):

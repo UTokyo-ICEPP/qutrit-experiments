@@ -15,7 +15,7 @@ from qiskit_experiments.calibration_management import Calibrations, ParameterVal
 from ..pulse_library import DoubleDrag
 from .util import get_operational_qubits
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 def add_x(

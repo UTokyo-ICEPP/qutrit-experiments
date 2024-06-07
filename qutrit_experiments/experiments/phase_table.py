@@ -24,7 +24,7 @@ from ..framework_overrides.composite_analysis import CompositeAnalysis
 from .phase_shift import PhaseShiftMeasurement
 
 twopi = 2. * np.pi
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 class DiagonalCircuitPhaseShift(PhaseShiftMeasurement):

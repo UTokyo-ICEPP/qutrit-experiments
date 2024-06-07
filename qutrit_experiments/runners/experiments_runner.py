@@ -48,7 +48,7 @@ if 'backend_inline' in matplotlib.rcParams['backend']:
     except ImportError:
         pass
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 
 
 class ExperimentsRunner:
@@ -187,7 +187,7 @@ class ExperimentsRunner:
             experiment = self.make_experiment(config)
         exp_type = experiment.experiment_type
 
-        logger.info('run_experiment(%s)', exp_type)
+        LOG.info('run_experiment(%s)', exp_type)
 
         experiment.set_run_options(**config.run_options)
         if experiment.analysis is None:
@@ -241,13 +241,13 @@ class ExperimentsRunner:
                 exec_or_add(self.save_data)
 
         if not analyze:
-            logger.info('No analysis will be performed for %s.', exp_type)
+            LOG.info('No analysis will be performed for %s.', exp_type)
             return exp_data
 
         if block_for_results:
-            logger.info('Running the analysis for %s', exp_type)
+            LOG.info('Running the analysis for %s', exp_type)
         else:
-            logger.info('Reserving the analysis for %s', exp_type)
+            LOG.info('Reserving the analysis for %s', exp_type)
         experiment.analysis.run(exp_data)
 
         if block_for_results:
@@ -262,7 +262,7 @@ class ExperimentsRunner:
 
         if (postexp := postexperiments.get(exp_type)) is not None:
             def postexperiment(exp_data):
-                logger.info('Performing the postexperiment for %s.', exp_type)
+                LOG.info('Performing the postexperiment for %s.', exp_type)
                 postexp(self, exp_data)
 
             exec_or_add(postexperiment)
@@ -318,7 +318,7 @@ class ExperimentsRunner:
             start = time.time()
             transpiled_circuits = experiment._transpiled_circuits()
             end = time.time()
-            logger.debug('Initial transpilation took %.1f seconds.', end - start)
+            LOG.debug('Initial transpilation took %.1f seconds.', end - start)
 
         start = time.time()
         transpiled_circuits = transpile_qutrit_circuits(transpiled_circuits,
@@ -327,7 +327,7 @@ class ExperimentsRunner:
                                                         instruction_durations=instruction_durations,
                                                         options=self.qutrit_transpile_options)
         end = time.time()
-        logger.debug('Qutrit-specific transpilation took %.1f seconds.', end - start)
+        LOG.debug('Qutrit-specific transpilation took %.1f seconds.', end - start)
         return transpiled_circuits
 
     def save_data(
@@ -392,8 +392,8 @@ class ExperimentsRunner:
 
         end = time.time()
 
-        logger.info('Unpacked experiment data for %s.', exp_type)
-        logger.debug('Loading data required %.1f seconds.', end - start)
+        LOG.info('Unpacked experiment data for %s.', exp_type)
+        LOG.debug('Loading data required %.1f seconds.', end - start)
         return exp_data
 
     def load_jobs(self, exp_type: str) -> list[BaseRuntimeJob]:
@@ -403,7 +403,7 @@ class ExperimentsRunner:
             num_jobs = len(source.readline().strip().split())
             job_unique_tag = source.readline().strip()
 
-        logger.info('Retrieving runtime job with unique id %s', job_unique_tag)
+        LOG.info('Retrieving runtime job with unique id %s', job_unique_tag)
         while True:
             try:
                 return self.backend.service.jobs(limit=num_jobs, backend_name=self.backend.name,
@@ -421,7 +421,7 @@ class ExperimentsRunner:
         if experiment is None:
             experiment = experiment_data.experiment
         if exp_type:
-            logger.info('Updating calibrations for %s.', exp_type)
+            LOG.info('Updating calibrations for %s.', exp_type)
 
         def _get_update_list(exp_data, exp):
             update_list = []
@@ -430,19 +430,19 @@ class ExperimentsRunner:
                     etype = exp_type
                 else:
                     etype = exp.experiment_type
-                    logger.info('Updating calibrations for %s.', etype)
+                    LOG.info('Updating calibrations for %s.', etype)
 
                 updated = False
                 try:
                     if criterion and not criterion(exp_data):
-                        logger.warning('%s qubits %s failed calibration criterion', etype,
+                        LOG.warning('%s qubits %s failed calibration criterion', etype,
                                        exp.physical_qubits)
                     else:
                         exp.update_calibrations(exp_data)
                         updated = True
                 except ExperimentEntryNotFound as exc:
                     if self._skip_missing_calibration:
-                        logger.warning('%s (%s) %s', etype, exp.physical_qubits, exc.message)
+                        LOG.warning('%s (%s) %s', etype, exp.physical_qubits, exc.message)
                     else:
                         raise
 
@@ -467,14 +467,14 @@ class ExperimentsRunner:
             return update_list
 
         update_list = _get_update_list(experiment_data, experiment)
-        logger.info('%d/%d parameters to update.',
+        LOG.info('%d/%d parameters to update.',
                     len([x for x in update_list if x[-1]]), len(update_list))
 
         for pname, sname, etype, qubits, updated in update_list:
             if not updated:
                 continue
 
-            logger.debug('Tagging calibration parameter %s:%s:%s from experiment %s',
+            LOG.debug('Tagging calibration parameter %s:%s:%s from experiment %s',
                          pname, sname, qubits, etype)
             self.pass_parameter_value(pname, qubits, from_schedule=sname, from_group='default',
                                       to_group=etype)
@@ -518,7 +518,7 @@ class ExperimentsRunner:
                     self.program_data[key] = json.loads(source.read(), cls=ExperimentDecoder)
             except FileNotFoundError:
                 if allow_missing:
-                    logger.info('Program data %s not found.', key)
+                    LOG.info('Program data %s not found.', key)
                 else:
                     raise
 
@@ -526,12 +526,12 @@ class ExperimentsRunner:
         self,
         experiment: BaseExperiment,
     ) -> ExperimentData:
-        logger.info('Creating transpiled circuits for %s.', experiment.experiment_type)
+        LOG.info('Creating transpiled circuits for %s.', experiment.experiment_type)
         # Generate and transpile circuits
         start = time.time()
         transpiled_circuits = self.get_transpiled_circuits(experiment)
         end = time.time()
-        logger.debug('Created %d circuits for %s in %.1f seconds.',
+        LOG.debug('Created %d circuits for %s in %.1f seconds.',
                      len(transpiled_circuits), experiment.experiment_type, end - start)
 
         # Add a tag to the job to make later identification easier
@@ -558,18 +558,18 @@ class ExperimentsRunner:
                     case MeasReturnType.SINGLE | 'single':
                         sampler_options['execution']['meas_type'] = 'kerneled'
                     case _:
-                        logger.warning('Run option meas_return="avg" is set. Information on number'
+                        LOG.warning('Run option meas_return="avg" is set. Information on number'
                                        ' of shots will be lost from the results.')
                         sampler_options['execution']['meas_type'] = 'avg_kerneled'
 
         # Run jobs (reimplementing BaseExperiment._run_jobs to use Sampler & get a handle on job
         # splitting)
         circuit_lists = self._split_circuits(experiment, transpiled_circuits)
-        logger.debug('Circuits will be split into %d jobs.', len(circuit_lists))
+        LOG.debug('Circuits will be split into %d jobs.', len(circuit_lists))
 
         jobs = []
 
-        logger.info('Submitting experiment circuit jobs for %s.', experiment.experiment_type)
+        LOG.info('Submitting experiment circuit jobs for %s.', experiment.experiment_type)
 
         # Detect a session context. If none and len(jobs) > 1, create a batch
         if (session := get_cm_session()) is None and len(circuit_lists) > 1:
@@ -588,7 +588,7 @@ class ExperimentsRunner:
                         except (IBMRuntimeError, IBMNotAuthorizedError) as ex:
                             if self.job_retry_interval < 0.:
                                 raise
-                            logger.error('IBMRuntimeError during job submission: %s',  ex.message)
+                            LOG.error('IBMRuntimeError during job submission: %s',  ex.message)
 
                         time.sleep(self.job_retry_interval)
 
@@ -603,7 +603,7 @@ class ExperimentsRunner:
             if get_cm_session() is None:
                 session.close()
 
-        logger.info('Job IDs: %s', [job.job_id() for job in jobs])
+        LOG.info('Job IDs: %s', [job.job_id() for job in jobs])
 
         if self._data_dir:
             job_ids_path = os.path.join(self._data_dir, f'{experiment.experiment_type}_jobs.dat')
@@ -614,7 +614,7 @@ class ExperimentsRunner:
         return jobs
 
     def _check_job_status(self, experiment_data: ExperimentData):
-        logger.info('Checking the job status of %s', experiment_data.experiment_type)
+        LOG.info('Checking the job status of %s', experiment_data.experiment_type)
         experiment_data.block_for_results()
         if (job_status := experiment_data.job_status()) == JobStatus.DONE:
             return
@@ -633,7 +633,7 @@ class ExperimentsRunner:
         raise RuntimeError(f'Job status = {job_status.value}')
 
     def _check_status(self, experiment_data: ExperimentData):
-        logger.debug('Checking the status of %s', experiment_data.experiment_type)
+        LOG.debug('Checking the status of %s', experiment_data.experiment_type)
         experiment_data.block_for_results()
         if (status := experiment_data.analysis_status()) != AnalysisStatus.DONE:
             raise RuntimeError(f'Post-job status = {status.value}')
@@ -671,7 +671,7 @@ class ExperimentsRunner:
         if transform is not None:
             value = transform(value)
 
-        logger.info('Adding parameter value %s for %s qubits=%s schedule=%s',
+        LOG.info('Adding parameter value %s for %s qubits=%s schedule=%s',
                     value, to_param, to_qubits, to_schedule)
 
         to_value = ParameterValue(
@@ -745,7 +745,7 @@ class ExperimentsRunner:
                     data['metadata'] = pub_result.metadata['circuit_metadata']
                     experiment_data._result_data.append(data)
 
-            logger.debug("Job data added [Job ID: %s]", jid)
+            LOG.debug("Job data added [Job ID: %s]", jid)
             # sets the endtime to be the time the last successful job was added
             experiment_data.end_datetime = datetime.now()
             return jid, True
@@ -753,35 +753,35 @@ class ExperimentsRunner:
             # Handle cancelled jobs
             status = job.status()
             if status == JobStatus.CANCELLED:
-                logger.warning("Job was cancelled before completion [Job ID: %s]", jid)
+                LOG.warning("Job was cancelled before completion [Job ID: %s]", jid)
                 return jid, False
             if status == JobStatus.ERROR:
-                logger.error(
+                LOG.error(
                     "Job data not added for errored job [Job ID: %s]\nError message: %s",
                     jid,
                     job.error_message(),
                 )
                 return jid, False
-            logger.warning("Adding data from job failed [Job ID: %s]", job.job_id())
+            LOG.warning("Adding data from job failed [Job ID: %s]", job.job_id())
             raise ex
 
 
 def print_summary(experiment_data: ExperimentData):
-    logger.info('Analysis results (%d total):', len(experiment_data.analysis_results()))
+    LOG.info('Analysis results (%d total):', len(experiment_data.analysis_results()))
     for res in experiment_data.analysis_results():
-        logger.info(' - %s', res.name)
+        LOG.info(' - %s', res.name)
 
-    logger.info('Figures (%d total):', len(experiment_data.figure_names))
+    LOG.info('Figures (%d total):', len(experiment_data.figure_names))
     for name in experiment_data.figure_names:
-        logger.info(' - %s', name)
+        LOG.info(' - %s', name)
 
 
 def print_details(experiment_data: 'ExperimentData'):
-    logger.info('Analysis results (%d total):', len(experiment_data.analysis_results()))
+    LOG.info('Analysis results (%d total):', len(experiment_data.analysis_results()))
     for res in experiment_data.analysis_results():
-        logger.info('%s', res)
+        LOG.info('%s', res)
 
-    logger.info('Figures (%d total):', len(experiment_data.figure_names))
+    LOG.info('Figures (%d total):', len(experiment_data.figure_names))
     for name in experiment_data.figure_names:
-        logger.info(' - %s', name)
+        LOG.info(' - %s', name)
         display(experiment_data.figure(name))

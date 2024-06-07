@@ -30,7 +30,7 @@ from ...framework_overrides.composite_analysis import CompositeAnalysis
 from ...gates import CrossResonanceGate, X12Gate
 from ...util.pulse_area import gs_effective_duration, rabi_cycles_per_area
 
-logger = logging.getLogger(__name__)
+LOG = logging.getLogger(__name__)
 twopi = 2. * np.pi
 
 
