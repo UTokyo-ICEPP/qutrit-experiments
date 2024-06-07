@@ -44,6 +44,7 @@ if __name__ == '__main__':
     LOG.setLevel(logging.INFO)
 
     from qiskit.circuit import Parameter
+    from qiskit_ibm_runtime import Batch, Session
     from qiskit_experiments.library.tomography.tomography_experiment import TomographyExperiment
     from qutrit_experiments.calibrations import (
         make_single_qutrit_gate_calibrations,
@@ -130,52 +131,44 @@ if __name__ == '__main__':
         runner.qubits = runner_qubits
         return cfg
 
-    try:
-        config = parallelized('qubits_assignment_error',
-                              genfn=lambda runner: _assign_error(runner, runner.qubits))
-        config.run_options = {'shots': 10000}
-        postexperiments.pop('qubits_assignment_error')
-        rem_data = run_experiment(runner, config, plot_depth=-1,
-                                  force_resubmit=program_config['refresh_readout'],
-                                  block_for_results=not program_config['no_cal'])
+    rem_config = parallelized('qubits_assignment_error',
+                                genfn=lambda runner: _assign_error(runner, runner.qubits))
+    rem_config.run_options = {'shots': 10000}
+    postexperiments.pop('qubits_assignment_error')
 
-        def rem_post():
-            """Postexperiment for readout error mitigation."""
-            rem_data.block_for_results()
-            for pqs, chd in zip(qubits_list, rem_data.child_data()):
-                runner.qubits = pqs
-                _assign_post(runner, chd)
+    if not program_config['no_cal']:
+        # Define a ParallelRunner to calibrate single qutrit gates in parallel
+        qutrit_runner = setup_runner(backend, program_config, calibrations=calibrations,
+                                        qubits=qutrits, runner_cls=ParallelRunner)
+        qutrit_runner.job_retry_interval = 120
+        qutrit_runner.default_print_level = 0
 
-        if not program_config['no_cal']:
-            rem_post()
+        with Session(backend=backend):
+            data = run_experiment(runner, rem_config, plot_depth=-1,
+                                  force_resubmit=program_config['refresh_readout'])
+            for physical_qubits, child_data in zip(qubits_list, data.child_data()):
+                runner.qubits = physical_qubits
+                _assign_post(runner, child_data)
 
-            # Define a ParallelRunner to calibrate single qutrit gates in parallel
-            qutrit_runner = setup_runner(backend, program_config, calibrations=calibrations,
-                                         qubits=qutrits, runner_cls=ParallelRunner)
             qutrit_runner.program_data = runner.program_data
-            qutrit_runner.runtime_session = runner.runtime_session
-            qutrit_runner.job_retry_interval = 120
-            qutrit_runner.default_print_level = 0
 
             # Single qutrit gates
-            calibrate_single_qutrit_gates(qutrit_runner,
-                                          refresh_readout_error=program_config['refresh_readout'],
-                                          calibrated=calibrated)
-            # Session may have been renewed
-            runner.runtime_session = qutrit_runner.runtime_session
+            calibrate_single_qutrit_gates(
+                qutrit_runner,
+                refresh_readout_error=program_config['refresh_readout'],
+                calibrated=calibrated
+            )
 
             # Update the qubits list to exclude combinations with bad qutrits
             good_qutrits = set(qutrit_runner.qubits)
             qubits_list = [all_qubits[i:i + 3] for i in range(0, len(all_qubits), 3)
-                           if all_qubits[i + 1] in good_qutrits]
+                            if all_qubits[i + 1] in good_qutrits]
 
             if (exp_type := 'tc2_cr_rotary_delta') not in calibrated:
-                config = parallelized(exp_type, qidx=(1, 2))
-                run_experiment(runner, config, plot_depth=-1)
+                run_experiment(runner, parallelized(exp_type, qidx=(1, 2)), plot_depth=-1)
 
             if (exp_type := 'c1c2_cr_rotary_delta') not in calibrated:
-                config = parallelized(exp_type)
-                run_experiment(runner, config, plot_depth=-1)
+                run_experiment(runner, parallelized(exp_type), plot_depth=-1)
 
             config = BatchExperimentConfig(exp_type='delta_cz_cal')
             for exp_type in ['cz_c2_phase', 'cz_id_c2_phase']:
@@ -196,8 +189,14 @@ if __name__ == '__main__':
             if config.subexperiments:
                 run_experiment(runner, config, plot_depth=-1)
 
-        configs = []
-        exp_data = {}
+    configs = []
+    exp_data = {}
+
+    with Batch(backend=backend):
+        rem_config.exp_type += '_char'
+        exp_data[rem_config.exp_type] = run_experiment(
+            runner, rem_config, plot_depth=-1, force_resubmit=program_config['refresh_readout']
+        )
 
         if not program_config['no_qpt']:
             def gen(rnr):
@@ -211,7 +210,7 @@ if __name__ == '__main__':
 
             configs.append(config)
             exp_data[config.exp_type] = run_experiment(runner, config, analyze=False,
-                                                       block_for_results=False)
+                                                        block_for_results=False)
 
         if not program_config['no_3q']:
             for seq_name in ['ccz', 'id0', 'id1', 'id2', 'id3']:
@@ -225,7 +224,7 @@ if __name__ == '__main__':
 
                 configs.append(config)
                 exp_data[config.exp_type] = run_experiment(runner, config, analyze=False,
-                                                           block_for_results=False)
+                                                            block_for_results=False)
 
         if not program_config['no_1q']:
             config = BatchExperimentConfig(
@@ -242,29 +241,25 @@ if __name__ == '__main__':
 
             configs.append(config)
             exp_data[config.exp_type] = run_experiment(runner, config, analyze=False,
-                                                       block_for_results=False)
+                                                        block_for_results=False)
 
-    finally:
-        runner.runtime_session.close()
+    exp_data[rem_config.exp_type].block_for_results()
+    for physical_qubits, child_data in zip(qubits_list, exp_data[rem_config.exp_type].child_data()):
+        runner.qubits = physical_qubits
+        _assign_post(runner, child_data)
 
-    if program_config['no_cal']:
-        rem_post()
-
-        def set_rem(cfg):
-            if isinstance(cfg, CompositeExperimentConfig):
-                for subcfg in cfg.subexperiments:
-                    set_rem(subcfg)
-                return
-            runner.qubits = next(qubits for qubits in qubits_list
-                                 if set(cfg.physical_qubits) <= set(qubits))
-            if issubclass(cfg.cls, TomographyExperiment):
-                configure_qpt_readout_mitigation(runner, cfg)
-            else:
-                configure_readout_mitigation(runner, cfg,
-                                             probability=not issubclass(cfg.cls, TruthTable))
-    else:
-        def set_rem(_):
-            pass
+    def set_rem(cfg):
+        if isinstance(cfg, CompositeExperimentConfig):
+            for subcfg in cfg.subexperiments:
+                set_rem(subcfg)
+            return
+        runner.qubits = next(qubits for qubits in qubits_list
+                             if set(cfg.physical_qubits) <= set(qubits))
+        if issubclass(cfg.cls, TomographyExperiment):
+            configure_qpt_readout_mitigation(runner, cfg)
+        else:
+            configure_readout_mitigation(runner, cfg,
+                                         probability=not issubclass(cfg.cls, TruthTable))
 
     for config in configs:
         set_rem(config)

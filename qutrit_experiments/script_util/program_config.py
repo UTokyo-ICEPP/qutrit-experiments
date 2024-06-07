@@ -52,8 +52,6 @@ def get_program_config(
                             ' is considered to be the path to the JSON file (absolute if it starts'
                             ' with /, else relative to BASE_DIR if it contains a /, else under'
                             ' BASE_DIR/PATH).')
-        parser.add_argument('-s', '--session-id', help='Qiskit Runtime Session ID.', metavar='ID',
-                            dest='session_id')
         parser.add_argument('-r', '--refresh-readout', action='store_true', help='Resubmit readout'
                             ' error measurements.', dest='refresh_readout')
         parser.add_argument('--read-only', action='store_true', help='Run the analyses but do not'
