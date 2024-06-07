@@ -229,14 +229,12 @@ class ExperimentsRunner:
                     jid = job.job_id()
                     exp_data.job_ids.append(jid)
                     exp_data._jobs[jid] = job
-                    exp_data._job_futures[jid] = exp_data._job_executor.submit(
-                        ExperimentsRunner._add_job_data, exp_data, job
-                    )
-
-                if block_for_results:
-                    # Analysis callbacks get cleared upon errors so this check-and-raise is
-                    # meaningful only if block_for_results=True
-                    self._check_job_status(exp_data)
+                    if block_for_results:
+                        self._add_job_data(exp_data, job)
+                    else:
+                        exp_data._job_futures[jid] = exp_data._job_executor.submit(
+                            self._add_job_data, exp_data, job
+                        )
 
                 exec_or_add(self.save_data)
 
@@ -436,7 +434,7 @@ class ExperimentsRunner:
                 try:
                     if criterion and not criterion(exp_data):
                         LOG.warning('%s qubits %s failed calibration criterion', etype,
-                                       exp.physical_qubits)
+                                    exp.physical_qubits)
                     else:
                         exp.update_calibrations(exp_data)
                         updated = True
@@ -468,14 +466,14 @@ class ExperimentsRunner:
 
         update_list = _get_update_list(experiment_data, experiment)
         LOG.info('%d/%d parameters to update.',
-                    len([x for x in update_list if x[-1]]), len(update_list))
+                 len([x for x in update_list if x[-1]]), len(update_list))
 
         for pname, sname, etype, qubits, updated in update_list:
             if not updated:
                 continue
 
             LOG.debug('Tagging calibration parameter %s:%s:%s from experiment %s',
-                         pname, sname, qubits, etype)
+                      pname, sname, qubits, etype)
             self.pass_parameter_value(pname, qubits, from_schedule=sname, from_group='default',
                                       to_group=etype)
 
@@ -532,7 +530,7 @@ class ExperimentsRunner:
         transpiled_circuits = self.get_transpiled_circuits(experiment)
         end = time.time()
         LOG.debug('Created %d circuits for %s in %.1f seconds.',
-                     len(transpiled_circuits), experiment.experiment_type, end - start)
+                  len(transpiled_circuits), experiment.experiment_type, end - start)
 
         # Add a tag to the job to make later identification easier
         job_unique_tag = uuid.uuid4().hex
@@ -558,8 +556,8 @@ class ExperimentsRunner:
                     case MeasReturnType.SINGLE | 'single':
                         sampler_options['execution']['meas_type'] = 'kerneled'
                     case _:
-                        LOG.warning('Run option meas_return="avg" is set. Information on number'
-                                       ' of shots will be lost from the results.')
+                        LOG.warning('Run option meas_return="avg" is set. Information on number of'
+                                    ' shots will be lost from the results.')
                         sampler_options['execution']['meas_type'] = 'avg_kerneled'
 
         # Run jobs (reimplementing BaseExperiment._run_jobs to use Sampler & get a handle on job
@@ -613,24 +611,85 @@ class ExperimentsRunner:
 
         return jobs
 
-    def _check_job_status(self, experiment_data: ExperimentData):
-        LOG.info('Checking the job status of %s', experiment_data.experiment_type)
-        experiment_data.block_for_results()
-        if (job_status := experiment_data.job_status()) == JobStatus.DONE:
-            return
+    def _add_job_data(self, experiment_data, job):
+        jid = job.job_id()
+        try:
+            job_result = job.result()
+            experiment_data._running_time = None
 
-        if self._data_dir:
-            job_ids_path = os.path.join(self._data_dir,
-                                        f'{experiment_data.experiment_type}_jobs.dat')
-            failed_jobs_path = os.path.join(self._data_dir,
-                                            f'{experiment_data.experiment_type}_failedjobs.dat')
-            with open(failed_jobs_path, 'a', encoding='utf-8') as out:
-                with open(job_ids_path, 'r', encoding='utf-8') as source:
-                    out.write(source.read())
+            with experiment_data._result_data.lock:
+                # Lock data while adding all result data
+                for pub_result in job_result:
+                    # pub_result.data is a dict-like object with elements corresponding to cregs
+                    creg_data = list(pub_result.data.values())
+                    if isinstance(creg_data[0], BitArray):
+                        # meas_type == 'classified'
+                        if len(creg_data) == 1:
+                            result_data = creg_data[0]
+                        else:
+                            # More than one cregs -> Concatenate packed bits
+                            bitstrings_list = [c.get_bitstrings() for c in creg_data]
+                            result_data = BitArray.from_samples(
+                                [''.join(bitstrings[::-1]) for bitstrings in zip(*bitstrings_list)]
+                            )
 
-            os.unlink(job_ids_path)
+                        data = {'counts': result_data.get_counts()}
+                        data['meas_level'] = 2
+                        data['shots'] = result_data.num_shots
+                    else:
+                        # meas_type == 'avg_kerneled' or 'kerneled'
+                        if len(creg_data) == 1:
+                            result_data = creg_data[0]
+                        else:
+                            # More than one cregs -> Concatenate the memory arrays
+                            result_data = np.concatenate(creg_data, axis=-1)
 
-        raise RuntimeError(f'Job status = {job_status.value}')
+                        memory = np.stack([result_data.real, result_data.imag], axis=-1).tolist()
+                        data = {'memory': memory}
+                        data['meas_level'] = 1
+                        if result_data.ndim == 1:
+                            data['meas_return'] = 'avg'
+                            # This is incorrect but is the only thing we can do absent actually
+                            # querying the job inputs
+                            data['shots'] = 1
+                        else:
+                            data['meas_return'] = 'single'
+                            data['shots'] = result_data.shape[0]
+
+                    data['job_id'] = jid
+                    data['metadata'] = pub_result.metadata['circuit_metadata']
+                    experiment_data._result_data.append(data)
+
+            LOG.debug("Job data added [Job ID: %s]", jid)
+            # sets the endtime to be the time the last successful job was added
+            experiment_data.end_datetime = datetime.now()
+            return jid, True
+        except Exception as ex:  # pylint: disable=broad-except
+            if self._data_dir:
+                job_ids_path = os.path.join(self._data_dir,
+                                            f'{experiment_data.experiment_type}_jobs.dat')
+                failed_jobs_path = os.path.join(self._data_dir,
+                                                f'{experiment_data.experiment_type}_failedjobs.dat')
+                with open(failed_jobs_path, 'a', encoding='utf-8') as out:
+                    with open(job_ids_path, 'r', encoding='utf-8') as source:
+                        out.write(source.read())
+
+                os.unlink(job_ids_path)
+
+            # Handle cancelled jobs
+            status = job.status()
+            if status == JobStatus.CANCELLED:
+                LOG.warning("Job was cancelled before completion [Job ID: %s]", jid)
+                return jid, False
+            if status == JobStatus.ERROR:
+                LOG.error(
+                    "Job data not added for errored job [Job ID: %s]\nError message: %s",
+                    jid,
+                    job.error_message(),
+                )
+                return jid, False
+            LOG.warning("Adding data from job failed [Job ID: %s]", job.job_id())
+            raise ex
 
     def _check_status(self, experiment_data: ExperimentData):
         LOG.debug('Checking the status of %s', experiment_data.experiment_type)
@@ -672,7 +731,7 @@ class ExperimentsRunner:
             value = transform(value)
 
         LOG.info('Adding parameter value %s for %s qubits=%s schedule=%s',
-                    value, to_param, to_qubits, to_schedule)
+                 value, to_param, to_qubits, to_schedule)
 
         to_value = ParameterValue(
             value=value,
@@ -706,64 +765,6 @@ class ExperimentsRunner:
             job_circuits = [circuits]
 
         return job_circuits
-
-    @staticmethod
-    def _add_job_data(experiment_data, job):
-        jid = job.job_id()
-        try:
-            job_result = job.result()
-            experiment_data._running_time = None
-
-            with experiment_data._result_data.lock:
-                # Lock data while adding all result data
-                for pub_result in job_result:
-                    creg_names = list(pub_result.keys())
-                    if len(creg_names) != 1:
-                        raise NotImplementedError("I don't want to deal with more than one cregs")
-
-                    result_data = pub_result.data[creg_names[0]]
-                    if isinstance(result_data, BitArray):
-                        # meas_type == 'classified'
-                        data = result_data.get_counts()
-                        data['meas_level'] = 2
-                        data['shots'] = result_data.num_shots
-                    else:
-                        # meas_type == 'avg_kerneled' or 'kerneled'
-                        memory = np.stack([result_data.real, result_data.imag], axis=-1).tolist()
-                        data = {'memory': memory}
-                        data['meas_level'] = 1
-                        if result_data.ndim == 1:
-                            data['meas_return'] = 'avg'
-                            # This is incorrect but is the only thing we can do absent actually
-                            # querying the job inputs
-                            data['shots'] = 1
-                        else:
-                            data['meas_return'] = 'single'
-                            data['shots'] = result_data.shape[0]
-
-                    data['job_id'] = jid
-                    data['metadata'] = pub_result.metadata['circuit_metadata']
-                    experiment_data._result_data.append(data)
-
-            LOG.debug("Job data added [Job ID: %s]", jid)
-            # sets the endtime to be the time the last successful job was added
-            experiment_data.end_datetime = datetime.now()
-            return jid, True
-        except Exception as ex:  # pylint: disable=broad-except
-            # Handle cancelled jobs
-            status = job.status()
-            if status == JobStatus.CANCELLED:
-                LOG.warning("Job was cancelled before completion [Job ID: %s]", jid)
-                return jid, False
-            if status == JobStatus.ERROR:
-                LOG.error(
-                    "Job data not added for errored job [Job ID: %s]\nError message: %s",
-                    jid,
-                    job.error_message(),
-                )
-                return jid, False
-            LOG.warning("Adding data from job failed [Job ID: %s]", job.job_id())
-            raise ex
 
 
 def print_summary(experiment_data: ExperimentData):
