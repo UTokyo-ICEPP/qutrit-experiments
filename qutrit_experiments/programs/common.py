@@ -31,11 +31,12 @@ def run_experiment(
         if update_qubits:
             if (data_qubits := set(exp_data.metadata['physical_qubits'])) - runner_qubits:
                 LOG.warning('Saved experiment data for %s has out-of-configuration qubits.',
-                               config if isinstance(config, str) else config.exp_type)
+                            config if isinstance(config, str) else config.exp_type)
             runner.qubits = data_qubits
 
     exp = runner.make_experiment(config)
-    set_analysis_option(exp.analysis, 'plot', False, depth=plot_depth + 1)
+    set_analysis_option(exp.analysis, 'plot', True, max_depth=plot_depth)
+    set_analysis_option(exp.analysis, 'plot', False, min_depth=plot_depth + 1)
     if not parallelize:
         set_analysis_option(exp.analysis, 'parallelize', 0)
 
@@ -56,7 +57,8 @@ def set_analysis_option(
     analysis: BaseAnalysis,
     option: str,
     value: Any,
-    depth: int = 0,
+    min_depth: int = 0,
+    max_depth: int = -1,
     _current_depth: int = 0
 ) -> None:
     """Recursively set an option of an Analysis.
@@ -68,14 +70,17 @@ def set_analysis_option(
         analysis: Analysis to set the option on.
         option: Option name.
         value: Option value.
-        depth: Nesting depth of CompositeAnalyses to reach.
+        min_depth: Starting depth of nesting to set the option.
+        max_depth: Last depth (inclusive) of nesting to set the option.
     """
-    if _current_depth > depth:
+    if max_depth >= 0 and _current_depth > max_depth:
         return
 
-    if hasattr(analysis.options, option):
-        analysis.set_options(**{option: value})
+    if _current_depth >= min_depth:
+        if hasattr(analysis.options, option):
+            analysis.set_options(**{option: value})
 
     if isinstance(analysis, CompositeAnalysis):
+        _current_depth += 1
         for subanalysis in analysis.component_analysis():
-            set_analysis_option(subanalysis, option, value, depth, _current_depth + 1)
+            set_analysis_option(subanalysis, option, value, min_depth, max_depth, _current_depth)
