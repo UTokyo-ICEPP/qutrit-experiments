@@ -4,7 +4,9 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from datetime import datetime
 import logging
 from multiprocessing import cpu_count
-from typing import Optional, Union
+import pickle
+from threading import Lock
+from typing import Any, Optional, Union
 import warnings
 from dateutil import tz
 from matplotlib.figure import Figure
@@ -17,6 +19,7 @@ from qiskit_experiments.framework.containers import ArtifactData, FigureData
 from ..framework.threaded_analysis import ThreadedAnalysis
 
 LOG = logging.getLogger(__name__)
+MPL_FIGURE_LOCK = Lock()
 
 
 class CompositeAnalysis(CompositeAnalysisOrig):
@@ -81,13 +84,20 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         expdata.add_figures(figure_to_add, figure_names=analysis.options.figure_names)
 
     @staticmethod
+    def pickle_figures(analysis: BaseAnalysis, fn_name: str, args: tuple[Any, ...]):
+        """Run the analysis and pickle the figures before returning."""
+        results, figures = getattr(analysis, fn_name)(*args)
+        pickled_figures = [pickle.dumps(figure) for figure in figures]
+        return results, pickled_figures
+
+    @staticmethod
     def run_in_subprocess(analysis: BaseAnalysis, experiment_data: ExperimentData):
         if isinstance(analysis, ThreadedAnalysis):
             thread_output = analysis._run_analysis_threaded(experiment_data)
-            target = analysis._run_analysis_processable
-            args = (experiment_data, thread_output)
+            fn_name = '_run_analysis_processable'
+            args = (analysis, experiment_data, thread_output)
         else:
-            target = analysis._run_analysis
+            fn_name = '_run_analysis'
             args = (experiment_data,)
 
         # - Backend cannot be pickled, so we unset the attribute temporarily.
@@ -106,11 +116,21 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         exp_data_LOG.setLevel(logging.ERROR)
         try:
             with ProcessPoolExecutor(max_workers=1) as executor:
-                return executor.submit(target, *args).result()
+                results, pickled_figures = executor.submit(
+                    CompositeAnalysis.pickle_figures,
+                    analysis,
+                    fn_name,
+                    args
+                ).result()
         finally:
             analysis.run = runfunc
             experiment_data.backend = backend
             exp_data_LOG.setLevel(current_level)
+
+        with MPL_FIGURE_LOCK:
+            figures = [pickle.loads(figdata) for figdata in pickled_figures]
+
+        return results, figures
 
     @classmethod
     def _default_options(cls) -> Options:
