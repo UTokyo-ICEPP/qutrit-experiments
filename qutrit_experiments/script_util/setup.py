@@ -6,7 +6,7 @@ import shutil
 from typing import Any, Optional
 
 from qiskit.providers import Backend
-from qiskit_ibm_runtime import QiskitRuntimeService, Session
+from qiskit_ibm_runtime import QiskitRuntimeService
 from qiskit_ibm_runtime.exceptions import IBMNotAuthorizedError
 from qiskit_experiments.calibration_management import Calibrations
 
@@ -56,19 +56,10 @@ def setup_runner(
             pass
         shutil.copytree(source, data_dir)
 
-    # Submit or retrieve circuit jobs in a single process
-    if program_config['session_id']:
-        # Session.from_id is not for ibm_quantum channel
-        runtime_session = Session(service=backend._service, backend=backend)
-        runtime_session._session_id = program_config['session_id']
-    else:
-        runtime_session = None
-
     runner_cls = runner_cls or ExperimentsRunner
 
     qubits = qubits or program_config.get('qubits')
-    runner = runner_cls(backend, qubits=qubits, calibrations=calibrations,
-                        data_dir=data_dir, runtime_session=runtime_session)
+    runner = runner_cls(backend, qubits=qubits, calibrations=calibrations, data_dir=data_dir)
 
     return runner
 

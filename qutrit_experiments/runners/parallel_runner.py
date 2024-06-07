@@ -10,7 +10,6 @@ from qiskit.providers import Backend
 from qiskit_experiments.calibration_management import Calibrations
 from qiskit_experiments.framework import BackendData, BaseExperiment, ExperimentData
 from qiskit_experiments.framework.matplotlib import default_figure_canvas
-from qiskit_ibm_runtime import Session
 
 from .experiments_runner import ExperimentsRunner, display, print_details, print_summary
 from ..constants import RESTLESS_RUN_OPTIONS
@@ -30,12 +29,11 @@ class ParallelRunner(ExperimentsRunner):
         qubits: Optional[Sequence[int]] = None,
         calibrations: Optional[Calibrations] = None,
         data_dir: Optional[str] = None,
-        read_only: bool = False,
-        runtime_session: Optional[Session] = None
+        read_only: bool = False
     ):
         self.qubit_grouping = []
         super().__init__(backend, qubits=qubits, calibrations=calibrations, data_dir=data_dir,
-                         read_only=read_only, runtime_session=runtime_session)
+                         read_only=read_only)
 
         self.num_analysis_procs = -1
         self.plot_all_qubits = False
@@ -190,7 +188,7 @@ class ParallelRunner(ExperimentsRunner):
                 qubit_grouping = [sorted(par_data.metadata['physical_qubits'])
                                   for par_data in exp_data.child_data()]
                 LOG.debug('Loaded experiment data for %s with qubit grouping %s',
-                             config.exp_type, qubit_grouping)
+                          config.exp_type, qubit_grouping)
             batch_config = self.make_batch_config(config, qubit_grouping=qubit_grouping)
         else:
             batch_config = config
@@ -280,7 +278,7 @@ class ParallelRunner(ExperimentsRunner):
                 #     label = origax.yaxis.get_label()
                 #     subax.yaxis.set_label_text(label.get_text(), fontsize=label.get_fontsize())
 
-                if qubit == self._backend.num_qubits - 1:
+                if qubit == self.backend.num_qubits - 1:
                     label = origax.xaxis.get_label()
                     subax.xaxis.set_label_text(label.get_text(), fontsize=label.get_fontsize())
 
