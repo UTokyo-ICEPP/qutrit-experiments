@@ -115,7 +115,7 @@ if __name__ == '__main__':
 
     def parallelized(typ, genfn=None, qidx=None):
         """Return a ParallelExperimentConfig."""
-        cfg = ParallelExperimentConfig(exp_type=typ)
+        cfg = ParallelExperimentConfig(exp_type=typ, flatten_results=False)
         runner_qubits = runner.qubits
         for pqs in qubits_list:
             if qidx:
