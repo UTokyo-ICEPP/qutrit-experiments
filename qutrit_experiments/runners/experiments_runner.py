@@ -7,21 +7,25 @@ import lzma
 import time
 import uuid
 from collections.abc import Callable, Sequence
-from datetime import datetime, timezone
+from datetime import datetime
 from numbers import Number
 from typing import Optional, Union
 import matplotlib
-
+import numpy as np
 from qiskit import QuantumCircuit
+from qiskit.primitives.containers import BitArray
 from qiskit.providers import Backend, JobStatus
+from qiskit.qobj.utils import MeasLevel, MeasReturnType
 from qiskit_experiments.calibration_management import (BaseCalibrationExperiment, Calibrations,
                                                        ParameterValue)
 from qiskit_experiments.database_service import ExperimentEntryNotFound
 from qiskit_experiments.framework import (AnalysisResultTable, AnalysisStatus, BaseExperiment,
                                           CompositeAnalysis as CompositeAnalysisOrig,
                                           ExperimentData, ExperimentDecoder, ExperimentEncoder)
-from qiskit_ibm_runtime import RuntimeJob, Session
+from qiskit_ibm_runtime import Batch, SamplerV2 as Sampler
+from qiskit_ibm_runtime.base_runtime_job import BaseRuntimeJob
 from qiskit_ibm_runtime.exceptions import IBMNotAuthorizedError, IBMRuntimeError
+from qiskit_ibm_runtime.utils.default_session import get_cm_session
 
 from ..constants import DEFAULT_REP_DELAY, DEFAULT_SHOTS, RESTLESS_REP_DELAY
 from ..experiment_config import (CompositeExperimentConfig, ExperimentConfigBase,
@@ -62,10 +66,9 @@ class ExperimentsRunner:
         qubits: Optional[Sequence[int]] = None,
         calibrations: Optional[Union[Calibrations, str]] = None,
         data_dir: Optional[str] = None,
-        read_only: bool = False,
-        runtime_session: Optional[Session] = None
+        read_only: bool = False
     ):
-        self._backend = backend
+        self.backend = backend
         self.qubits = qubits
         self.data_dir = data_dir
 
@@ -77,30 +80,13 @@ class ExperimentsRunner:
         self.read_only = read_only
         self.default_print_level = 2
 
-        if runtime_session is not None:
-            self._runtime_session = runtime_session
-        elif not getattr(self._backend, 'simulator', True):
-            self._runtime_session = Session(service=self._backend.service, backend=self._backend)
-        else:
-            self._runtime_session = None
-
         self._skip_missing_calibration = False
 
-        self.data_taking_only = False
         self.job_retry_interval = -1.
 
         self.qutrit_transpile_options = QutritTranspileOptions()
 
         self.program_data = {}
-
-    @property
-    def backend(self):
-        return self._backend
-
-    @backend.setter
-    def backend(self, backend: Backend):
-        self._backend = backend
-        self.runtime_session = Session(service=self._backend.service, backend=self._backend)
 
     @property
     def qubits(self):
@@ -121,17 +107,6 @@ class ExperimentsRunner:
         if not os.path.isdir(pdata_path := os.path.join(path, 'program_data')):
             os.mkdir(pdata_path)
         self._data_dir = path
-
-    @property
-    def runtime_session(self):
-        if (session := self._runtime_session) is not None and session.status() == 'Closed':
-            session.close()
-            self._runtime_session = Session(service=self._backend.service, backend=self._backend)
-        return self._runtime_session
-
-    @runtime_session.setter
-    def runtime_session(self, session: Session):
-        self._runtime_session = session
 
     def load_calibrations(
         self,
@@ -159,7 +134,7 @@ class ExperimentsRunner:
         if isinstance(config, str):
             config = experiments[config](self)
 
-        args = {'backend': self._backend}
+        args = {'backend': self.backend}
         if isinstance(config, CompositeExperimentConfig):
             args['experiments'] = [self._make_experiment(sub) for sub in config.subexperiments]
             args['flatten_results'] = config.flatten_results
@@ -250,11 +225,19 @@ class ExperimentsRunner:
                 else:
                     jobs = self._submit_jobs(experiment)
 
-                exp_data.add_jobs(jobs)
+                for job in jobs:
+                    jid = job.job_id()
+                    exp_data.job_ids.append(jid)
+                    exp_data._jobs[jid] = job
+                    exp_data._job_futures[jid] = exp_data._job_executor.submit(
+                        ExperimentsRunner._add_job_data, exp_data, job
+                    )
 
-                # Analysis callbacks get cleared upon errors so adding check_job_status as a
-                # callback is actually meaningless
-                exec_or_add(self._check_job_status)
+                if block_for_results:
+                    # Analysis callbacks get cleared upon errors so this check-and-raise is
+                    # meaningful only if block_for_results=True
+                    self._check_job_status(exp_data)
+
                 exec_or_add(self.save_data)
 
         if not analyze:
@@ -311,7 +294,7 @@ class ExperimentsRunner:
             # Nothing to do
             return transpiled_circuits or experiment._transpiled_circuits()
 
-        instruction_durations = make_instruction_durations(self._backend, self.calibrations,
+        instruction_durations = make_instruction_durations(self.backend, self.calibrations,
                                                            qubits=experiment.physical_qubits)
 
         if not transpiled_circuits:
@@ -322,7 +305,7 @@ class ExperimentsRunner:
                     # manager. When the target is None, HighLevelSynthesis (responsible for
                     # translating all gates to basis gates) will reference the passed basis_gates
                     # list and leaves all gates appearing in the list untouched.
-                    basis_gates=self._backend.basis_gates + [g.gate_name for g in BASIS_GATES],
+                    basis_gates=self.backend.basis_gates + [g.gate_name for g in BASIS_GATES],
                     # Scheduling method has to be specified in case there are delay instructions
                     # that violate the alignment constraints, in which case a
                     # ConstrainedRescheduling is triggered, which fails without precalculated
@@ -339,7 +322,7 @@ class ExperimentsRunner:
 
         start = time.time()
         transpiled_circuits = transpile_qutrit_circuits(transpiled_circuits,
-                                                        self._backend, self.calibrations,
+                                                        self.backend, self.calibrations,
                                                         qubit_transpiled=True,
                                                         instruction_durations=instruction_durations,
                                                         options=self.qutrit_transpile_options)
@@ -413,20 +396,18 @@ class ExperimentsRunner:
         logger.debug('Loading data required %.1f seconds.', end - start)
         return exp_data
 
-    def load_jobs(self, exp_type: str) -> list[RuntimeJob]:
+    def load_jobs(self, exp_type: str) -> list[BaseRuntimeJob]:
         if not self._data_dir:
             raise RuntimeError('ExperimentsRunner does not have a data_dir set')
         with open(os.path.join(self._data_dir, f'{exp_type}_jobs.dat'), encoding='utf-8') as source:
             num_jobs = len(source.readline().strip().split())
             job_unique_tag = source.readline().strip()
 
-        # provider.jobs() is a lot faster than calling retrieve_job multiple times
         logger.info('Retrieving runtime job with unique id %s', job_unique_tag)
         while True:
             try:
-                return self._runtime_session.service.jobs(limit=num_jobs,
-                                                          backend_name=self._backend.name,
-                                                          job_tags=[job_unique_tag])
+                return self.backend.service.jobs(limit=num_jobs, backend_name=self.backend.name,
+                                                 job_tags=[job_unique_tag])
             except IBMNotAuthorizedError:
                 continue
 
@@ -553,35 +534,56 @@ class ExperimentsRunner:
         logger.debug('Created %d circuits for %s in %.1f seconds.',
                      len(transpiled_circuits), experiment.experiment_type, end - start)
 
-        # Run options
-        run_opts = {**experiment.run_options.__dict__}
-        if 'shots' not in run_opts:
-            run_opts['shots'] = DEFAULT_SHOTS
-        if 'rep_delay' not in run_opts:
-            run_opts['rep_delay'] = DEFAULT_REP_DELAY
-
-        job_unique_tag = uuid.uuid4().hex
         # Add a tag to the job to make later identification easier
-        job_tags = [experiment.experiment_type, job_unique_tag]
+        job_unique_tag = uuid.uuid4().hex
 
-        # Run jobs (reimplementing BaseExperiment._run_jobs because we need to a handle
-        # on job splitting)
+        # Sampler options
+        sampler_options = {
+            'default_shots': DEFAULT_SHOTS,
+            'execution': {'rep_delay': DEFAULT_REP_DELAY},
+            'environment': {
+                'job_tags': [experiment.experiment_type, job_unique_tag]
+            }
+        }
+        run_opts = experiment.run_options
+        if (init := run_opts.get('init_qubits')) is not None:
+            sampler_options['execution']['init_qubits'] = init
+        if (delay := run_opts.get('rep_delay')) is not None:
+            sampler_options['execution']['rep_delay'] = delay
+        match run_opts.get('meas_level'):
+            case MeasLevel.CLASSIFIED | 2:
+                sampler_options['execution']['meas_type'] = 'classified'
+            case MeasLevel.KERNELED | 1:
+                match run_opts.get('meas_return'):
+                    case MeasReturnType.SINGLE | 'single':
+                        sampler_options['execution']['meas_type'] = 'kerneled'
+                    case _:
+                        logger.warning('Run option meas_return="avg" is set. Information on number'
+                                       ' of shots will be lost from the results.')
+                        sampler_options['execution']['meas_type'] = 'avg_kerneled'
+
+        # Run jobs (reimplementing BaseExperiment._run_jobs to use Sampler & get a handle on job
+        # splitting)
         circuit_lists = self._split_circuits(experiment, transpiled_circuits)
         logger.debug('Circuits will be split into %d jobs.', len(circuit_lists))
 
         jobs = []
 
-        if not getattr(self._backend, 'simulator', True):
-            logger.info('Submitting experiment circuit jobs for %s.', experiment.experiment_type)
+        logger.info('Submitting experiment circuit jobs for %s.', experiment.experiment_type)
+
+        # Detect a session context. If none and len(jobs) > 1, create a batch
+        if (session := get_cm_session()) is None and len(circuit_lists) > 1:
+            session = Batch(backend=self.backend)
+
+        try:
+            # Session takes precedence
+            sampler = Sampler(backend=self.backend, session=session, options=sampler_options)
             # Check all jobs got an id. If not, try resubmitting
             for ilist, circs in enumerate(circuit_lists):
                 for _ in range(5):
-                    options = {'instance': self._backend._instance, 'job_tags': job_tags}
-                    inputs = {'circuits': circs, 'skip_transpilation': True, **run_opts}
                     while True:
                         try:
-                            job = self.runtime_session.run('circuit-runner', inputs,
-                                                           options=options)
+                            job = sampler.run(circs, shots=run_opts.get('shots'))
                             break
                         except (IBMRuntimeError, IBMNotAuthorizedError) as ex:
                             if self.job_retry_interval < 0.:
@@ -597,9 +599,9 @@ class ExperimentsRunner:
                     start = sum(len(lst) for lst in circuit_lists[:ilist])
                     end = start + len(circs) - 1
                     raise RuntimeError(f'Failed to submit circuits {start}-{end}')
-        else:
-            jobs = [self._backend.run(circs, job_tags=job_tags, **run_opts)
-                    for circs in circuit_lists]
+        finally:
+            if get_cm_session() is None:
+                session.close()
 
         logger.info('Job IDs: %s', [job.job_id() for job in jobs])
 
@@ -613,31 +615,22 @@ class ExperimentsRunner:
 
     def _check_job_status(self, experiment_data: ExperimentData):
         logger.info('Checking the job status of %s', experiment_data.experiment_type)
+        experiment_data.block_for_results()
+        if (job_status := experiment_data.job_status()) == JobStatus.DONE:
+            return
 
-        # Check the job status
-        if (job_status := experiment_data.job_status()) != JobStatus.DONE:
-            if self._data_dir:
-                job_ids_path = os.path.join(self._data_dir,
-                                            f'{experiment_data.experiment_type}_jobs.dat')
-                failed_jobs_path = os.path.join(self._data_dir,
-                                                f'{experiment_data.experiment_type}_failedjobs.dat')
-                with open(failed_jobs_path, 'a', encoding='utf-8') as out:
-                    with open(job_ids_path, 'r', encoding='utf-8') as source:
-                        out.write(source.read())
+        if self._data_dir:
+            job_ids_path = os.path.join(self._data_dir,
+                                        f'{experiment_data.experiment_type}_jobs.dat')
+            failed_jobs_path = os.path.join(self._data_dir,
+                                            f'{experiment_data.experiment_type}_failedjobs.dat')
+            with open(failed_jobs_path, 'a', encoding='utf-8') as out:
+                with open(job_ids_path, 'r', encoding='utf-8') as source:
+                    out.write(source.read())
 
-                os.unlink(job_ids_path)
+            os.unlink(job_ids_path)
 
-            raise RuntimeError(f'Job status = {job_status.value}')
-
-        # Fix a bug in ExperimentData (https://github.com/Qiskit/qiskit-experiments/issues/963)
-        now = datetime.now(timezone.utc).astimezone()
-        for job in experiment_data._jobs.values():
-            # job can be None if the added job data has an unknown job id for some reason
-            if job and not hasattr(job, 'time_per_step'):
-                if job.done():
-                    job.time_per_step = lambda: {'COMPLETED': now}
-                else:
-                    job.time_per_step = lambda: {}
+        raise RuntimeError(f'Job status = {job_status.value}')
 
     def _check_status(self, experiment_data: ExperimentData):
         logger.debug('Checking the status of %s', experiment_data.experiment_type)
@@ -713,6 +706,64 @@ class ExperimentsRunner:
             job_circuits = [circuits]
 
         return job_circuits
+
+    @staticmethod
+    def _add_job_data(experiment_data, job):
+        jid = job.job_id()
+        try:
+            job_result = job.result()
+            experiment_data._running_time = None
+
+            with experiment_data._result_data.lock:
+                # Lock data while adding all result data
+                for pub_result in job_result:
+                    creg_names = list(pub_result.keys())
+                    if len(creg_names) != 1:
+                        raise NotImplementedError("I don't want to deal with more than one cregs")
+
+                    result_data = pub_result.data[creg_names[0]]
+                    if isinstance(result_data, BitArray):
+                        # meas_type == 'classified'
+                        data = result_data.get_counts()
+                        data['meas_level'] = 2
+                        data['shots'] = result_data.num_shots
+                    else:
+                        # meas_type == 'avg_kerneled' or 'kerneled'
+                        memory = np.stack([result_data.real, result_data.imag], axis=-1).tolist()
+                        data = {'memory': memory}
+                        data['meas_level'] = 1
+                        if result_data.ndim == 1:
+                            data['meas_return'] = 'avg'
+                            # This is incorrect but is the only thing we can do absent actually
+                            # querying the job inputs
+                            data['shots'] = 1
+                        else:
+                            data['meas_return'] = 'single'
+                            data['shots'] = result_data.shape[0]
+
+                    data['job_id'] = jid
+                    data['metadata'] = pub_result.metadata['circuit_metadata']
+                    experiment_data._result_data.append(data)
+
+            logger.debug("Job data added [Job ID: %s]", jid)
+            # sets the endtime to be the time the last successful job was added
+            experiment_data.end_datetime = datetime.now()
+            return jid, True
+        except Exception as ex:  # pylint: disable=broad-except
+            # Handle cancelled jobs
+            status = job.status()
+            if status == JobStatus.CANCELLED:
+                logger.warning("Job was cancelled before completion [Job ID: %s]", jid)
+                return jid, False
+            if status == JobStatus.ERROR:
+                logger.error(
+                    "Job data not added for errored job [Job ID: %s]\nError message: %s",
+                    jid,
+                    job.error_message(),
+                )
+                return jid, False
+            logger.warning("Adding data from job failed [Job ID: %s]", job.job_id())
+            raise ex
 
 
 def print_summary(experiment_data: ExperimentData):
