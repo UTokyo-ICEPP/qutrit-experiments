@@ -598,7 +598,7 @@ class ExperimentsRunner:
                     end = start + len(circs) - 1
                     raise RuntimeError(f'Failed to submit circuits {start}-{end}')
         finally:
-            if get_cm_session() is None:
+            if get_cm_session() is None and session is not None:
                 session.close()
 
         LOG.info('Job IDs: %s', [job.job_id() for job in jobs])
