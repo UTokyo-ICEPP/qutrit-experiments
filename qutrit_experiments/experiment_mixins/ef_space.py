@@ -27,19 +27,23 @@ class EFSpaceExperiment:
             if self._decompose_before_cast:
                 circuit = circuit.decompose()
 
-            for inst in circuit.data:
+            for didx, inst in enumerate(circuit.data):
                 op = inst.operation
                 if isinstance(op, RZGate):
-                    inst.operation = RZ12Gate(op.params[0])
+                    operation = RZ12Gate(op.params[0])
                 elif isinstance(op, SXGate):
-                    inst.operation = SX12Gate()
+                    operation = SX12Gate()
                 elif isinstance(op, XGate):
-                    inst.operation = X12Gate()
+                    operation = X12Gate()
                 elif isinstance(op, (UGate, U3Gate)):
-                    inst.operation = U12Gate(*op.params)
+                    operation = U12Gate(*op.params)
                 # pylint: disable-next=unidiomatic-typecheck
                 elif type(op) is Gate and op.num_qubits == 1:
-                    inst.operation = QutritPulseGate(op.name, (True,), params=list(op.params))
+                    operation = QutritPulseGate(op.name, (True,), params=list(op.params))
+                else:
+                    continue
+
+                circuit.data[didx] = CircuitInstruction(operation, inst.qubits, inst.clbits)
 
             qubits = (circuit.qregs[0][0],)
 
