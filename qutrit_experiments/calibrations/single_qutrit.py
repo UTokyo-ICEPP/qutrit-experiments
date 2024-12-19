@@ -65,12 +65,13 @@ def set_f12_default(
         qubits: Qubits to set the parameters for. If not given, all qubits in the backend are used.
     """
     operational_qubits = get_operational_qubits(backend, qubits=qubits)
+    props = backend.properties()
     for qubit in operational_qubits:
-        qubit_props = backend.qubit_properties(qubit)
-        freq_12_est = qubit_props.frequency
+        qubit_props = props.qubit_property(qubit)
+        freq_12_est = qubit_props['frequency'][0]
         try:
             # IBMQubitProperties
-            freq_12_est += qubit_props.anharmonicity
+            freq_12_est += qubit_props['anharmonicity'][0]
         except AttributeError:
             # SingleTransmonQutritBackend
             freq_12_est += backend.anharmonicity
