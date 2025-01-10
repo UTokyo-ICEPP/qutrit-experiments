@@ -161,12 +161,47 @@ class XminusGate(OneQutritCompositeGate):
         super().__init__([], label=label)
 
 
+class X02Gate(OneQutritCompositeGate):
+    """X02 gate."""
+    gate_name = 'x02'
+
+    def __init__(self, label: Optional[str] = None):
+        super().__init__([], label=label)
+
+
+class P0Gate(OneQutritCompositeGate):
+    """P0 gate."""
+    gate_name = 'p0'
+
+    def __init__(self, phi: ParameterValueType, label: Optional[str] = None):
+        """Create new P0 gate."""
+        super().__init__([phi], label=label)
+
+
+class P1Gate(OneQutritCompositeGate):
+    """P1 gate."""
+    gate_name = 'p1'
+
+    def __init__(self, phi: ParameterValueType, label: Optional[str] = None):
+        """Create new P1 gate."""
+        super().__init__([phi], label=label)
+
+
 class P2Gate(OneQutritCompositeGate):
     """P2 gate."""
     gate_name = 'p2'
 
     def __init__(self, phi: ParameterValueType, label: Optional[str] = None):
         """Create new P2 gate."""
+        super().__init__([phi], label=label)
+
+
+class QGate(OneQutritCompositeGate):
+    """Q gate."""
+    gate_name = 'q'
+
+    def __init__(self, phi: ParameterValueType, label: Optional[str] = None):
+        """Create new Q gate."""
         super().__init__([phi], label=label)
 
 
@@ -331,11 +366,46 @@ qasm_def.append(X12Gate(), [0])
 sel.add_equivalence(XminusGate(), qasm_def)
 
 q = QuantumRegister(1, 'q')
+qasm_def = QuantumCircuit(q)
+qasm_def.x(0)
+qasm_def.append(X12Gate(), [0])
+qasm_def.x(0)
+sel.add_equivalence(X02Gate(), qasm_def)
+
+q = QuantumRegister(1, 'q')
+qasm_def = QuantumCircuit(q)
+qasm_def.append(X12Gate(), [0])
+qasm_def.x(0)
+qasm_def.append(X12Gate(), [0])
+sel.add_equivalence(X02Gate(), qasm_def)
+
+q = QuantumRegister(1, 'q')
+_phi = Parameter('phi')
+qasm_def = QuantumCircuit(q)
+qasm_def.rz(-_phi * 4. / 3., 0)
+qasm_def.append(RZ12Gate(-_phi * 2. / 3.), [0])
+sel.add_equivalence(P0Gate(_phi), qasm_def)
+
+q = QuantumRegister(1, 'q')
+_phi = Parameter('phi')
+qasm_def = QuantumCircuit(q)
+qasm_def.rz(_phi * 2. / 3., 0)
+qasm_def.append(RZ12Gate(-_phi * 2. / 3.), [0])
+sel.add_equivalence(P1Gate(_phi), qasm_def)
+
+q = QuantumRegister(1, 'q')
 _phi = Parameter('phi')
 qasm_def = QuantumCircuit(q)
 qasm_def.rz(_phi * 2. / 3., 0)
 qasm_def.append(RZ12Gate(_phi * 4. / 3.), [0])
 sel.add_equivalence(P2Gate(_phi), qasm_def)
+
+q = QuantumRegister(1, 'q')
+_phi = Parameter('phi')
+qasm_def = QuantumCircuit(q)
+qasm_def.rz(_phi * 2., 0)
+qasm_def.append(RZ12Gate(_phi * 2.), [0])
+sel.add_equivalence(QGate(_phi), qasm_def)
 
 # Compact version of reverse CX
 q = QuantumRegister(2, 'q')
