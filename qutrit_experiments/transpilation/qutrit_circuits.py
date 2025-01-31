@@ -184,7 +184,7 @@ class AddQutritCalibrations(TransformationPass):
                 LOG.debug('%s[%d] Phase[ge] += %f', node.op.name, qubit, offset)
 
         LOG.debug('%s[%s] inserting Rz pre=%s post=%s', node.op.name, qubits, pre_angles,
-                     post_angles)
+                  post_angles)
         # Phase shifts are realized with Rz gates
         insert_rz(dag, node, pre_angles=pre_angles, post_angles=post_angles,
                   node_start_time=node_start_time, op_duration=cal.duration)
@@ -334,7 +334,7 @@ class AddQutritCalibrations(TransformationPass):
                         freq_diffs[qubit] = get_qutrit_freq_shift(qubit, self.target,
                                                                   self.calibrations)
                         LOG.debug('%s[%s] EF modulation frequency %f for qutrit %d',
-                                     node.op.name, qubits, freq_diffs[qubit], qubit)
+                                  node.op.name, qubits, freq_diffs[qubit], qubit)
 
                 if node.op.gate_type == GateType.PULSE:
                     self._process_qutrit_pulse_gate(dag, node, qubits, freq_diffs, cumul_angle_ge,
