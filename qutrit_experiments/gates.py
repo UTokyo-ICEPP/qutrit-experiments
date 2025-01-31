@@ -88,6 +88,11 @@ class QutritQubitCompositeGate(StaticProperties, QutritCompositeGate):
     as_qutrit = (True, False)
 
 
+class QubitQutritCompositeGate(StaticProperties, QutritCompositeGate):
+    """Qubit-qutrit composite gate base class."""
+    as_qutrit = (False, True)
+
+
 class X12Gate(OneQutritPulseGate):
     """The single-qubit X gate on EF subspace."""
     gate_name = 'x12'
@@ -95,6 +100,18 @@ class X12Gate(OneQutritPulseGate):
     def __init__(self, label: Optional[str] = None):
         """Create new X12 gate."""
         super().__init__([], label=label)
+
+    def _define(self):
+        qr = QuantumRegister(1, 'q')
+        qc = QuantumCircuit(qr, name=self.name)
+        qc.append(U12Gate(np.pi, 0., np.pi), [qr[0]])
+        self.definition = qc
+
+    def inverse(self, annotated: bool = False):
+        return X12Gate()
+
+    def __eq__(self, other):
+        return isinstance(other, X12Gate)
 
 
 class SX12Gate(OneQutritPulseGate):
@@ -105,6 +122,41 @@ class SX12Gate(OneQutritPulseGate):
         """Create new SX12 gate."""
         super().__init__([], label=label)
 
+    def _define(self):
+        qr = QuantumRegister(1, 'q')
+        qc = QuantumCircuit(qr, name=self.name)
+        qc.append(U12Gate(np.pi / 2., -np.pi / 2., np.pi / 2.), [qr[0]])
+        qc.append(P0Gate(-np.pi / 4.), [qr[0]])
+        self.definition = qc
+
+    def inverse(self, annotated: bool = False):
+        return SX12dgGate()
+
+    def __eq__(self, other):
+        return isinstance(other, SX12Gate)
+
+
+class SX12dgGate(OneQutritPulseGate):
+    """The single-qubit Sqrt(X) gate on EF subspace."""
+    gate_name = 'sx12dg'
+
+    def __init__(self, label: Optional[str] = None):
+        """Create new SX12 gate."""
+        super().__init__([], label=label)
+
+    def _define(self):
+        qr = QuantumRegister(1, 'q')
+        qc = QuantumCircuit(qr, name=self.name)
+        qc.append(U12Gate(np.pi / 2., np.pi / 2., -np.pi / 2.), [qr[0]])
+        qc.append(P0Gate(np.pi / 4.), [qr[0]])
+        self.definition = qc
+
+    def inverse(self, annotated: bool = False):
+        return SX12Gate()
+
+    def __eq__(self, other):
+        return isinstance(other, SX12dgGate)
+
 
 class RZ12Gate(OneQutritVirtualGate):
     """The RZ gate on EF subspace."""
@@ -114,6 +166,23 @@ class RZ12Gate(OneQutritVirtualGate):
         """Create new RZ12 gate."""
         super().__init__([phi], label=label)
 
+    def _define(self):
+        qr = QuantumRegister(1, 'q')
+        qc = QuantumCircuit(qr, name=self.name)
+        qc.append(U12Gate(0., np.pi, 0.), [qr[0]])
+        qc.append(P0Gate(np.pi / 2.), [qr[0]])
+        self.definition = qc
+
+    def inverse(self, annotated: bool = False):
+        r"""Return inverted U gate.
+
+        :math:`U(\theta,\phi,\lambda)^{\dagger} =U(-\theta,-\lambda,-\phi)`)
+        """
+        return RZ12Gate(-self.params[0])
+
+    def __eq__(self, other):
+        return isinstance(other, RZ12Gate) and self._compare_parameters(other)
+
 
 class SetF12Gate(OneQutritVirtualGate):
     """Set the qutrit frequency to a specific value."""
@@ -122,6 +191,9 @@ class SetF12Gate(OneQutritVirtualGate):
     def __init__(self, freq: ParameterValueType, label: Optional[str] = None):
         """Create new SetF12 gate."""
         super().__init__([freq], label=label)
+
+    def __eq__(self, other):
+        return isinstance(other, SetF12Gate) and self._compare_parameters(other)
 
 
 class U12Gate(OneQutritCompositeGate):
@@ -137,12 +209,15 @@ class U12Gate(OneQutritCompositeGate):
     ):
         super().__init__([theta, phi, lam], label=label)
 
-    def inverse(self):
+    def inverse(self, annotated: bool = False):
         r"""Return inverted U gate.
 
         :math:`U(\theta,\phi,\lambda)^{\dagger} =U(-\theta,-\lambda,-\phi)`)
         """
         return U12Gate(-self.params[0], -self.params[2], -self.params[1])
+
+    def __eq__(self, other):
+        return isinstance(other, U12Gate) and self._compare_parameters(other)
 
 
 class XplusGate(OneQutritCompositeGate):
@@ -152,6 +227,18 @@ class XplusGate(OneQutritCompositeGate):
     def __init__(self, label: Optional[str] = None):
         super().__init__([], label=label)
 
+    def _define(self):
+        qc = QuantumCircuit(QuantumRegister(1, 'q'))
+        qc.append(X12Gate(), [0])
+        qc.x(0)
+        self.definition = qc
+
+    def inverse(self, annotated: bool = False):
+        return XminusGate()
+
+    def __eq__(self, other):
+        return isinstance(other, XplusGate)
+
 
 class XminusGate(OneQutritCompositeGate):
     """X- gate."""
@@ -160,6 +247,18 @@ class XminusGate(OneQutritCompositeGate):
     def __init__(self, label: Optional[str] = None):
         super().__init__([], label=label)
 
+    def _define(self):
+        qc = QuantumCircuit(QuantumRegister(1, 'q'))
+        qc.x(0)
+        qc.append(X12Gate(), [0])
+        self.definition = qc
+
+    def inverse(self, annotated: bool = False):
+        return XplusGate()
+
+    def __eq__(self, other):
+        return isinstance(other, XminusGate)
+
 
 class X02Gate(OneQutritCompositeGate):
     """X02 gate."""
@@ -167,6 +266,19 @@ class X02Gate(OneQutritCompositeGate):
 
     def __init__(self, label: Optional[str] = None):
         super().__init__([], label=label)
+
+    def _define(self):
+        qc = QuantumCircuit(QuantumRegister(1, 'q'))
+        qc.x(0)
+        qc.append(X12Gate(), [0])
+        qc.x(0)
+        self.definition = qc
+
+    def inverse(self, annotated: bool = False):
+        return X02Gate()
+
+    def __eq__(self, other):
+        return isinstance(other, X02Gate)
 
 
 class P0Gate(OneQutritCompositeGate):
@@ -177,6 +289,12 @@ class P0Gate(OneQutritCompositeGate):
         """Create new P0 gate."""
         super().__init__([phi], label=label)
 
+    def inverse(self, annotated: bool = False):
+        return P0Gate(-self.params[0])
+
+    def __eq__(self, other):
+        return isinstance(other, P0Gate) and self._compare_parameters(other)
+
 
 class P1Gate(OneQutritCompositeGate):
     """P1 gate."""
@@ -185,6 +303,12 @@ class P1Gate(OneQutritCompositeGate):
     def __init__(self, phi: ParameterValueType, label: Optional[str] = None):
         """Create new P1 gate."""
         super().__init__([phi], label=label)
+
+    def inverse(self, annotated: bool = False):
+        return P1Gate(-self.params[0])
+
+    def __eq__(self, other):
+        return isinstance(other, P1Gate) and self._compare_parameters(other)
 
 
 class P2Gate(OneQutritCompositeGate):
@@ -195,6 +319,12 @@ class P2Gate(OneQutritCompositeGate):
         """Create new P2 gate."""
         super().__init__([phi], label=label)
 
+    def inverse(self, annotated: bool = False):
+        return P2Gate(-self.params[0])
+
+    def __eq__(self, other):
+        return isinstance(other, P2Gate) and self._compare_parameters(other)
+
 
 class QGate(OneQutritCompositeGate):
     """Q gate."""
@@ -203,6 +333,12 @@ class QGate(OneQutritCompositeGate):
     def __init__(self, phi: ParameterValueType, label: Optional[str] = None):
         """Create new Q gate."""
         super().__init__([phi], label=label)
+
+    def inverse(self, annotated: bool = False):
+        return QGate(-self.params[0])
+
+    def __eq__(self, other):
+        return isinstance(other, QGate) and self._compare_parameters(other)
 
 
 class CrossResonanceGate(Gate):
@@ -341,6 +477,40 @@ class QutritCCZGate(QutritMCGate):
         super().__init__(self.gate_name, 2, ZGate, params=params, label=label)
 
 
+class QubitQutritCRxPlusPiGate(QubitQutritCompositeGate):
+    """Controled Rx01 gate."""
+    gate_name = 'qubit_qutrit_crx_pluspi'
+
+    def __init__(
+        self,
+        label: Optional[str] = None
+    ):
+        super().__init__([], label=label)
+
+    def inverse(self, annotated: bool = False):
+        return QubitQutritCRxMinusPiGate()
+
+    def __eq__(self, other):
+        return isinstance(other, QubitQutritCRxPlusPiGate)
+
+
+class QubitQutritCRxMinusPiGate(QubitQutritCompositeGate):
+    """Controled Rx01 gate."""
+    gate_name = 'qubit_qutrit_crx_minuspi'
+
+    def __init__(
+        self,
+        label: Optional[str] = None
+    ):
+        super().__init__([], label=label)
+
+    def inverse(self, annotated: bool = False):
+        return QubitQutritCRxPlusPiGate()
+
+    def __eq__(self, other):
+        return isinstance(other, QubitQutritCRxMinusPiGate)
+
+
 q = QuantumRegister(1, 'q')
 _theta = Parameter('theta')
 _phi = Parameter('phi')
@@ -351,6 +521,7 @@ qasm_def.append(SX12Gate(), [0])
 qasm_def.append(RZ12Gate(_theta + np.pi), [0])
 qasm_def.append(SX12Gate(), [0])
 qasm_def.append(RZ12Gate(_phi + 3 * np.pi), [0])
+qasm_def.append(P0Gate((_lam + _phi - np.pi) / 2.), [0])
 sel.add_equivalence(U12Gate(_theta, _phi, _lam), qasm_def)
 
 q = QuantumRegister(1, 'q')
@@ -490,3 +661,17 @@ for gate, qargs in [
 ]:
     qasm_def.append(gate, qargs)
 sel.add_equivalence(QutritCCZGate(), qasm_def)
+
+q = QuantumRegister(2, 'q')
+qasm_def = QuantumCircuit(q)
+qasm_def.x(q[0])
+qasm_def.ecr(q[0], q[1])
+qasm_def.rx(np.pi / 2., q[1])
+sel.add_equivalence(QubitQutritCRxPlusPiGate(), qasm_def)
+
+q = QuantumRegister(2, 'q')
+qasm_def = QuantumCircuit(q)
+qasm_def.ecr(q[0], q[1])
+qasm_def.x(q[0])
+qasm_def.rx(-np.pi / 2., q[1])
+sel.add_equivalence(QubitQutritCRxMinusPiGate(), qasm_def)
