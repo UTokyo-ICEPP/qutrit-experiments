@@ -100,7 +100,7 @@ def add_x12_sx12(
         U_{\xi}(\theta; \delta) =
         \begin{pmatrix}
         e^{-i\delta/2} & 0                        & 0 \\
-        0              & \cos \frac{\theta}{2}    & -i \sin \frac{\theta} \\
+        0              & \cos \frac{\theta}{2}    & -i \sin \frac{\theta}{2} \\
         0              & -i \sin \frac{\theta}{2} & \cos \frac{\theta}{2}
         \end{pmatrix},
 
