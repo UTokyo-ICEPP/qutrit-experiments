@@ -29,7 +29,8 @@ def calibrate_single_qutrit_gates(
                        plot_depth=plot_depth, save_data=save_data)
 
     if (exp_type := 'qutrit_wide_frequency') not in calibrated:
-        if any(runner.backend.qubit_properties(q).anharmonicity == 0 for q in runner.qubits):
+        props = runner.backend.properties()
+        if any(props.qubit_property(q)['anharmonicity'][0] == 0 for q in runner.qubits):
             run_experiment(runner, exp_type, plot_depth=plot_depth, update_qubits=True,
                            save_data=save_data)
 
