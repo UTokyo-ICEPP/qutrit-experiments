@@ -42,7 +42,7 @@ def display(_):  # pylint: disable=missing-function-docstring
     pass
 
 
-if 'backend_inline' in matplotlib.rcParams['backend']:
+if 'inline' in matplotlib.rcParams['backend']:
     try:
         from IPython.display import display  # noqa: F811
     except ImportError:
@@ -226,6 +226,9 @@ class ExperimentsRunner:
                     jobs = self._submit_jobs(experiment)
 
                 for job in jobs:
+                    # Hack to avoid AttributeNotFound errors with RuntimeJob V2
+                    job.time_per_step = lambda: {}
+
                     jid = job.job_id()
                     exp_data.job_ids.append(jid)
                     exp_data._jobs[jid] = job
