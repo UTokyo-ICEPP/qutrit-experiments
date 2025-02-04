@@ -26,6 +26,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger('qutrit_experiments').setLevel(logging.INFO)
 
+    from qiskit_ibm_runtime import Session
     from qutrit_experiments.calibrations import make_single_qutrit_gate_calibrations
     from qutrit_experiments.constants import RESTLESS_REP_DELAY
     from qutrit_experiments.programs.single_qutrit_gates import (calibrate_single_qutrit_gates,
@@ -69,10 +70,8 @@ if __name__ == '__main__':
     runner.default_print_level = default_print_level
     calibrated = load_calibrations(runner, program_config)
 
-    try:
+    with Session(backend=backend):
         calibrate_single_qutrit_gates(runner,
                                       refresh_readout_error=program_config['refresh_readout'],
                                       calibrated=calibrated)
         characterize_qutrit(runner, refresh_readout_error=program_config['refresh_readout'])
-    finally:
-        runner.runtime_session.close()
