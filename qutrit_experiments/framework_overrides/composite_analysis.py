@@ -109,8 +109,10 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         #   a warning, which we silence.
         runfunc = analysis.run
         backend = experiment_data.backend
+        experiment = experiment_data.experiment
         analysis.run = None
         experiment_data.backend = None
+        experiment_data._experiment = None
         exp_data_LOG = logging.getLogger('qiskit_experiments.framework.experiment_data')
         current_level = exp_data_LOG.level
         exp_data_LOG.setLevel(logging.ERROR)
@@ -125,6 +127,7 @@ class CompositeAnalysis(CompositeAnalysisOrig):
         finally:
             analysis.run = runfunc
             experiment_data.backend = backend
+            experiment_data._experiment = experiment
             exp_data_LOG.setLevel(current_level)
 
         with MPL_FIGURE_LOCK:
