@@ -113,6 +113,15 @@ class X12Gate(OneQutritPulseGate):
     def __eq__(self, other):
         return isinstance(other, X12Gate)
 
+    def __array__(self, dtype=None, copy=None):
+        if copy is False:
+            raise ValueError("unable to avoid copy while creating an array as requested")
+        return np.array([
+            [1., 0., 0.],
+            [0., 0., 1.],
+            [0., 1., 0.]
+        ], dtype=dtype or complex)
+
 
 class SX12Gate(OneQutritPulseGate):
     """The single-qubit Sqrt(X) gate on EF subspace."""
@@ -183,6 +192,12 @@ class RZ12Gate(OneQutritVirtualGate):
     def __eq__(self, other):
         return isinstance(other, RZ12Gate) and self._compare_parameters(other)
 
+    def __array__(self, dtype=None, copy=None):
+        if copy is False:
+            raise ValueError("unable to avoid copy while creating an array as requested")
+        phi = self.params[0]
+        return np.diagflat([1., np.exp(-0.5j * phi), np.exp(0.5j * phi)]).astype(dtype or complex)
+
 
 class SetF12Gate(OneQutritVirtualGate):
     """Set the qutrit frequency to a specific value."""
@@ -239,6 +254,15 @@ class XplusGate(OneQutritCompositeGate):
     def __eq__(self, other):
         return isinstance(other, XplusGate)
 
+    def __array__(self, dtype=None, copy=None):
+        if copy is False:
+            raise ValueError("unable to avoid copy while creating an array as requested")
+        return np.array([
+            [0., 0., 1.],
+            [1., 0., 0.],
+            [0., 1., 0.]
+        ], dtype=dtype or complex)
+
 
 class XminusGate(OneQutritCompositeGate):
     """X- gate."""
@@ -258,6 +282,15 @@ class XminusGate(OneQutritCompositeGate):
 
     def __eq__(self, other):
         return isinstance(other, XminusGate)
+
+    def __array__(self, dtype=None, copy=None):
+        if copy is False:
+            raise ValueError("unable to avoid copy while creating an array as requested")
+        return np.array([
+            [0., 1., 0.],
+            [0., 0., 1.],
+            [1., 0., 0.]
+        ], dtype=dtype or complex)
 
 
 class X02Gate(OneQutritCompositeGate):
@@ -295,6 +328,12 @@ class P0Gate(OneQutritCompositeGate):
     def __eq__(self, other):
         return isinstance(other, P0Gate) and self._compare_parameters(other)
 
+    def __array__(self, dtype=None, copy=None):
+        if copy is False:
+            raise ValueError("unable to avoid copy while creating an array as requested")
+        phi = self.params[0]
+        return np.diagflat([np.exp(1.j * phi), 1., 1.]).astype(dtype or complex)
+
 
 class P1Gate(OneQutritCompositeGate):
     """P1 gate."""
@@ -309,6 +348,12 @@ class P1Gate(OneQutritCompositeGate):
 
     def __eq__(self, other):
         return isinstance(other, P1Gate) and self._compare_parameters(other)
+
+    def __array__(self, dtype=None, copy=None):
+        if copy is False:
+            raise ValueError("unable to avoid copy while creating an array as requested")
+        phi = self.params[0]
+        return np.diagflat([1., np.exp(1.j * phi), 1.]).astype(dtype or complex)
 
 
 class P2Gate(OneQutritCompositeGate):
@@ -325,6 +370,12 @@ class P2Gate(OneQutritCompositeGate):
     def __eq__(self, other):
         return isinstance(other, P2Gate) and self._compare_parameters(other)
 
+    def __array__(self, dtype=None, copy=None):
+        if copy is False:
+            raise ValueError("unable to avoid copy while creating an array as requested")
+        phi = self.params[0]
+        return np.diagflat([1., 1., np.exp(1.j * phi)]).astype(dtype or complex)
+
 
 class QGate(OneQutritCompositeGate):
     """Q gate."""
@@ -339,6 +390,12 @@ class QGate(OneQutritCompositeGate):
 
     def __eq__(self, other):
         return isinstance(other, QGate) and self._compare_parameters(other)
+
+    def __array__(self, dtype=None, copy=None):
+        if copy is False:
+            raise ValueError("unable to avoid copy while creating an array as requested")
+        phi = self.params[0]
+        return np.diagflat(np.exp(1.j * phi * np.arange(3))).astype(dtype or complex)
 
 
 class CrossResonanceGate(Gate):
@@ -493,6 +550,18 @@ class QubitQutritCRxPlusPiGate(QubitQutritCompositeGate):
     def __eq__(self, other):
         return isinstance(other, QubitQutritCRxPlusPiGate)
 
+    def __array__(self, dtype=None, copy=None):
+        if copy is False:
+            raise ValueError("unable to avoid copy while creating an array as requested")
+        return np.array([
+            [1., 0., 0., 0., 0., 0.],
+            [0., 0., 0., -1.j, 0., 0.],
+            [0., 0., 1., 0., 0., 0.],
+            [0., -1.j, 0., 0., 0., 0.],
+            [0., 0., 0., 0., 1., 0.],
+            [0., 0., 0., 0., 0., 1.]
+        ], dtype=dtype or complex)
+
 
 class QubitQutritCRxMinusPiGate(QubitQutritCompositeGate):
     """Controled Rx01 gate."""
@@ -509,6 +578,18 @@ class QubitQutritCRxMinusPiGate(QubitQutritCompositeGate):
 
     def __eq__(self, other):
         return isinstance(other, QubitQutritCRxMinusPiGate)
+
+    def __array__(self, dtype=None, copy=None):
+        if copy is False:
+            raise ValueError("unable to avoid copy while creating an array as requested")
+        return np.array([
+            [1., 0., 0., 0., 0., 0.],
+            [0., 0., 0., 1.j, 0., 0.],
+            [0., 0., 1., 0., 0., 0.],
+            [0., 1.j, 0., 0., 0., 0.],
+            [0., 0., 0., 0., 1., 0.],
+            [0., 0., 0., 0., 0., 1.]
+        ], dtype=dtype or complex)
 
 
 q = QuantumRegister(1, 'q')
